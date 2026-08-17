@@ -135,12 +135,15 @@ class StatisticalValidator:
         hypothesis: BaseHypothesis,
         n_splits: int = 6,
         k_test: int = 2,
+        purge_bars: int = 5,
         embargo_bars: int = 5,
     ) -> Dict[str, Any]:
         """
         True Combinatorial Purged & Embargoed Cross-Validation (CPCV).
-        Partitions time series into N blocks and generates all (N choose k) test paths.
-        Applies Purging (boundary overlap removal) and Embargoing (blackout buffers).
+        1. Partitions series into N non-overlapping temporal blocks.
+        2. Generates all (N choose k) out-of-sample path combinations.
+        3. Applies Purging: Drops train samples within purge_bars of test boundary to prevent label overlap.
+        4. Applies Embargoing: Enforces embargo_bars blackout buffer after test slices before subsequent training.
         """
         n_bars = len(df)
         if n_bars < 100:
@@ -161,22 +164,45 @@ class StatisticalValidator:
         path_drawdowns = []
 
         for combo in test_combinations:
-            # Build Test Slices with Embargo
-            test_dfs = []
-            for blk_idx in combo:
-                b_start, b_end = blocks[blk_idx]
-                test_slice = df.iloc[b_start:b_end].copy()
-                if len(test_slice) > 10:
-                    test_dfs.append(test_slice)
+            test_set_indices = set(combo)
+            train_set_indices = set(range(n_splits)) - test_set_indices
 
-            if not test_dfs:
+            # 1. Construct Purged & Embargoed Training Set
+            train_slices = []
+            for tr_idx in sorted(train_set_indices):
+                tr_start, tr_end = blocks[tr_idx]
+
+                # If immediately preceded by a test block -> apply Embargo (shift start forward)
+                if (tr_idx - 1) in test_set_indices:
+                    tr_start = min(tr_start + embargo_bars, tr_end)
+
+                # If immediately followed by a test block -> apply Purge (shift end backward)
+                if (tr_idx + 1) in test_set_indices:
+                    tr_end = max(tr_start, tr_end - purge_bars)
+
+                if tr_end - tr_start > 10:
+                    train_slices.append(df.iloc[tr_start:tr_end].copy())
+
+            # 2. Construct Test Set (Out-of-Sample evaluation slices)
+            test_slices = []
+            for te_idx in sorted(test_set_indices):
+                te_start, te_end = blocks[te_idx]
+                test_slice = df.iloc[te_start:te_end].copy()
+                if len(test_slice) > 10:
+                    test_slices.append(test_slice)
+
+            if not test_slices:
                 continue
 
-            test_combined = pd.concat(test_dfs)
-            # Generate signals on out-of-sample block
+            test_combined = pd.concat(test_slices)
+
+            # 3. Model Fitting on Purged/Embargoed Train Data (if model has trainable weights)
+            if train_slices and hasattr(hypothesis, "fit_meta_model"):
+                train_combined = pd.concat(train_slices)
+                hypothesis.fit_meta_model(train_combined)
+
+            # 4. Generate Signals and Backtest on untouched Test Slices
             sig_test = hypothesis.generate_signals(test_combined)
-            
-            # Execute full backtester with exact Indian costs
             res = engine.run(sig_test, symbol=getattr(hypothesis, "target_instruments", ["ASSET"])[0], capital_per_trade_pct=0.50)
             
             path_sharpes.append(res.sharpe_ratio)

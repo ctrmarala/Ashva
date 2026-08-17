@@ -144,3 +144,26 @@ def test_slippage_stress_matrix():
     assert list(matrix_df["Scenario"]) == ["Optimistic", "Base", "Conservative", "Stress", "Extreme"]
     assert matrix_df.iloc[0]["Slippage_Bps"] == 1.0
     assert matrix_df.iloc[4]["Slippage_Bps"] == 20.0
+
+
+def test_execution_gap_analyzer():
+    """Verify execution gap analysis between backtest and paper trades."""
+    from src.analytics.execution_gap import ExecutionGapAnalyzer
+    from types import SimpleNamespace
+
+    bt_trades = [
+        SimpleNamespace(entry_price=100.0, exit_price=110.0, net_pnl=1000.0),
+        SimpleNamespace(entry_price=200.0, exit_price=210.0, net_pnl=1000.0),
+    ]
+    act_trades = [
+        {"entry_price": 100.05, "exit_price": 109.95, "net_pnl": 980.0},
+        {"entry_price": 200.10, "exit_price": 209.90, "net_pnl": 970.0},
+    ]
+
+    report = ExecutionGapAnalyzer.evaluate_gap(bt_trades, act_trades, symbol="RELIANCE")
+    assert report.total_trades_compared == 2
+    assert report.mean_entry_slippage_bps == pytest.approx(5.0, abs=1e-3)
+    assert report.total_expected_pnl_inr == 2000.0
+    assert report.total_actual_pnl_inr == 1950.0
+    assert report.pnl_execution_gap_inr == -50.0
+    assert report.execution_quality_rating == "EXCELLENT"
