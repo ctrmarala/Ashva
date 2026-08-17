@@ -100,10 +100,10 @@ class AngelHistoricalFetcher:
     def fetch_and_store(
         self,
         symbol: str,
-        token: str,
         timeframe: str,
-        from_date: str,  # Format: "YYYY-MM-DD HH:MM"
-        to_date: str,    # Format: "YYYY-MM-DD HH:MM"
+        from_date: Any,  # String or datetime
+        to_date: Any,    # String or datetime
+        token: Optional[str] = None,
         exchange: str = "NSE",
     ) -> pd.DataFrame:
         """
@@ -112,16 +112,25 @@ class AngelHistoricalFetcher:
         if self.smart_api is None:
             self.initialize_session()
 
+        if not token:
+            token = self.get_token_for_symbol(symbol, exchange)
+            if not token:
+                raise ValueError(f"Could not find Angel One instrument token for {symbol} on {exchange}")
+
         interval = self.INTERVAL_MAP.get(timeframe.lower())
         if not interval:
             raise ValueError(f"Unsupported timeframe {timeframe}. Supported: {list(self.INTERVAL_MAP.keys())}")
+
+        # Format dates to "YYYY-MM-DD HH:MM"
+        f_str = from_date.strftime("%Y-%m-%d %H:%M") if isinstance(from_date, datetime) else str(from_date)
+        t_str = to_date.strftime("%Y-%m-%d %H:%M") if isinstance(to_date, datetime) else str(to_date)
 
         params = {
             "exchange": exchange.upper(),
             "symboltoken": token,
             "interval": interval,
-            "fromdate": from_date,
-            "todate": to_date,
+            "fromdate": f_str,
+            "todate": t_str,
         }
 
         # Angel One Rate Limit Protection: 3 requests/sec

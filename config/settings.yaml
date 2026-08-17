@@ -17,15 +17,24 @@ market:
 universe:
   benchmark: "^NSEI"          # NIFTY 50 Index
   primary_tickers:
-    - "RELIANCE"
-    - "HDFCBANK"
-    - "ICICIBANK"
     - "INFY"
     - "TCS"
-    - "NIFTYBEES"
+    - "ICICIBANK"
+    - "HDFCBANK"
+    - "SBIN"
+    - "RELIANCE"
+    - "TATAMOTORS"
+    - "BHARTIARTL"
+
+active_strategy:
+  id: "ALPHA_01_TREND_SURFER"
+  name: "TrendSurfer_Pro"
+  timeframe: "15m"
+  risk_per_trade_pct: 0.005  # 0.50% account risk per trade
+  max_capital_per_trade_pct: 0.25  # 25% max capital cap
 
 data:
   storage_backend: "duckdb"
   db_path: "data_lake/ashva_market_data.duckdb"
   parquet_dir: "data_lake/parquet/"
-  default_timeframe: "5m"     # 1m, 5m, 15m, 1h, 1d
+  default_timeframe: "15m"     # 1m, 5m, 15m, 1h, 1d

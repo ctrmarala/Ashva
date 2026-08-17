@@ -8,7 +8,6 @@ import pytest
 from src.research.validator import StatisticalValidator
 from src.research.triple_barrier import TripleBarrierLabeler
 from src.research.hypothesis import HypothesisMetadata
-from src.strategies.alpha_orb import AlphaInstitutionalORB
 
 
 def test_deflated_sharpe_ratio():

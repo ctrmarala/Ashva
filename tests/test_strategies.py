@@ -1,62 +1,43 @@
 """
-Unit Tests for Alpha Strategies Signal Generation
+Unit Tests for TrendSurfer Pro Alpha Strategy Signal Generation
 """
 
 import numpy as np
 import pandas as pd
 import pytest
-from src.strategies.alpha_orb import AlphaInstitutionalORB
-from src.strategies.alpha_regime import AlphaRegimeAdaptiveMR
+from src.strategies.alpha_trend_surfer import AlphaTrendSurfer
 
 
 @pytest.fixture
 def mock_intraday_dataframe():
-    # 2 full trading days of 5-min bars (75 bars/day = 150 bars)
-    day1 = pd.date_range("2026-01-01 09:15", "2026-01-01 15:25", freq="5min")
-    day2 = pd.date_range("2026-01-02 09:15", "2026-01-02 15:25", freq="5min")
-    all_dates = day1.append(day2)
-
-    np.random.seed(42)
-    n = len(all_dates)
-    prices = 2500.0 + np.cumsum(np.random.normal(0.5, 3.0, n))
+    # 2 full trading days of 15-min bars (50 bars)
+    dates = pd.date_range("2026-08-17 09:15", periods=50, freq="15min")
+    prices = [1000.0 + i * 2.5 + (i % 4) * 1.5 for i in range(50)]
 
     df = pd.DataFrame({
-        "open": prices - 1.0,
-        "high": prices + 3.0,
-        "low": prices - 3.0,
+        "open": [p - 1.0 for p in prices],
+        "high": [p + 4.0 for p in prices],
+        "low": [p - 4.0 for p in prices],
         "close": prices,
-        "volume": np.random.randint(5000, 25000, n),
-    }, index=all_dates)
+        "volume": [50000 + i * 1000 for i in range(50)],
+    }, index=dates)
     return df
 
 
-def test_alpha_orb_signals(mock_intraday_dataframe):
-    orb = AlphaInstitutionalORB()
-    signals_df = orb.generate_signals(mock_intraday_dataframe)
+def test_alpha_trend_surfer_signals(mock_intraday_dataframe):
+    strat = AlphaTrendSurfer()
+    signals_df = strat.generate_signals(mock_intraday_dataframe)
 
     assert "signal" in signals_df.columns
+    assert "stop_loss" in signals_df.columns
+    assert "take_profit" in signals_df.columns
+    assert "rationale" in signals_df.columns
     assert len(signals_df) == len(mock_intraday_dataframe)
-    # Signal values must be in [-1.0, 0.0, 1.0]
+
     unique_sigs = set(signals_df["signal"].unique())
     assert unique_sigs.issubset({-1.0, 0.0, 1.0})
 
-
-def test_alpha_regime_signals(mock_intraday_dataframe):
-    regime = AlphaRegimeAdaptiveMR()
-    signals_df = regime.generate_signals(mock_intraday_dataframe)
-
-    assert "signal" in signals_df.columns
-    assert len(signals_df) == len(mock_intraday_dataframe)
-    unique_sigs = set(signals_df["signal"].unique())
-    assert unique_sigs.issubset({-1.0, 0.0, 1.0})
-
-
-def test_alpha_bosch_aivo_signals(mock_intraday_dataframe):
-    from src.strategies.alpha_bosch_aivo import AlphaInstitutionalValueOscillations
-    aivo = AlphaInstitutionalValueOscillations()
-    signals_df = aivo.generate_signals(mock_intraday_dataframe)
-
-    assert "signal" in signals_df.columns
-    assert len(signals_df) == len(mock_intraday_dataframe)
-    unique_sigs = set(signals_df["signal"].unique())
-    assert unique_sigs.issubset({-1.0, 0.0, 1.0})
+    # Parameter search grid must be defined for DSR
+    grid = strat.get_parameter_grid()
+    assert "ema_period" in grid
+    assert "supertrend_multiplier" in grid
