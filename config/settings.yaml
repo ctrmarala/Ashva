@@ -1,0 +1,31 @@
+# Global Fund & Trading Settings
+fund:
+  name: "Ashva Quant Fund"
+  base_currency: "INR"
+  initial_capital: 500000.0  # ₹5,00,000 INR
+  mode: "paper"               # "paper" or "live"
+  timezone: "Asia/Kolkata"
+
+market:
+  exchange: "NSE"
+  trading_hours:
+    market_open: "09:15:00"
+    market_close: "15:30:00"
+    intraday_square_off: "15:15:00"
+    opening_range_end: "09:45:00"
+
+universe:
+  benchmark: "^NSEI"          # NIFTY 50 Index
+  primary_tickers:
+    - "RELIANCE"
+    - "HDFCBANK"
+    - "ICICIBANK"
+    - "INFY"
+    - "TCS"
+    - "NIFTYBEES"
+
+data:
+  storage_backend: "duckdb"
+  db_path: "data_lake/ashva_market_data.duckdb"
+  parquet_dir: "data_lake/parquet/"
+  default_timeframe: "5m"     # 1m, 5m, 15m, 1h, 1d

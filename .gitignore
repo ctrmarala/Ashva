@@ -1,0 +1,28 @@
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local Data Lake & Database
+data_lake/
+*.duckdb
+*.duckdb.wal
+*.parquet
+*.csv
+
+# Sensitive Credentials
+config/angel_one.yaml
+.env
+
+# OS Files
+.DS_Store
+Thumbs.db

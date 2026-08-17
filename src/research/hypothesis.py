@@ -1,0 +1,91 @@
+"""
+Ashva Quantitative Alpha Hypothesis Framework
+Defines structured, scientific hypothesis contracts with explicit economic rationale and validation lifecycle.
+"""
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
+from typing import Dict, List, Any, Optional
+import pandas as pd
+
+
+class HypothesisStatus(str, Enum):
+    FORMULATED = "FORMULATED"
+    TESTING = "TESTING"
+    ACCEPTED = "ACCEPTED"
+    REJECTED = "REJECTED"
+
+
+@dataclass
+class HypothesisMetadata:
+    hypothesis_id: str
+    name: str
+    category: str              # e.g., "MICROSTRUCTURE_FLOW", "REGIME_SWITCHING", "STAT_ARB"
+    economic_rationale: str    # Why does this market inefficiency exist?
+    target_instruments: List[str]
+    timeframe: str
+    author: str = "AshvaQuantLab"
+    created_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class HypothesisValidationReport:
+    hypothesis_id: str
+    status: HypothesisStatus
+    in_sample_sharpe: float
+    out_of_sample_sharpe: float
+    deflated_sharpe_p_value: float    # p <= 0.01 required
+    cpcv_mean_sharpe: float
+    cpcv_degradation_pct: float       # must be < 40%
+    monte_carlo_95_max_dd_pct: float  # must be < 12%
+    net_profit_factor_post_tax: float # must be > 1.3
+    rejection_reasons: List[str] = field(default_factory=list)
+    tested_trials_count: int = 1
+    validated_at: datetime = field(default_factory=datetime.now)
+
+    def is_accepted(self) -> bool:
+        return self.status == HypothesisStatus.ACCEPTED
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "hypothesis_id": self.hypothesis_id,
+            "status": self.status.value,
+            "in_sample_sharpe": round(self.in_sample_sharpe, 3),
+            "out_of_sample_sharpe": round(self.out_of_sample_sharpe, 3),
+            "dsr_p_value": round(self.deflated_sharpe_p_value, 4),
+            "cpcv_mean_sharpe": round(self.cpcv_mean_sharpe, 3),
+            "cpcv_degradation_pct": round(self.cpcv_degradation_pct, 2),
+            "monte_carlo_95_max_dd_pct": round(self.monte_carlo_95_max_dd_pct, 2),
+            "net_profit_factor_post_tax": round(self.net_profit_factor_post_tax, 2),
+            "rejection_reasons": self.rejection_reasons,
+            "trials_tested": self.tested_trials_count,
+        }
+
+
+class BaseHypothesis(ABC):
+    """
+    Abstract contract for all quantitative alpha hypotheses.
+    """
+
+    def __init__(self, metadata: HypothesisMetadata, parameters: Optional[Dict[str, Any]] = None):
+        self.metadata = metadata
+        self.parameters = parameters or {}
+        self.status = HypothesisStatus.FORMULATED
+
+    @abstractmethod
+    def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Generates trading signals and target positions from input DataFrame.
+        DataFrame must contain OHLCV and feature store columns.
+        Returns DataFrame with 'signal' column: +1.0 (LONG), -1.0 (SHORT), 0.0 (FLAT).
+        """
+        pass
+
+    @abstractmethod
+    def get_parameter_grid(self) -> Dict[str, List[Any]]:
+        """
+        Returns the parameter search space for this hypothesis.
+        """
+        pass

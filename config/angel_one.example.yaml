@@ -1,0 +1,15 @@
+# Angel One SmartAPI Credentials & SEBI Compliance Configuration
+# Copy this file to config/angel_one.yaml and fill with your actual credentials.
+smartapi:
+  api_key: "YOUR_SMARTAPI_KEY"
+  client_code: "YOUR_CLIENT_CODE"
+  password: "YOUR_PASSWORD_OR_PIN"
+  totp_secret: "YOUR_TOTP_QR_SECRET"
+
+  # SEBI Static IP Compliance
+  # Angel One SmartAPI requires registering your public outbound IPv4 address
+  # on the SmartAPI developer portal (https://smartapi.angelbroking.com).
+  whitelisted_static_ip: "YOUR_PUBLIC_STATIC_IP"   # e.g., "103.21.244.15"
+
+  # Optional Proxy Configuration (if routing orders through a static IP VPS/Proxy)
+  proxy_url: null  # e.g., "http://username:password@static-ip-proxy.com:8080"

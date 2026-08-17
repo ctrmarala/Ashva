@@ -1,0 +1,10 @@
+# Real-Time Risk Management System (RMS) Limits
+limits:
+  max_daily_portfolio_loss_pct: 1.5   # Hard kill switch: stop trading if loss >= 1.5%
+  max_portfolio_drawdown_pct: 5.0     # Reduce position sizing if overall DD >= 5%
+  max_single_trade_risk_pct: 0.75     # Risk at most 0.75% of capital per trade
+  max_open_positions: 4               # Maximum concurrent active positions
+  max_sector_exposure_pct: 35.0       # Max capital allocated to single sector
+  leverage_limit: 1.0                 # Cash equity = 1.0 (no unmanaged overnight leverage)
+  min_risk_reward_ratio: 1.5          # Minimum 1:1.5 Risk-to-Reward for signal entry
+  slippage_tolerance_bps: 10.0        # Max allowed execution slippage in basis points
