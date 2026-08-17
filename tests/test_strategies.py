@@ -60,3 +60,22 @@ def test_alpha_auction_orb_pro_signals(mock_intraday_dataframe):
     grid = orb.get_parameter_grid()
     assert "volume_mult" in grid
     assert "min_adx" in grid
+
+
+def test_alpha_03_vwap_reversion_signals(mock_intraday_dataframe):
+    from src.strategies.alpha_03_vwap_reversion import Alpha03VWAPReversion
+    strat = Alpha03VWAPReversion()
+    signals_df = strat.generate_signals(mock_intraday_dataframe)
+
+    assert "signal" in signals_df.columns
+    assert "stop_loss" in signals_df.columns
+    assert "take_profit" in signals_df.columns
+    assert "rationale" in signals_df.columns
+    assert len(signals_df) == len(mock_intraday_dataframe)
+
+    unique_sigs = set(signals_df["signal"].unique())
+    assert unique_sigs.issubset({-1.0, 0.0, 1.0})
+
+    grid = strat.get_parameter_grid()
+    assert "vwap_std_multiplier" in grid
+    assert "max_adx_trend_cap" in grid
