@@ -173,31 +173,33 @@ class AshvaControlRoomHandler(SimpleHTTPRequestHandler):
         # Strategy Allocations dynamically from config or active strategies
         import yaml
         active_strats = []
+        fund_mode = "PAPER"
         try:
             with open("config/settings.yaml", "r") as f:
                 cfg = yaml.safe_load(f)
+                fund_mode = cfg.get("fund", {}).get("mode", "paper").upper()
                 active_cfg = cfg.get("active_strategy", {})
                 if active_cfg:
                     active_strats.append({
                         "strategy_id": "ALPHA_02_AUCTION_ORB",
                         "name": "Auction ORB Pro (Alpha 02)",
-                        "weight_pct": 50.0,
-                        "allocated_capital": round(current_equity * 0.50, 2),
-                        "status": "RESEARCH_CANDIDATE",
+                        "weight_pct": 100.0,
+                        "allocated_capital": round(current_equity, 2),
+                        "status": "FORWARD_PAPER_ACTIVE" if fund_mode == "PAPER" else "LIVE_ACTIVE",
                     })
                     active_strats.append({
                         "strategy_id": "ALPHA_01_TREND_SURFER",
                         "name": "TrendSurfer Pro (Alpha 01)",
-                        "weight_pct": 30.0,
-                        "allocated_capital": round(current_equity * 0.30, 2),
-                        "status": "IN_REFINEMENT",
+                        "weight_pct": 0.0,
+                        "allocated_capital": 0.0,
+                        "status": "IN_REFINEMENT (ZERO_ALLOCATION)",
                     })
                     active_strats.append({
                         "strategy_id": "ALPHA_03_VWAP_REVERSION",
                         "name": "VWAP Mean Reversion (Alpha 03)",
-                        "weight_pct": 20.0,
-                        "allocated_capital": round(current_equity * 0.20, 2),
-                        "status": "IN_REFINEMENT",
+                        "weight_pct": 0.0,
+                        "allocated_capital": 0.0,
+                        "status": "IN_REFINEMENT (ZERO_ALLOCATION)",
                     })
         except Exception:
             pass
@@ -209,13 +211,14 @@ class AshvaControlRoomHandler(SimpleHTTPRequestHandler):
                     "name": "Auction ORB Pro (Alpha 02)",
                     "weight_pct": 100.0,
                     "allocated_capital": round(current_equity, 2),
-                    "status": "ACTIVE_CANDIDATE",
+                    "status": "FORWARD_PAPER_ACTIVE",
                 }
             ]
 
         return {
             "system_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S IST"),
             "market_status": "CLOSED (POST-MARKET)",
+            "operating_mode": fund_mode,
             "portfolio": {
                 "starting_capital": round(starting_capital, 2),
                 "total_equity": round(current_equity, 2),
@@ -280,17 +283,20 @@ class AshvaControlRoomHandler(SimpleHTTPRequestHandler):
         # Strategy Allocation Cards
         alloc_cards = ""
         for alloc in telemetry["strategy_allocations"]:
+            status_col = "#10b981" if "ACTIVE" in alloc["status"] else "#94a3b8"
             alloc_cards += f"""
             <div style="background: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 14px;">
                 <div style="font-size: 12px; color: #94a3b8; margin-bottom: 4px;">{alloc['name']}</div>
                 <div style="font-size: 18px; font-weight: bold; color: #f8fafc;">{alloc['weight_pct']}%</div>
                 <div style="font-size: 12px; color: #38bdf8;">₹{alloc['allocated_capital']:,.2f}</div>
-                <div style="margin-top: 6px; font-size: 11px; color: #10b981;">● {alloc['status']}</div>
+                <div style="margin-top: 6px; font-size: 11px; color: {status_col};">● {alloc['status']}</div>
             </div>
             """
 
         # Log lines
         log_lines = "<br>".join(telemetry["activity_logs"])
+        op_mode = telemetry.get("operating_mode", "PAPER")
+        mode_badge = f'<span style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid #f59e0b; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: bold; margin-left: 12px;">🟡 MODE: {op_mode} TRADING</span>' if op_mode == "PAPER" else f'<span style="background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid #10b981; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: bold; margin-left: 12px;">🟢 MODE: LIVE BROKER</span>'
 
         return f"""
         <!DOCTYPE html>
@@ -314,10 +320,10 @@ class AshvaControlRoomHandler(SimpleHTTPRequestHandler):
         </head>
         <body>
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
-                <div>
-                    <h1 style="margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.5px;">⚡ ASHVA QUANTITATIVE CONTROL ROOM</h1>
-                    <div style="color: #64748b; font-size: 13px; margin-top: 4px;">Institutional Algorithmic Trading Desk & Portfolio Risk Engine</div>
-                </div>
+                    <div style="display: flex; align-items: center;">
+                        <h1 style="margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.5px;">⚡ ASHVA QUANTITATIVE CONTROL ROOM</h1>
+                        {mode_badge}
+                    </div>
                 <div style="text-align: right;">
                     <div style="font-size: 13px; color: #38bdf8; font-weight: 600;">{telemetry['system_time']}</div>
                     <div style="font-size: 12px; color: #f59e0b; margin-top: 2px;">Market Status: {telemetry['market_status']}</div>
