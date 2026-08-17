@@ -39,12 +39,14 @@ from src.strategies.alpha_trend_surfer import AlphaTrendSurfer
 from src.strategies.alpha_orb_pro import AlphaAuctionORBPro
 from src.strategies.alpha_03_vwap_reversion import Alpha03VWAPReversion
 from src.strategies.alpha_04_gap_and_go import Alpha04GapAndGo
+from src.strategies.alpha_05_opening_drive_pullback import Alpha05OpeningDrivePullback
 
 STRATEGY_MAP = {
     "alpha_01": ("ALPHA_01_TRENDSURFER", AlphaTrendSurfer),
     "alpha_02": ("ALPHA_02_AUCTION_ORB", AlphaAuctionORBPro),
     "alpha_03": ("ALPHA_03_VWAP_REVERSION", Alpha03VWAPReversion),
     "alpha_04": ("ALPHA_04_GAP_AND_GO", Alpha04GapAndGo),
+    "alpha_05": ("ALPHA_05_OPENING_DRIVE_PULLBACK", Alpha05OpeningDrivePullback),
 }
 
 DEFAULT_UNIVERSE = [

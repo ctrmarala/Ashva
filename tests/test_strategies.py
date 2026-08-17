@@ -101,3 +101,24 @@ def test_alpha_04_gap_and_go_signals(mock_intraday_dataframe):
     assert "rvol_mult" in grid
     assert "min_adx" in grid
     assert "rr_ratio" in grid
+
+
+def test_alpha_05_opening_drive_pullback_signals(mock_intraday_dataframe):
+    from src.strategies.alpha_05_opening_drive_pullback import Alpha05OpeningDrivePullback
+    strat = Alpha05OpeningDrivePullback()
+    signals_df = strat.generate_signals(mock_intraday_dataframe)
+
+    assert "signal" in signals_df.columns
+    assert "stop_loss" in signals_df.columns
+    assert "take_profit" in signals_df.columns
+    assert "rationale" in signals_df.columns
+    assert len(signals_df) == len(mock_intraday_dataframe)
+
+    unique_sigs = set(signals_df["signal"].unique())
+    assert unique_sigs.issubset({-1.0, 0.0, 1.0})
+
+    grid = strat.get_parameter_grid()
+    assert "min_body_ratio" in grid
+    assert "min_rvol" in grid
+    assert "pullback_vol_max_ratio" in grid
+    assert "target_rr" in grid
