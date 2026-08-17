@@ -410,9 +410,12 @@ class AshvaControlRoomHandler(SimpleHTTPRequestHandler):
         """
 
 
+from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+
+
 def run_server(port: int = 8080):
     server_address = ("127.0.0.1", port)
-    httpd = HTTPServer(server_address, AshvaControlRoomHandler)
+    httpd = ThreadingHTTPServer(server_address, AshvaControlRoomHandler)
     print(f"[*] Ashva Control Room Dashboard running live on http://localhost:{port}/")
     try:
         httpd.serve_forever()
