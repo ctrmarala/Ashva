@@ -116,10 +116,20 @@ def run_auction_orb_validation():
     print("=" * 95)
 
     # -------------------------------------------------------------------------
-    # STEP 2: 5-TIER SLIPPAGE STRESS TESTING (CANDIDATE ASSET: ICICIBANK)
+    # STEP 2: GENERATE HTML QUANT TEARSHEETS & 5-TIER SLIPPAGE STRESS MATRIX
     # -------------------------------------------------------------------------
-    target_candidate = "ICICIBANK" if "ICICIBANK" in valid_dfs else list(valid_dfs.keys())[0]
-    print(f"\n[+] STEP 2: 5-TIER SLIPPAGE STRESS MATRIX ({target_candidate} - 1 to 20 bps)")
+    from src.analytics.tearsheet import QuantTearsheetGenerator
+    tearsheet_gen = QuantTearsheetGenerator(output_dir="data_lake/tearsheets")
+
+    target_candidate = "INFY" if "INFY" in valid_dfs else list(valid_dfs.keys())[0]
+    for sym in ["INFY", "TCS", "ICICIBANK"]:
+        if sym in valid_dfs:
+            sig = strat.generate_signals(valid_dfs[sym])
+            r = engine.run(sig, symbol=sym, strategy_id="Auction_ORB_Pro", risk_per_trade_pct=0.005, capital_per_trade_pct=0.25)
+            ts_path = tearsheet_gen.generate_html_tearsheet(r)
+            print(f"[+] HTML Tearsheet Saved: {ts_path}")
+
+    print(f"\n[+] STEP 2B: 5-TIER SLIPPAGE STRESS MATRIX ({target_candidate} - 1 to 20 bps)")
     candidate_signals = strat.generate_signals(valid_dfs[target_candidate])
     stress_matrix = engine.run_slippage_stress_matrix(candidate_signals, symbol=target_candidate, strategy_id="Auction_ORB_Pro")
     pd.set_option('display.max_columns', None)

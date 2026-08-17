@@ -78,4 +78,4 @@ def test_alpha_03_vwap_reversion_signals(mock_intraday_dataframe):
 
     grid = strat.get_parameter_grid()
     assert "vwap_std_multiplier" in grid
-    assert "max_adx_trend_cap" in grid
+    assert "max_adx_balanced" in grid

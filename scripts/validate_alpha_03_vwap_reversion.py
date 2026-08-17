@@ -1,11 +1,12 @@
 """
-Ashva Quantitative Alpha 03 Validation Engine: VWAP Mean Reversion (alpha_03_vwap_reversion)
+Ashva Quantitative Alpha 03 Validation Engine: VWAP Reversion (alpha_03_vwap_reversion)
 Executes the institutional research lifecycle:
 1. Ingests clean Angel One SmartAPI 15m candles across 11 liquid NSE stocks.
 2. Backtests alpha_03_vwap_reversion with Risk-Budget Sizing and exact Indian Regulatory Costs.
-3. Evaluates 5-Tier Slippage Stress Matrix (1 to 20 bps).
-4. Runs full 4-Gate Statistical Validation (CPCV, DSR, 5000-run Monte Carlo, Net PF).
-5. Outputs executive institutional scorecard.
+3. Generates HTML Quant Tearsheets in data_lake/tearsheets/.
+4. Evaluates 5-Tier Slippage Stress Matrix (1 to 20 bps).
+5. Runs 4-Gate Statistical Validation (CPCV, DSR with multi-stock trial penalty, 5000-run Monte Carlo, Net PF).
+6. Outputs executive institutional scorecard.
 """
 
 from datetime import datetime
@@ -23,11 +24,12 @@ from src.backtest.engine import BacktestEngine
 from src.research.validator import StatisticalValidator
 from src.analytics.indian_costs import IndianCostModel, Segment
 from src.research.experiment_ledger import ResearchExperimentLedger
+from src.analytics.tearsheet import QuantTearsheetGenerator
 
 
 def run_vwap_reversion_validation():
     print("=" * 95)
-    print("[*] ASHVA RESEARCH LAB: ALPHA 03 (VWAP MEAN REVERSION) INSTITUTIONAL VALIDATION")
+    print("[*] ASHVA RESEARCH LAB: ALPHA 03 (VWAP REVERSION) INSTITUTIONAL VALIDATION")
     print("=" * 95)
 
     lake = DataLake(read_only=True)
@@ -35,6 +37,7 @@ def run_vwap_reversion_validation():
     engine = BacktestEngine(initial_capital=500000.0, cost_model=cost_model, segment=Segment.EQUITY_INTRADAY)
     ledger = ResearchExperimentLedger()
     validator = StatisticalValidator(cost_model=cost_model, experiment_ledger=ledger)
+    tearsheet_gen = QuantTearsheetGenerator(output_dir="data_lake/tearsheets")
 
     strat = Alpha03VWAPReversion()
 
@@ -116,32 +119,40 @@ def run_vwap_reversion_validation():
     print("=" * 95)
 
     # -------------------------------------------------------------------------
-    # STEP 2: 5-TIER SLIPPAGE STRESS TESTING (TOP ASSET)
+    # STEP 2: GENERATE HTML QUANT TEARSHEETS & 5-TIER SLIPPAGE MATRIX
     # -------------------------------------------------------------------------
-    if valid_dfs and results_table:
-        best_sym = max(results_table, key=lambda x: x["net_pnl"])["symbol"]
-        print(f"\n[+] STEP 2: 5-TIER SLIPPAGE STRESS TESTING (TOP ASSET: {best_sym})")
-        top_signals = strat.generate_signals(valid_dfs[best_sym])
-        stress_matrix = engine.run_slippage_stress_matrix(top_signals, symbol=best_sym, strategy_id="alpha_03_vwap_reversion")
-        print(stress_matrix.to_string(index=False))
+    for sym in ["HDFCBANK", "SBIN", "ICICIBANK"]:
+        if sym in valid_dfs:
+            sig = strat.generate_signals(valid_dfs[sym])
+            r = engine.run(sig, symbol=sym, strategy_id="alpha_03_vwap_reversion", risk_per_trade_pct=0.005, capital_per_trade_pct=0.25)
+            ts_path = tearsheet_gen.generate_html_tearsheet(r)
+            print(f"[+] HTML Tearsheet Saved: {ts_path}")
+
+    target_candidate = "HDFCBANK" if "HDFCBANK" in valid_dfs else list(valid_dfs.keys())[0]
+    print(f"\n[+] STEP 2B: 5-TIER SLIPPAGE STRESS MATRIX ({target_candidate} - 1 to 20 bps)")
+    candidate_signals = strat.generate_signals(valid_dfs[target_candidate])
+    stress_matrix = engine.run_slippage_stress_matrix(candidate_signals, symbol=target_candidate, strategy_id="alpha_03_vwap_reversion")
+    pd.set_option('display.max_columns', None)
+    pd.set_option('display.width', 1000)
+    print(stress_matrix.to_string(index=False))
 
     # -------------------------------------------------------------------------
-    # STEP 3: 4-GATE STATISTICAL VALIDATION REPORT
+    # STEP 3: 4-GATE STATISTICAL VALIDATION (CANDIDATE: HDFCBANK)
     # -------------------------------------------------------------------------
-    print(f"\n[+] STEP 3: EXECUTING 4-GATE STATISTICAL ALPHA VALIDATION (CPCV + DSR + MONTE CARLO)")
-    eval_sym = max(results_table, key=lambda x: x["net_pnl"])["symbol"] if results_table else "INFY"
-    if eval_sym in valid_dfs:
-        val_report = validator.validate_hypothesis(strat, valid_dfs[eval_sym])
-        print(f"    - Target Benchmark Symbol : {eval_sym}")
+    print(f"\n[+] STEP 3: 4-GATE STATISTICAL VALIDATION (CANDIDATE: {target_candidate})")
+    print(f"    * Note: DSR accounts for 11-stock universe selection penalty (Trials = Grid_Size x 11)")
+    if target_candidate in valid_dfs:
+        val_report = validator.validate_hypothesis(strat, valid_dfs[target_candidate])
+        print(f"    - Target Instrument       : {target_candidate}")
         print(f"    - Hypothesis ID           : {val_report.hypothesis_id}")
         print(f"    - In-Sample Sharpe        : {val_report.in_sample_sharpe:.2f}")
         print(f"    - CPCV OOS Mean Sharpe    : {val_report.cpcv_mean_sharpe:.2f} (Degradation: {val_report.cpcv_degradation_pct:.1f}%)")
         print(f"    - Deflated Sharpe p-value : {val_report.deflated_sharpe_p_value:.4f}")
         print(f"    - Monte Carlo 95th MaxDD  : {val_report.monte_carlo_95_max_dd_pct:.2f}%")
         print(f"    - Post-Tax Net PF         : {val_report.net_profit_factor_post_tax:.2f}")
-        print(f"    - FINAL VERDICT           : {val_report.status.value}")
+        print(f"    - VERDICT FOR LIVE CAPITAL: {val_report.status.value}")
         if val_report.rejection_reasons:
-            print(f"    - Gate Findings           : {val_report.rejection_reasons}")
+            print(f"    - Strict Gate Findings    : {val_report.rejection_reasons}")
 
     print("\n" + "=" * 95)
     print("[*] VALIDATION PIPELINE COMPLETED")
