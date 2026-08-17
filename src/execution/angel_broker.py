@@ -63,6 +63,7 @@ class AngelBrokerGateway:
     def check_outbound_ip_compliance(self) -> Tuple[str, bool]:
         """
         SEBI Compliance Check: Verifies current outbound IPv4 matches the registered Static IP.
+        HARD-GATE: Raises PermissionError and blocks trading if IP does not match.
         """
         try:
             proxies = {"http": self.proxy_url, "https": self.proxy_url} if self.proxy_url else None
@@ -72,14 +73,18 @@ class AngelBrokerGateway:
             if self.whitelisted_static_ip:
                 is_matched = current_ip.strip() == self.whitelisted_static_ip.strip()
                 if not is_matched:
-                    logger.warning(
-                        f"STATIC IP MISMATCH: Current Outbound IP ({current_ip}) does NOT match "
-                        f"whitelisted IP ({self.whitelisted_static_ip}). Angel One orders may be rejected!"
+                    err_msg = (
+                        f"SEBI STATIC IP BREACH: Current Outbound IP ({current_ip}) does NOT match "
+                        f"whitelisted IP ({self.whitelisted_static_ip}). Authentication and live orders blocked!"
                     )
+                    logger.critical(err_msg)
+                    raise PermissionError(err_msg)
                 else:
                     logger.info(f"SEBI Static IP Verified: Outbound IP ({current_ip}) matches registered portal IP.")
                 return current_ip, is_matched
             return current_ip, True
+        except PermissionError:
+            raise
         except Exception as e:
             logger.error(f"Failed to check outbound IP: {e}")
             return "UNKNOWN", False
@@ -90,7 +95,7 @@ class AngelBrokerGateway:
         """
         from SmartApi import SmartConnect
 
-        # Check outbound IP before logging in
+        # Check outbound IP before logging in - Hard blocks on mismatch
         current_ip, is_matched = self.check_outbound_ip_compliance()
         
         self.smart_connect = SmartConnect(api_key=self.api_key)
@@ -112,6 +117,7 @@ class AngelBrokerGateway:
         """
         Retrieves live position book from Angel One SmartAPI.
         Normalizes response into standard [{symbol, quantity, side, entry_price, unrealized_pnl}].
+        FAIL-SAFE: Raises RuntimeError on API failure to prevent silent assumption of zero positions.
         """
         if not self.smart_connect:
             self.authenticate()
@@ -134,14 +140,17 @@ class AngelBrokerGateway:
                             "pnl": float(p.get("pnl", 0.0)),
                         })
                 return normalized
+            elif res and not res.get("status"):
+                raise RuntimeError(f"Angel One Position Query Rejected (UNKNOWN_STATE): {res.get('message')}")
             return []
         except Exception as e:
-            logger.error(f"Failed to fetch Angel One positions: {e}")
-            return []
+            logger.critical(f"FATAL: Broker Position Query Failed (UNKNOWN_POSITION_STATE): {e}")
+            raise RuntimeError(f"UNKNOWN_POSITION_STATE: Failed to fetch live positions from broker: {e}")
 
     def get_order_book(self) -> List[Dict[str, Any]]:
         """
         Retrieves full active order book from Angel One SmartAPI.
+        FAIL-SAFE: Raises RuntimeError on API failure to prevent missed orphaned orders.
         """
         if not self.smart_connect:
             self.authenticate()
@@ -150,10 +159,12 @@ class AngelBrokerGateway:
             res = self.smart_connect.orderBook()
             if res and res.get("status") and "data" in res:
                 return res["data"] or []
+            elif res and not res.get("status"):
+                raise RuntimeError(f"Angel One OrderBook Query Rejected: {res.get('message')}")
             return []
         except Exception as e:
-            logger.error(f"Failed to fetch Angel One order book: {e}")
-            return []
+            logger.critical(f"FATAL: Broker OrderBook Query Failed: {e}")
+            raise RuntimeError(f"UNKNOWN_ORDER_STATE: Failed to fetch order book from broker: {e}")
 
     def cancel_order(self, order_id: str, variety: str = "NORMAL") -> Dict[str, Any]:
         """Cancels a specific pending order at Angel One."""

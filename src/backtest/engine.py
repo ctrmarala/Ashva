@@ -98,10 +98,12 @@ class BacktestEngine:
         symbol: str = "ASSET",
         strategy_id: str = "STRATEGY",
         capital_per_trade_pct: float = 0.95,
+        risk_per_trade_pct: Optional[float] = None,  # e.g., 0.005 for 0.50% account risk per trade
     ) -> BacktestResult:
         """
         Executes backtest over DataFrame containing 'close', 'signal' (+1, -1, 0),
         and optionally 'open', 'high', 'low', 'stop_loss', 'take_profit'.
+        Supports both Capital-Weighted Sizing and Risk-Budget Sizing (Risk/Stop Distance).
         """
         if "signal" not in df_with_signals.columns or "close" not in df_with_signals.columns:
             raise ValueError("DataFrame must contain 'close' and 'signal' columns")
@@ -205,8 +207,19 @@ class BacktestEngine:
                 current_sl = stop_losses[i] if has_stops else 0.0
                 current_tp = take_profits[i] if has_stops else 0.0
 
-                allocated_capital = cash * capital_per_trade_pct
-                entry_qty = max(1, int(allocated_capital / entry_price))
+                # Risk-Based Sizing vs Capital-Percentage Sizing
+                if risk_per_trade_pct is not None and current_sl > 0:
+                    stop_dist = abs(entry_price - current_sl)
+                    if stop_dist > 0.05:
+                        risk_amt = cash * risk_per_trade_pct
+                        risk_qty = int(risk_amt / stop_dist)
+                        max_cap_qty = int((cash * capital_per_trade_pct) / entry_price)
+                        entry_qty = max(1, min(risk_qty, max_cap_qty))
+                    else:
+                        entry_qty = max(1, int((cash * capital_per_trade_pct) / entry_price))
+                else:
+                    allocated_capital = cash * capital_per_trade_pct
+                    entry_qty = max(1, int(allocated_capital / entry_price))
 
             elif in_position and (
                 curr_signal == 0.0
@@ -248,8 +261,19 @@ class BacktestEngine:
                     entry_price = next_open
                     current_sl = stop_losses[i] if has_stops else 0.0
                     current_tp = take_profits[i] if has_stops else 0.0
-                    allocated_capital = cash * capital_per_trade_pct
-                    entry_qty = max(1, int(allocated_capital / entry_price))
+
+                    if risk_per_trade_pct is not None and current_sl > 0:
+                        stop_dist = abs(entry_price - current_sl)
+                        if stop_dist > 0.05:
+                            risk_amt = cash * risk_per_trade_pct
+                            risk_qty = int(risk_amt / stop_dist)
+                            max_cap_qty = int((cash * capital_per_trade_pct) / entry_price)
+                            entry_qty = max(1, min(risk_qty, max_cap_qty))
+                        else:
+                            entry_qty = max(1, int((cash * capital_per_trade_pct) / entry_price))
+                    else:
+                        allocated_capital = cash * capital_per_trade_pct
+                        entry_qty = max(1, int(allocated_capital / entry_price))
                 else:
                     in_position = False
                     position_side = None

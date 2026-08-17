@@ -93,6 +93,23 @@ class RiskManager:
                             )
                             broker_gateway.place_order(flatten_order)
                             logger.critical(f"[RMS] Submitted Emergency Flatten Order: {opp_side.value} {qty} {sym}")
+
+                    # 3. Post-Liquidation Verification Loop (Confirm Flatness)
+                    is_flat = False
+                    for attempt in range(3):
+                        try:
+                            remaining = broker_gateway.get_positions()
+                            active_rem = [p for p in remaining if p.get("quantity", 0) > 0]
+                            if not active_rem:
+                                is_flat = True
+                                logger.info("[RMS] KILL SWITCH VERIFIED: All positions confirmed FLAT at broker.")
+                                break
+                        except Exception as e:
+                            logger.warning(f"[RMS] Verification poll attempt {attempt+1} encountered: {e}")
+
+                    if not is_flat and positions:
+                        logger.critical("[RMS] CRITICAL RMS ALERT: Liquidation order dispatched, awaiting broker fill confirmation.")
+
             except Exception as e:
                 logger.error(f"[RMS] Failed during active liquidation: {e}")
 

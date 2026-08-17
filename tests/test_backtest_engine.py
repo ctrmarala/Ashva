@@ -42,3 +42,27 @@ def test_backtest_engine_execution():
     assert trade.entry_price == prices[3]
     # Strict next-bar exit: Signal returned to 0 at Bar 10 Close -> Exit filled at Bar 11 Open (prices[11])
     assert trade.exit_price == prices[11]
+
+
+def test_risk_based_position_sizing():
+    """Verify that position size scales inversely with stop distance under risk-based sizing."""
+    dates = pd.date_range("2026-01-01 09:15", periods=10, freq="5min")
+    prices = [1000.0] * 10
+    signals = [0, 1, 1, 0, 0, 0, 0, 0, 0, 0]
+    
+    # 0.5% of Rs 500,000 = Rs 2,500 risk budget
+    # Stop distance = Rs 25 (1000 - 975) -> Target Qty = 2500 / 25 = 100 shares
+    stop_losses = [975.0] * 10
+    take_profits = [1050.0] * 10
+
+    df = pd.DataFrame({
+        "open": prices, "high": [p + 5.0 for p in prices], "low": [p - 5.0 for p in prices], "close": prices,
+        "signal": signals, "stop_loss": stop_losses, "take_profit": take_profits
+    }, index=dates)
+
+    engine = BacktestEngine(initial_capital=500000.0)
+    res = engine.run(df, symbol="TEST_STOCK", risk_per_trade_pct=0.005)
+
+    assert len(res.trade_list) == 1
+    # Rs 2,500 risk / Rs 25 stop distance = exactly 100 shares
+    assert res.trade_list[0].quantity == 100
