@@ -322,7 +322,18 @@ class StatisticalValidator:
                 f"Post-Tax Profit Factor Failed: Real Net PF {net_pf:.2f} < {self.min_net_profit_factor} (Total Brokerage & STT: Rs {full_result.total_taxes_paid:,.2f})"
             )
 
-        status = HypothesisStatus.ACCEPTED if not rejection_reasons else HypothesisStatus.REJECTED
+        # Decision Logic based on Funnel Architecture
+        if not rejection_reasons:
+            status = HypothesisStatus.CAPITAL_CANDIDATE
+        elif net_pf >= 1.08 and cpcv_mean_sharpe > 0 and full_result.total_trades >= 25:
+            status = HypothesisStatus.FORWARD_PAPER
+        elif net_pf >= 1.10 and full_result.total_trades < 25:
+            status = HypothesisStatus.LOW_FREQUENCY_WATCHLIST
+        elif net_pf >= 1.0:
+            status = HypothesisStatus.RESEARCH_CANDIDATE
+        else:
+            status = HypothesisStatus.REJECTED  # Structural negative edge after costs
+
         hypothesis.status = status
 
         report = HypothesisValidationReport(
