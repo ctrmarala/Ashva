@@ -137,7 +137,7 @@ def main():
     parser.add_argument("--timeframe", type=str, default="15m", help="Candle timeframe")
     parser.add_argument("--regimes", action="store_true", help="Run 3-Tier Multi-Regime Persistence Analysis (0-6m, 6-12m, 12-18m)")
     parser.add_argument("--stress", action="store_true", help="Run 5-Tier Slippage Stress Matrix (1-20 bps)")
-    parser.add_argument("--tearsheet", action="store_true", help="Generate HTML tearsheet")
+    parser.add_argument("--no-tearsheet", action="store_true", help="Suppress HTML tearsheet generation")
 
     args = parser.parse_args()
 
@@ -145,6 +145,7 @@ def main():
     cost_model = IndianCostModel(default_slippage_bps=3.0)
     validator = StatisticalValidator(cost_model=cost_model)
     engine = BacktestEngine(cost_model=cost_model, initial_capital=500000.0)
+    ts_gen = QuantTearsheetGenerator()
 
     print("=" * 115)
     print("[*] ASHVA QUANTITATIVE RESEARCH & HYPOTHESIS LAB")
@@ -160,6 +161,7 @@ def main():
         target_symbols = DEFAULT_UNIVERSE if args.all_symbols else [args.symbol.upper()]
 
     master_results = []
+    generated_tearsheets = []
     pd.set_option('display.max_columns', None)
     pd.set_option('display.width', 1000)
 
@@ -184,14 +186,25 @@ def main():
         print("-" * 115)
         print(f"[*] {strat_name} PORTFOLIO TOTAL: Net P&L = Rs {total_pnl:+,.2f} | Trades = {total_trades} | Taxes Paid = Rs {total_taxes:,.2f}")
 
+        # Automated Tearsheet Generation for All Evaluated Candidates with Trades
+        if not args.no_tearsheet:
+            for r in results:
+                if r["Trades"] > 0:
+                    sym = r["Symbol"]
+                    res_obj = r["_result_obj"]
+                    try:
+                        ts_path = ts_gen.generate_html_tearsheet(res_obj)
+                        generated_tearsheets.append((strat_name, sym, ts_path, r["Net_PnL_INR"]))
+                    except Exception as e:
+                        print(f"[-] Tearsheet error for {strat_name} on {sym}: {e}")
+
         master_results.extend(results)
 
-        # Detailed Analysis for Single-Symbol Mode
-        if len(target_symbols) == 1 or args.regimes or args.stress or args.tearsheet:
+        # Detailed Analysis for Single-Symbol Mode or explicit flags
+        if len(target_symbols) == 1 or args.regimes or args.stress:
             for r in results:
                 sym = r["Symbol"]
                 df = r["_df"]
-                res_obj = r["_result_obj"]
 
                 if args.stress:
                     run_slippage_stress(strat_name, strat_obj, df, sym)
@@ -202,11 +215,6 @@ def main():
                     if not reg_df.empty:
                         print(reg_df.to_string(index=False))
 
-                if args.tearsheet:
-                    ts_gen = QuantTearsheetGenerator()
-                    ts_path = ts_gen.generate_html_tearsheet(res_obj, strategy_name=strat_name, symbol=sym)
-                    print(f"[+] Tearsheet saved: {ts_path}")
-
     if args.all or (len(strategies_to_run) > 1 and len(target_symbols) > 1):
         print("\n" + "=" * 115)
         print("[*] MASTER LEADERBOARD (SORTED BY NET P&L)")
@@ -214,6 +222,18 @@ def main():
         m_df = pd.DataFrame([{k: v for k, v in r.items() if not k.startswith("_")} for r in master_results])
         m_df_sorted = m_df.sort_values(by="Net_PnL_INR", ascending=False)
         print(m_df_sorted.to_string(index=False))
+        print("=" * 115)
+
+    if generated_tearsheets:
+        print("\n" + "=" * 115)
+        print(f"[*] AUTOMATED HTML QUANT TEARSHEETS GENERATED ({len(generated_tearsheets)} Total Saved to data_lake/tearsheets/)")
+        print("=" * 115)
+        # Sort by Net PnL descending
+        generated_tearsheets.sort(key=lambda x: x[3], reverse=True)
+        for s_name, sym, path, pnl in generated_tearsheets[:15]:
+            print(f"  [+] {s_name:<25} | {sym:<12} | Net P&L: Rs {pnl:+10,.2f} | File: {path}")
+        if len(generated_tearsheets) > 15:
+            print(f"  ... and {len(generated_tearsheets) - 15} more in data_lake/tearsheets/")
         print("=" * 115)
 
 
