@@ -38,5 +38,7 @@ def test_backtest_engine_execution():
     
     trade = res.trade_list[0]
     assert trade.side == "LONG"
-    assert trade.entry_price == prices[2]
-    assert trade.exit_price == prices[10]
+    # Strict next-bar execution: Signal at Bar 2 Close -> Entry filled at Bar 3 Open (prices[3])
+    assert trade.entry_price == prices[3]
+    # Strict next-bar exit: Signal returned to 0 at Bar 10 Close -> Exit filled at Bar 11 Open (prices[11])
+    assert trade.exit_price == prices[11]

@@ -1,6 +1,6 @@
 """
 Ashva Asynchronous Event Bus
-High-performance, async pub/sub dispatcher for financial events with priority queuing and latency instrumentation.
+High-performance, async pub/sub dispatcher for financial events with guaranteed lossless critical event routing.
 """
 
 import asyncio
@@ -13,10 +13,17 @@ from src.core.events import EventType, RiskEvent, OrderEvent, FillEvent, SignalE
 
 logger = logging.getLogger("Ashva.EventBus")
 
+CRITICAL_EVENT_TYPES = {
+    EventType.ORDER,
+    EventType.FILL,
+    EventType.RISK_BREACH,
+    EventType.ACCOUNT_UPDATE,
+}
+
 
 class AsyncEventBus:
     """
-    Asynchronous event bus supporting non-blocking concurrent handlers and priority routing.
+    Asynchronous event bus supporting non-blocking concurrent handlers and lossless critical routing.
     """
 
     def __init__(self, max_queue_size: int = 10000):
@@ -24,7 +31,6 @@ class AsyncEventBus:
         self._subscribers: Dict[EventType, List[Callable[[Any], Coroutine[Any, Any, None]]]] = defaultdict(list)
         self._sync_subscribers: Dict[EventType, List[Callable[[Any], None]]] = defaultdict(list)
         
-        # Internal async queue for decoupled consumption
         self._queue: Optional[asyncio.Queue] = None
         self._running = False
         self._consumer_task: Optional[asyncio.Task] = None
@@ -60,26 +66,33 @@ class AsyncEventBus:
 
     async def publish(self, event: Any):
         """
-        Publishes an event to the queue. 
-        High-priority events (Risk, Order) are processed immediately if queue is running.
+        Publishes an event to the queue.
+        High-priority events (Risk, Order, Fill) are guaranteed lossless.
         """
         self.event_counter += 1
         if self._queue is not None and self._running:
             await self._queue.put(event)
         else:
-            # Immediate dispatch if bus loop is not running (e.g. In sync backtests)
             await self._dispatch_event(event)
 
     def publish_nowait(self, event: Any):
-        """Non-blocking publish for synchronous callers."""
+        """
+        Non-blocking publish for synchronous callers.
+        Guarantees lossless routing for Critical Financial Events.
+        """
         self.event_counter += 1
+        event_type = getattr(event, "event_type", None)
+        
         if self._queue is not None and self._running:
             try:
                 self._queue.put_nowait(event)
             except asyncio.QueueFull:
-                logger.error(f"Event bus queue full! Dropping event {event.event_type}")
+                if event_type in CRITICAL_EVENT_TYPES:
+                    logger.critical(f"Queue full! Executing IMMEDIATE LOSSLESS fallback dispatch for {event_type}")
+                    self._dispatch_sync(event)
+                else:
+                    logger.warning(f"Telemetry queue full. Dropped non-critical event {event_type}")
         else:
-            # Synchronous dispatch
             self._dispatch_sync(event)
 
     async def _event_consumer_loop(self):

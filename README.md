@@ -1,4 +1,4 @@
-# ASHVA: Autonomous Quantitative Alpha & Algorithmic Trading Platform
+# ASHVA: Quantitative Research & Algorithmic Trading Platform
 
 ```
 ███████╗███████╗██╗  ██╗██╗   ██╗ █████╗ 
@@ -7,11 +7,11 @@
 ╚════██║╚════██║██╔══██║╚╗   ██╔╝██╔══██║
 ███████║███████║██║  ██║ ╚████╔╝ ██║  ██║
 ╚══════╝╚══════╝╚═╝  ╚═╝  ╚═══╝  ╚═╝  ╚═╝
-Autonomous Hedge-Fund Grade Quantitative Trading Engine
+Personal Quantitative Research & Algorithmic Trading Platform
 Market: National Stock Exchange of India (NSE) | Broker: Angel One SmartAPI
 ```
 
-Ashva is an institutional-grade, multi-strategy algorithmic trading platform designed for Indian Equities and Derivatives (NSE/BSE). It implements Marcos López de Prado's scientific alpha research lifecycle, dynamic fractional differentiation, Deep Reinforcement Learning (Gymnasium/PPO), Hierarchical Risk Parity (HRP), SEBI-compliant Angel One SmartAPI live routing, and exact Indian regulatory tax accounting (STT, GST, Stamp Duty, SEBI, Brokerage).
+Ashva is a disciplined, multi-strategy quantitative research and execution platform engineered for Indian Equities and Derivatives (NSE). It provides end-to-end infrastructure for strategy formulation, next-bar execution backtesting, exact Indian regulatory tax accounting (STT, GST, Stamp Duty, SEBI, Brokerage), risk management circuit breakers, and Angel One SmartAPI live order routing.
 
 ---
 

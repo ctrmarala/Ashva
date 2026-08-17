@@ -1,6 +1,7 @@
 """
 Alpha Strategy 2: Volatility-Regime Switched Mean Reversion
 Trades statistical price Z-score mean-reversion exclusively when the market is in a stationary consolidation regime (Hurst < 0.48).
+Unified for batch backtesting and live streaming on_bar execution.
 """
 
 from typing import Dict, List, Any, Optional
@@ -45,6 +46,10 @@ class AlphaRegimeAdaptiveMR(BaseStrategy, BaseHypothesis):
         self.hurst_threshold = self.parameters.get("hurst_threshold", 0.48)
         self.square_off_time = self.parameters.get("square_off_time", "15:15:00")
 
+        # Live state tracking
+        self._recent_closes: List[float] = []
+        self._active_position = 0.0
+
     def get_parameter_grid(self) -> Dict[str, List[Any]]:
         return {
             "zscore_entry": [1.8, 2.0, 2.3],
@@ -57,12 +62,10 @@ class AlphaRegimeAdaptiveMR(BaseStrategy, BaseHypothesis):
         df_out = df.copy()
         extractor = MicrostructureFeatureExtractor()
 
-        # 1. Rolling Mean & Standard Deviation for Z-Score
         roll_mean = df_out["close"].rolling(window=self.rolling_window).mean()
         roll_std = df_out["close"].rolling(window=self.rolling_window).std()
         df_out["zscore"] = (df_out["close"] - roll_mean) / roll_std.replace(0, np.nan)
 
-        # 2. Rolling Hurst Exponent (approximated on rolling price window)
         hurst_series = []
         close_vals = df_out["close"].values
         for i in range(len(df_out)):
@@ -73,7 +76,6 @@ class AlphaRegimeAdaptiveMR(BaseStrategy, BaseHypothesis):
                 hurst_series.append(extractor.calculate_hurst_exponent(pd.Series(chunk)))
         df_out["hurst"] = hurst_series
 
-        # 3. Time Filtering
         time_strings = df_out.index.strftime("%H:%M:%S")
         is_square_off = time_strings >= self.square_off_time
         is_mean_reverting = df_out["hurst"] <= self.hurst_threshold
@@ -88,26 +90,115 @@ class AlphaRegimeAdaptiveMR(BaseStrategy, BaseHypothesis):
                 z = df_out["zscore"].iloc[i]
                 if np.isnan(z):
                     continue
-                # Oversold in chop -> Buy
                 if z <= -self.zscore_entry and position <= 0:
                     position = 1.0
-                # Overbought in chop -> Sell / Short
                 elif z >= self.zscore_entry and position >= 0:
                     position = -1.0
-                # Exit back towards mean
                 elif position > 0 and z >= -self.zscore_exit:
                     position = 0.0
                 elif position < 0 and z <= self.zscore_exit:
                     position = 0.0
             else:
-                # If regime shifts to trending, exit mean reversion position immediately
                 if position != 0.0:
                     position = 0.0
-
             signal[i] = position
 
         df_out["signal"] = signal
         return df_out
 
     def on_bar(self, bar: BarEvent) -> Optional[SignalEvent]:
+        """Incremental live bar evaluator."""
+        bar_time_str = bar.timestamp.strftime("%H:%M:%S")
+        if bar_time_str >= self.square_off_time:
+            if self._active_position != 0.0:
+                self._active_position = 0.0
+                return SignalEvent(
+                    symbol=bar.symbol,
+                    timestamp=bar.timestamp,
+                    direction=0.0,
+                    strength=0.0,
+                    strategy_id=self.strategy_id,
+                    metadata={"reason": "SQUARE_OFF"},
+                )
+            return None
+
+        self._recent_closes.append(bar.close)
+        if len(self._recent_closes) > self.rolling_window * 2:
+            self._recent_closes.pop(0)
+
+        if len(self._recent_closes) < self.rolling_window:
+            return None
+
+        recent_slice = np.array(self._recent_closes[-self.rolling_window:])
+        mean_val = np.mean(recent_slice)
+        std_val = np.std(recent_slice)
+        if std_val == 0:
+            return None
+
+        zscore = (bar.close - mean_val) / std_val
+
+        # Hurst Exponent on window
+        extractor = MicrostructureFeatureExtractor()
+        hurst = extractor.calculate_hurst_exponent(pd.Series(self._recent_closes))
+
+        if hurst > self.hurst_threshold:
+            # Trending regime - exit mean reversion
+            if self._active_position != 0.0:
+                self._active_position = 0.0
+                return SignalEvent(
+                    symbol=bar.symbol,
+                    timestamp=bar.timestamp,
+                    direction=0.0,
+                    strength=0.0,
+                    strategy_id=self.strategy_id,
+                    metadata={"reason": "REGIME_SHIFT_TREND"},
+                )
+            return None
+
+        # Mean Reversion entries & exits
+        if zscore <= -self.zscore_entry and self._active_position <= 0:
+            self._active_position = 1.0
+            return SignalEvent(
+                symbol=bar.symbol,
+                timestamp=bar.timestamp,
+                direction=1.0,
+                strength=1.0,
+                strategy_id=self.strategy_id,
+                stop_loss=bar.close - (std_val * 1.5),
+                take_profit=mean_val,
+                metadata={"zscore": zscore, "hurst": hurst},
+            )
+        elif zscore >= self.zscore_entry and self._active_position >= 0:
+            self._active_position = -1.0
+            return SignalEvent(
+                symbol=bar.symbol,
+                timestamp=bar.timestamp,
+                direction=-1.0,
+                strength=1.0,
+                strategy_id=self.strategy_id,
+                stop_loss=bar.close + (std_val * 1.5),
+                take_profit=mean_val,
+                metadata={"zscore": zscore, "hurst": hurst},
+            )
+        elif self._active_position > 0 and zscore >= -self.zscore_exit:
+            self._active_position = 0.0
+            return SignalEvent(
+                symbol=bar.symbol,
+                timestamp=bar.timestamp,
+                direction=0.0,
+                strength=0.0,
+                strategy_id=self.strategy_id,
+                metadata={"reason": "MEAN_REVERTED"},
+            )
+        elif self._active_position < 0 and zscore <= self.zscore_exit:
+            self._active_position = 0.0
+            return SignalEvent(
+                symbol=bar.symbol,
+                timestamp=bar.timestamp,
+                direction=0.0,
+                strength=0.0,
+                strategy_id=self.strategy_id,
+                metadata={"reason": "MEAN_REVERTED"},
+            )
+
         return None

@@ -49,3 +49,14 @@ def test_alpha_regime_signals(mock_intraday_dataframe):
     assert len(signals_df) == len(mock_intraday_dataframe)
     unique_sigs = set(signals_df["signal"].unique())
     assert unique_sigs.issubset({-1.0, 0.0, 1.0})
+
+
+def test_alpha_bosch_aivo_signals(mock_intraday_dataframe):
+    from src.strategies.alpha_bosch_aivo import AlphaInstitutionalValueOscillations
+    aivo = AlphaInstitutionalValueOscillations()
+    signals_df = aivo.generate_signals(mock_intraday_dataframe)
+
+    assert "signal" in signals_df.columns
+    assert len(signals_df) == len(mock_intraday_dataframe)
+    unique_sigs = set(signals_df["signal"].unique())
+    assert unique_sigs.issubset({-1.0, 0.0, 1.0})

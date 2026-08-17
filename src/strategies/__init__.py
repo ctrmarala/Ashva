@@ -9,3 +9,4 @@ from src.strategies.alpha_options_straddle import AlphaIntradayStraddle
 from src.strategies.alpha_pairs import AlphaCointegrationPairs
 from src.strategies.alpha_trend_pullback import AlphaInstitutionalTrendPullback
 from src.strategies.alpha_vol_squeeze import AlphaVolatilitySqueeze
+from src.strategies.alpha_bosch_aivo import AlphaInstitutionalValueOscillations

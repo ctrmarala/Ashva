@@ -1,7 +1,10 @@
 """
 Ashva Institutional Backtesting Engine
-Vectorized & Event-driven backtester with exact Indian regulatory taxes (STT, GST, Stamp Duty, SEBI),
-Angel One brokerage, and slippage modeling.
+High-fidelity, realistic backtester with:
+1. Strict Next-Bar Open Execution (Signal at Bar t Close -> Fill at Bar t+1 Open) to eliminate lookahead bias.
+2. Decision-Time Position Sizing (Quantity computed strictly at Entry).
+3. Intrabar Stop Loss and Take Profit evaluation against Bar High/Low.
+4. Exact Indian statutory taxes (STT, GST, Stamp Duty, SEBI turnover) and Angel One brokerage modeling.
 """
 
 from dataclasses import dataclass
@@ -26,6 +29,7 @@ class BacktestTrade:
     net_pnl: float
     cost_breakdown: TradeCostBreakdown
     duration_bars: int
+    exit_reason: str = "SIGNAL"  # "SIGNAL", "STOP_LOSS", "TAKE_PROFIT", "EOD"
 
 
 @dataclass
@@ -74,7 +78,7 @@ class BacktestResult:
 
 class BacktestEngine:
     """
-    Simulates strategy execution and computes institutional performance metrics.
+    Realistic quantitative execution backtester with next-bar execution conventions.
     """
 
     def __init__(
@@ -95,7 +99,12 @@ class BacktestEngine:
         capital_per_trade_pct: float = 0.95,
     ) -> BacktestResult:
         """
-        Executes backtest over DataFrame containing 'close' and 'signal' (+1, -1, 0).
+        Executes backtest over DataFrame containing 'close', 'signal' (+1, -1, 0),
+        and optionally 'open', 'high', 'low', 'stop_loss', 'take_profit'.
+        
+        Execution convention:
+        - Signal generated at Bar t Close -> Order executed at Bar t+1 Open (or Close if Open unavailable).
+        - Quantity is strictly sized at Bar t+1 entry time.
         """
         if "signal" not in df_with_signals.columns or "close" not in df_with_signals.columns:
             raise ValueError("DataFrame must contain 'close' and 'signal' columns")
@@ -103,7 +112,15 @@ class BacktestEngine:
         df = df_with_signals.copy()
         signals = df["signal"].values
         closes = df["close"].values
+        opens = df["open"].values if "open" in df.columns else closes
+        highs = df["high"].values if "high" in df.columns else closes
+        lows = df["low"].values if "low" in df.columns else closes
         indices = df.index
+        n_bars = len(df)
+
+        has_stops = "stop_loss" in df.columns and "take_profit" in df.columns
+        stop_losses = df["stop_loss"].values if has_stops else np.zeros(n_bars)
+        take_profits = df["take_profit"].values if has_stops else np.zeros(n_bars)
 
         trades: List[BacktestTrade] = []
         equity = self.initial_capital
@@ -114,115 +131,209 @@ class BacktestEngine:
         position_side = None
         entry_idx = 0
         entry_price = 0.0
+        entry_qty = 0
+        current_sl = 0.0
+        current_tp = 0.0
         trade_id = 1
 
-        for i in range(len(df)):
+        for i in range(n_bars - 1):
             curr_signal = signals[i]
-            curr_price = closes[i]
+            next_open = opens[i + 1]
+            next_high = highs[i + 1]
+            next_low = lows[i + 1]
+            next_time = indices[i + 1]
 
-            # Entry Logic
-            if not in_position and curr_signal != 0.0:
-                in_position = True
-                position_side = "LONG" if curr_signal > 0 else "SHORT"
-                entry_idx = i
-                entry_price = curr_price
-
-            # Exit Logic
-            elif in_position and (curr_signal == 0.0 or (curr_signal > 0 and position_side == "SHORT") or (curr_signal < 0 and position_side == "LONG")):
-                exit_price = curr_price
-                
-                # Position Sizing (using available equity)
-                allocated_capital = equity * capital_per_trade_pct
-                quantity = max(1, int(allocated_capital / entry_price))
+            # 1. Evaluate Intrabar Stop Loss / Take Profit on active position
+            if in_position:
+                exited_intrabar = False
+                exit_price = 0.0
+                exit_reason = "SIGNAL"
 
                 if position_side == "LONG":
-                    cost_breakdown = self.cost_model.calculate_trade_costs(
-                        buy_price=entry_price,
-                        sell_price=exit_price,
-                        quantity=quantity,
-                        segment=self.segment,
-                    )
+                    # Check Gap Down / SL breach
+                    if current_sl > 0 and next_low <= current_sl:
+                        exited_intrabar = True
+                        exit_price = min(next_open, current_sl)  # Account for opening gap down
+                        exit_reason = "STOP_LOSS"
+                    elif current_tp > 0 and next_high >= current_tp:
+                        exited_intrabar = True
+                        exit_price = max(next_open, current_tp)  # Account for opening gap up
+                        exit_reason = "TAKE_PROFIT"
                 else:  # SHORT
+                    # Check Gap Up / SL breach
+                    if current_sl > 0 and next_high >= current_sl:
+                        exited_intrabar = True
+                        exit_price = max(next_open, current_sl)
+                        exit_reason = "STOP_LOSS"
+                    elif current_tp > 0 and next_low <= current_tp:
+                        exited_intrabar = True
+                        exit_price = min(next_open, current_tp)
+                        exit_reason = "TAKE_PROFIT"
+
+                if exited_intrabar:
+                    # Execute Intrabar Exit
                     cost_breakdown = self.cost_model.calculate_trade_costs(
-                        buy_price=exit_price,
-                        sell_price=entry_price,
-                        quantity=quantity,
+                        buy_price=entry_price if position_side == "LONG" else exit_price,
+                        sell_price=exit_price if position_side == "LONG" else entry_price,
+                        quantity=entry_qty,
                         segment=self.segment,
                     )
+                    equity += cost_breakdown.net_pnl
+                    equity_series.append(equity)
+                    equity_timestamps.append(next_time)
 
-                trade = BacktestTrade(
-                    trade_id=trade_id,
-                    symbol=symbol,
-                    entry_time=indices[entry_idx],
-                    exit_time=indices[i],
-                    side=position_side,
-                    entry_price=entry_price,
-                    exit_price=exit_price,
-                    quantity=quantity,
-                    gross_pnl=cost_breakdown.gross_pnl,
-                    net_pnl=cost_breakdown.net_pnl,
-                    cost_breakdown=cost_breakdown,
-                    duration_bars=i - entry_idx,
+                    trades.append(
+                        BacktestTrade(
+                            trade_id=trade_id,
+                            symbol=symbol,
+                            entry_time=indices[entry_idx],
+                            exit_time=next_time,
+                            side=position_side,
+                            entry_price=entry_price,
+                            exit_price=exit_price,
+                            quantity=entry_qty,
+                            gross_pnl=cost_breakdown.gross_pnl,
+                            net_pnl=cost_breakdown.net_pnl,
+                            cost_breakdown=cost_breakdown,
+                            duration_bars=(i + 1 - entry_idx),
+                            exit_reason=exit_reason,
+                        )
+                    )
+                    trade_id += 1
+                    in_position = False
+                    position_side = None
+                    continue
+
+            # 2. Evaluate Signal Changes for Next-Bar Open Execution
+            if not in_position and curr_signal != 0.0:
+                # Enter on Next Bar Open (Decision made at bar i close)
+                in_position = True
+                position_side = "LONG" if curr_signal > 0 else "SHORT"
+                entry_idx = i + 1
+                entry_price = next_open
+                current_sl = stop_losses[i] if has_stops else 0.0
+                current_tp = take_profits[i] if has_stops else 0.0
+
+                # Strict Decision-Time Position Sizing
+                allocated_capital = equity * capital_per_trade_pct
+                entry_qty = max(1, int(allocated_capital / entry_price))
+
+            elif in_position and (
+                curr_signal == 0.0
+                or (curr_signal > 0 and position_side == "SHORT")
+                or (curr_signal < 0 and position_side == "LONG")
+            ):
+                # Signal Exit on Next Bar Open
+                exit_price = next_open
+                cost_breakdown = self.cost_model.calculate_trade_costs(
+                    buy_price=entry_price if position_side == "LONG" else exit_price,
+                    sell_price=exit_price if position_side == "LONG" else entry_price,
+                    quantity=entry_qty,
+                    segment=self.segment,
                 )
-                trades.append(trade)
-                trade_id += 1
-
-                # Update Equity
                 equity += cost_breakdown.net_pnl
                 equity_series.append(equity)
-                equity_timestamps.append(indices[i])
+                equity_timestamps.append(next_time)
 
-                # Re-enter if signal switched directly from LONG to SHORT or vice-versa
+                trades.append(
+                    BacktestTrade(
+                        trade_id=trade_id,
+                        symbol=symbol,
+                        entry_time=indices[entry_idx],
+                        exit_time=next_time,
+                        side=position_side,
+                        entry_price=entry_price,
+                        exit_price=exit_price,
+                        quantity=entry_qty,
+                        gross_pnl=cost_breakdown.gross_pnl,
+                        net_pnl=cost_breakdown.net_pnl,
+                        cost_breakdown=cost_breakdown,
+                        duration_bars=(i + 1 - entry_idx),
+                        exit_reason="SIGNAL",
+                    )
+                )
+                trade_id += 1
+
+                # If signal reversed directly into opposite direction, re-enter immediately
                 if curr_signal != 0.0:
                     position_side = "LONG" if curr_signal > 0 else "SHORT"
-                    entry_idx = i
-                    entry_price = curr_price
+                    entry_idx = i + 1
+                    entry_price = next_open
+                    current_sl = stop_losses[i] if has_stops else 0.0
+                    current_tp = take_profits[i] if has_stops else 0.0
+                    allocated_capital = equity * capital_per_trade_pct
+                    entry_qty = max(1, int(allocated_capital / entry_price))
                 else:
                     in_position = False
                     position_side = None
 
-        # Build Equity Series
-        if len(equity_series) == 1:
-            eq_series = pd.Series([self.initial_capital] * len(df), index=indices)
-        else:
-            eq_series = pd.Series(equity_series[1:], index=equity_timestamps[1:])
-            eq_series = eq_series.reindex(indices).ffill().fillna(self.initial_capital)
+        # 3. Close open position on the very last bar (EOD / end of test)
+        if in_position:
+            last_idx = n_bars - 1
+            exit_price = closes[last_idx]
+            cost_breakdown = self.cost_model.calculate_trade_costs(
+                buy_price=entry_price if position_side == "LONG" else exit_price,
+                sell_price=exit_price if position_side == "LONG" else entry_price,
+                quantity=entry_qty,
+                segment=self.segment,
+            )
+            equity += cost_breakdown.net_pnl
+            equity_series.append(equity)
+            equity_timestamps.append(indices[last_idx])
 
-        # Performance Calculations
+            trades.append(
+                BacktestTrade(
+                    trade_id=trade_id,
+                    symbol=symbol,
+                    entry_time=indices[entry_idx],
+                    exit_time=indices[last_idx],
+                    side=position_side,
+                    entry_price=entry_price,
+                    exit_price=exit_price,
+                    quantity=entry_qty,
+                    gross_pnl=cost_breakdown.gross_pnl,
+                    net_pnl=cost_breakdown.net_pnl,
+                    cost_breakdown=cost_breakdown,
+                    duration_bars=(last_idx - entry_idx),
+                    exit_reason="EOD",
+                )
+            )
+
+        # 4. Compute Comprehensive Quant Statistics
+        equity_df = pd.Series(equity_series, index=equity_timestamps)
         total_trades = len(trades)
         winning_trades = len([t for t in trades if t.net_pnl > 0])
         losing_trades = len([t for t in trades if t.net_pnl <= 0])
         win_rate = (winning_trades / total_trades * 100.0) if total_trades > 0 else 0.0
 
+        total_net_pnl = equity - self.initial_capital
+        net_roi = (total_net_pnl / self.initial_capital) * 100.0
+
         gross_wins = sum(t.gross_pnl for t in trades if t.gross_pnl > 0)
         gross_losses = abs(sum(t.gross_pnl for t in trades if t.gross_pnl < 0))
-        gross_pf = (gross_wins / gross_losses) if gross_losses > 0 else (99.0 if gross_wins > 0 else 0.0)
+        gross_profit_factor = (gross_wins / gross_losses) if gross_losses > 0 else (99.0 if gross_wins > 0 else 0.0)
 
         net_wins = sum(t.net_pnl for t in trades if t.net_pnl > 0)
         net_losses = abs(sum(t.net_pnl for t in trades if t.net_pnl < 0))
-        net_pf = (net_wins / net_losses) if net_losses > 0 else (99.0 if net_wins > 0 else 0.0)
+        net_profit_factor = (net_wins / net_losses) if net_losses > 0 else (99.0 if net_wins > 0 else 0.0)
+
+        # Drawdown & Metrics
+        cum_max = equity_df.cummax()
+        drawdowns = (equity_df - cum_max) / cum_max
+        max_drawdown = abs(drawdowns.min()) * 100.0 if not drawdowns.empty else 0.0
+
+        returns = equity_df.pct_change().dropna()
+        if len(returns) > 1 and returns.std() > 0:
+            sharpe = float((returns.mean() / returns.std()) * np.sqrt(252 * 25))
+            downside = returns[returns < 0]
+            sortino = float((returns.mean() / downside.std()) * np.sqrt(252 * 25)) if len(downside) > 0 and downside.std() > 0 else sharpe
+        else:
+            sharpe = 0.0
+            sortino = 0.0
 
         total_brokerage = sum(t.cost_breakdown.brokerage for t in trades)
         total_stt = sum(t.cost_breakdown.stt for t in trades)
         total_taxes = sum(t.cost_breakdown.total_tax_and_charges for t in trades)
-        total_net_pnl = equity - self.initial_capital
-        roi_pct = (total_net_pnl / self.initial_capital) * 100.0
-
-        # Drawdown
-        peak = np.maximum.accumulate(eq_series.values)
-        dd = (peak - eq_series.values) / peak * 100.0
-        max_dd = float(np.max(dd)) if len(dd) > 0 else 0.0
-
-        # Sharpe & Sortino (Periodic returns)
-        eq_returns = eq_series.pct_change().dropna().values
-        if len(eq_returns) > 1 and np.std(eq_returns) > 1e-8:
-            sharpe = float((np.mean(eq_returns) / np.std(eq_returns)) * np.sqrt(252 * 75))
-            downside_returns = eq_returns[eq_returns < 0]
-            downside_std = np.std(downside_returns) if len(downside_returns) > 1 else 1e-8
-            sortino = float((np.mean(eq_returns) / downside_std) * np.sqrt(252 * 75)) if downside_std > 1e-8 else 0.0
-        else:
-            sharpe = 0.0
-            sortino = 0.0
 
         return BacktestResult(
             symbol=symbol,
@@ -230,20 +341,20 @@ class BacktestEngine:
             initial_capital=self.initial_capital,
             final_equity=equity,
             total_net_pnl=total_net_pnl,
-            net_roi_pct=roi_pct,
+            net_roi_pct=net_roi,
             total_trades=total_trades,
             winning_trades=winning_trades,
             losing_trades=losing_trades,
             win_rate_pct=win_rate,
-            gross_profit_factor=gross_pf,
-            net_profit_factor=net_pf,
+            gross_profit_factor=gross_profit_factor,
+            net_profit_factor=net_profit_factor,
             sharpe_ratio=sharpe,
             sortino_ratio=sortino,
-            max_drawdown_pct=max_dd,
+            max_drawdown_pct=max_drawdown,
             max_drawdown_duration_bars=0,
             total_brokerage_paid=total_brokerage,
             total_stt_paid=total_stt,
             total_taxes_paid=total_taxes,
-            equity_curve=eq_series,
+            equity_curve=equity_df,
             trade_list=trades,
         )

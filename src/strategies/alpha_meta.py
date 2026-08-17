@@ -2,9 +2,11 @@
 Alpha Strategy 3: Machine Learning Meta-Labeling Ensemble
 Implements Marcos López de Prado's Meta-Labeling technique:
 Uses a secondary ML model to predict primary strategy win probabilities and dynamically size / filter bets.
+Enforces strict separation of training (fit_meta_model) and out-of-sample inference to prevent lookahead leakage.
 """
 
 from typing import Dict, List, Any, Optional
+import logging
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
@@ -12,9 +14,10 @@ from sklearn.ensemble import RandomForestClassifier
 from src.strategies.base import BaseStrategy
 from src.research.hypothesis import BaseHypothesis, HypothesisMetadata
 from src.research.triple_barrier import TripleBarrierLabeler
-from src.features.frac_diff import frac_diff_ffd
 from src.features.microstructure import MicrostructureFeatureExtractor
-from src.core.events import BarEvent, SignalEvent
+from src.core.events import BarEvent, SignalEvent, EventType
+
+logger = logging.getLogger("Ashva.AlphaMeta")
 
 
 class AlphaMetaLabeledStrategy(BaseStrategy, BaseHypothesis):
@@ -50,6 +53,7 @@ class AlphaMetaLabeledStrategy(BaseStrategy, BaseHypothesis):
         self.n_estimators = self.parameters.get("n_estimators", 50)
         self.model = RandomForestClassifier(n_estimators=self.n_estimators, max_depth=4, random_state=42)
         self.is_fitted = False
+        self._live_bars: List[BarEvent] = []
 
     def get_parameter_grid(self) -> Dict[str, List[Any]]:
         return {
@@ -67,17 +71,16 @@ class AlphaMetaLabeledStrategy(BaseStrategy, BaseHypothesis):
         features["vwap_dist"] = (df_feat["close"] - df_feat["vwap"]) / df_feat["vwap"].replace(0, np.nan)
         features["vol_surge"] = df_feat["volume_surge_ratio"]
         features["cvd_norm"] = df_feat["cvd"] / (df_feat["volume"].rolling(50).sum() + 1e-8)
-        
-        # Volatility
         features["volatility"] = df["close"].pct_change().rolling(20).std().fillna(0.0)
 
         return features.fillna(0.0)
 
     def fit_meta_model(self, df_train: pd.DataFrame):
         """
-        Trains the meta-model on primary signals and triple-barrier outcomes.
+        Explicitly trains the meta-model on primary signals and triple-barrier outcomes from training data.
+        Must be called prior to out-of-sample inference.
         """
-        # 1. Generate primary signals
+        # 1. Generate primary signals on training slice
         primary_df = self.primary_strategy.generate_signals(df_train)
         
         # 2. Compute Triple-Barrier Outcomes
@@ -89,7 +92,7 @@ class AlphaMetaLabeledStrategy(BaseStrategy, BaseHypothesis):
         )
 
         if barrier_outcomes.empty or len(barrier_outcomes) < 5:
-            # Fallback if insufficient trade samples
+            logger.warning("Insufficient samples to train Meta-Labeler. Defaulting to unfitted baseline.")
             self.is_fitted = True
             return
 
@@ -98,25 +101,26 @@ class AlphaMetaLabeledStrategy(BaseStrategy, BaseHypothesis):
         
         entry_times = barrier_outcomes["entry_time"].values
         X = features_df.loc[entry_times].values
-        # Binary target: 1 if hit profit barrier, 0 otherwise
         y = (barrier_outcomes["label"].values == 1).astype(int)
 
         if len(np.unique(y)) > 1:
             self.model.fit(X, y)
+            logger.info(f"Meta-Labeler trained successfully on {len(X)} trade samples.")
         self.is_fitted = True
 
     def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Filters and sizes primary strategy signals based on predicted win probability.
+        Filters and sizes primary strategy signals based on pre-trained win probability.
+        Will NOT silently train on inference data.
         """
         primary_df = self.primary_strategy.generate_signals(df)
+        
         if not self.is_fitted:
-            # Automatically fit on available data if not pre-fitted
-            self.fit_meta_model(primary_df)
+            logger.warning("AlphaMetaLabeledStrategy evaluated without pre-training! Forwarding primary signals.")
+            return primary_df
 
         features_df = self._extract_meta_features(primary_df)
         primary_signals = primary_df["signal"].values
-
         final_signals = np.zeros(len(df))
 
         for i in range(len(df)):
@@ -128,18 +132,61 @@ class AlphaMetaLabeledStrategy(BaseStrategy, BaseHypothesis):
                 feat_vector = features_df.iloc[i].values.reshape(1, -1)
                 win_prob = self.model.predict_proba(feat_vector)[0][1]
             else:
-                win_prob = 0.60  # Default conviction
+                win_prob = 0.60  # Default baseline
 
-            # Dynamic Sizing: 2 * P(win) - 1
             if win_prob >= self.min_conviction_threshold:
                 sizing_factor = float(np.clip(2.0 * win_prob - 1.0, 0.2, 1.0))
                 final_signals[i] = p_sig * sizing_factor
             else:
-                # Filter out low conviction trade
                 final_signals[i] = 0.0
 
         primary_df["signal"] = final_signals
         return primary_df
 
     def on_bar(self, bar: BarEvent) -> Optional[SignalEvent]:
-        return None
+        """Live streaming incremental bar handler."""
+        self._live_bars.append(bar)
+        if len(self._live_bars) > 200:
+            self._live_bars.pop(0)
+
+        # Delegate to primary strategy
+        primary_signal = self.primary_strategy.on_bar(bar)
+        if not primary_signal or primary_signal.direction == 0.0:
+            return None
+
+        if not self.is_fitted or not hasattr(self.model, "classes_") or len(self.model.classes_) <= 1:
+            return primary_signal
+
+        # Extract live features
+        df_live = pd.DataFrame([
+            {
+                "open": b.open,
+                "high": b.high,
+                "low": b.low,
+                "close": b.close,
+                "volume": b.volume,
+            }
+            for b in self._live_bars
+        ], index=[b.timestamp for b in self._live_bars])
+
+        feat_df = self._extract_meta_features(df_live)
+        feat_vector = feat_df.iloc[-1].values.reshape(1, -1)
+        win_prob = float(self.model.predict_proba(feat_vector)[0][1])
+
+        if win_prob >= self.min_conviction_threshold:
+            sizing = float(np.clip(2.0 * win_prob - 1.0, 0.2, 1.0))
+            return SignalEvent(
+                symbol=bar.symbol,
+                timestamp=bar.timestamp,
+                direction=primary_signal.direction,
+                strength=sizing,
+                strategy_id=self.strategy_id,
+                stop_loss=primary_signal.stop_loss,
+                take_profit=primary_signal.take_profit,
+                metadata={
+                    "ml_conviction": win_prob,
+                    "primary_strategy": self.primary_strategy.strategy_id,
+                },
+            )
+        else:
+            return None
