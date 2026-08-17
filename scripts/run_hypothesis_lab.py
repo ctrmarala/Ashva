@@ -43,6 +43,7 @@ from src.strategies.alpha_05_opening_drive_pullback import Alpha05OpeningDrivePu
 from src.strategies.alpha_06_pdh_pdl_sweep import Alpha06PDHPDLSweep
 from src.strategies.alpha_07_opening_volatility_expansion import Alpha07OpeningVolatilityExpansion
 from src.strategies.alpha_08_opening_imbalance import Alpha08OpeningImbalance
+from src.strategies.alpha_09_opening_relative_strength import Alpha09OpeningRelativeStrength
 
 STRATEGY_MAP = {
     "alpha_01": ("ALPHA_01_TRENDSURFER", AlphaTrendSurfer),
@@ -53,6 +54,7 @@ STRATEGY_MAP = {
     "alpha_06": ("ALPHA_06_PDH_PDL_SWEEP", Alpha06PDHPDLSweep),
     "alpha_07": ("ALPHA_07_OPENING_VOLATILITY_EXPANSION", Alpha07OpeningVolatilityExpansion),
     "alpha_08": ("ALPHA_08_OPENING_IMBALANCE", Alpha08OpeningImbalance),
+    "alpha_09": ("ALPHA_09_OPENING_RELATIVE_STRENGTH", Alpha09OpeningRelativeStrength),
 }
 
 DEFAULT_UNIVERSE = [

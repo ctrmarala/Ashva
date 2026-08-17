@@ -185,3 +185,24 @@ def test_alpha_08_opening_imbalance_signals(mock_intraday_dataframe):
     assert "min_range_atr_ratio" in grid
     assert "min_rvol" in grid
     assert "target_rr" in grid
+
+
+def test_alpha_09_opening_relative_strength_signals(mock_intraday_dataframe):
+    from src.strategies.alpha_09_opening_relative_strength import Alpha09OpeningRelativeStrength
+    strat = Alpha09OpeningRelativeStrength()
+    signals_df = strat.generate_signals(mock_intraday_dataframe)
+
+    assert "signal" in signals_df.columns
+    assert "stop_loss" in signals_df.columns
+    assert "take_profit" in signals_df.columns
+    assert "rationale" in signals_df.columns
+    assert len(signals_df) == len(mock_intraday_dataframe)
+
+    unique_sigs = set(signals_df["signal"].unique())
+    assert unique_sigs.issubset({-1.0, 0.0, 1.0})
+
+    grid = strat.get_parameter_grid()
+    assert "min_rs_threshold" in grid
+    assert "min_body_ratio" in grid
+    assert "min_rvol" in grid
+    assert "target_rr" in grid
