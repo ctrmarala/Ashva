@@ -147,3 +147,37 @@ class PaperBroker:
             slippage=abs(fill_price - fill_base_price),
         )
         return fill_event
+
+    def place_order(self, order: OrderEvent, current_price: Optional[float] = None) -> FillEvent:
+        """Alias for submit_order to match unified broker gateway interface."""
+        return self.submit_order(order=order, current_price=current_price)
+
+    def get_positions(self) -> List[Dict[str, Any]]:
+        """Returns list of open positions matching broker interface."""
+        return [
+            {
+                "symbol": sym,
+                "quantity": pos["quantity"],
+                "side": pos["side"],
+                "entry_price": pos["entry_price"],
+            }
+            for sym, pos in self.open_positions.items()
+        ]
+
+    def get_order_book(self) -> List[Dict[str, Any]]:
+        """Returns list of active orders matching broker interface."""
+        return [
+            {
+                "order_id": o.order_id,
+                "symbol": o.symbol,
+                "quantity": o.quantity,
+                "status": "OPEN",
+            }
+            for o in self.active_orders.values()
+        ]
+
+    def cancel_all_orders(self) -> List[Dict[str, Any]]:
+        """Cancels all simulated open orders."""
+        cancelled = list(self.active_orders.keys())
+        self.active_orders.clear()
+        return [{"order_id": oid, "status": "CANCELLED"} for oid in cancelled]

@@ -1,7 +1,8 @@
 """
 Ashva Angel One SmartAPI Live Broker Gateway
 Integrates with Angel One SmartConnect REST API with automated TOTP session management,
-outbound static IPv4 SEBI compliance check, and proxy routing support.
+outbound static IPv4 SEBI compliance check, position querying, order book management,
+and active kill-switch order cancellation.
 """
 
 from datetime import datetime
@@ -18,7 +19,8 @@ logger = logging.getLogger("Ashva.AngelBroker")
 
 class AngelBrokerGateway:
     """
-    Production broker gateway for Angel One SmartAPI with static IP enforcement.
+    Production broker gateway for Angel One SmartAPI with static IP enforcement,
+    position auditing, and emergency order cancellation.
     """
 
     IP_LOOKUP_URL = "https://api.ipify.org?format=json"
@@ -106,12 +108,107 @@ class AngelBrokerGateway:
             logger.error(f"SmartAPI login failed: {err_msg}")
             raise ConnectionError(f"SmartAPI Authentication Failure: {err_msg}")
 
-    def place_order(self, order: OrderEvent, symbol_token: str, exchange: str = "NSE") -> Dict[str, Any]:
+    def get_positions(self) -> List[Dict[str, Any]]:
+        """
+        Retrieves live position book from Angel One SmartAPI.
+        Normalizes response into standard [{symbol, quantity, side, entry_price, unrealized_pnl}].
+        """
+        if not self.smart_connect:
+            self.authenticate()
+
+        try:
+            res = self.smart_connect.position()
+            if res and res.get("status") and "data" in res:
+                raw_positions = res["data"] or []
+                normalized = []
+                for p in raw_positions:
+                    net_qty = int(p.get("netqty", 0))
+                    if net_qty != 0:
+                        normalized.append({
+                            "symbol": p.get("tradingsymbol", "").replace("-EQ", ""),
+                            "symbol_token": p.get("symboltoken", ""),
+                            "quantity": abs(net_qty),
+                            "side": "LONG" if net_qty > 0 else "SHORT",
+                            "entry_price": float(p.get("buyavgprice" if net_qty > 0 else "sellavgprice", 0.0)),
+                            "ltp": float(p.get("ltp", 0.0)),
+                            "pnl": float(p.get("pnl", 0.0)),
+                        })
+                return normalized
+            return []
+        except Exception as e:
+            logger.error(f"Failed to fetch Angel One positions: {e}")
+            return []
+
+    def get_order_book(self) -> List[Dict[str, Any]]:
+        """
+        Retrieves full active order book from Angel One SmartAPI.
+        """
+        if not self.smart_connect:
+            self.authenticate()
+
+        try:
+            res = self.smart_connect.orderBook()
+            if res and res.get("status") and "data" in res:
+                return res["data"] or []
+            return []
+        except Exception as e:
+            logger.error(f"Failed to fetch Angel One order book: {e}")
+            return []
+
+    def cancel_order(self, order_id: str, variety: str = "NORMAL") -> Dict[str, Any]:
+        """Cancels a specific pending order at Angel One."""
+        if not self.smart_connect:
+            self.authenticate()
+
+        try:
+            res = self.smart_connect.cancelOrder(order_id, variety)
+            logger.info(f"Cancelled Angel One order {order_id}: {res}")
+            return res
+        except Exception as e:
+            logger.error(f"Failed to cancel Angel One order {order_id}: {e}")
+            raise RuntimeError(f"Angel One Order Cancellation Error: {e}")
+
+    def cancel_all_orders(self) -> List[Dict[str, Any]]:
+        """
+        Emergency Kill-Switch Action:
+        Finds all open and trigger-pending orders in order book and cancels them immediately.
+        """
+        open_orders = self.get_order_book()
+        results = []
+        for o in open_orders:
+            status = o.get("status", "").upper()
+            order_id = o.get("orderid")
+            variety = o.get("variety", "NORMAL")
+            if status in ["OPEN", "TRIGGER_PENDING", "PENDING"] and order_id:
+                try:
+                    c_res = self.cancel_order(order_id=order_id, variety=variety)
+                    results.append(c_res)
+                except Exception as e:
+                    logger.error(f"Failed to cancel pending order {order_id}: {e}")
+        return results
+
+    def get_rms_limits(self) -> Dict[str, Any]:
+        """Fetches account balance and available margin limits from Angel One."""
+        if not self.smart_connect:
+            self.authenticate()
+
+        try:
+            res = self.smart_connect.rmsLimit()
+            if res and res.get("status") and "data" in res:
+                return res["data"]
+            return {}
+        except Exception as e:
+            logger.error(f"Failed to fetch RMS limits: {e}")
+            return {}
+
+    def place_order(self, order: OrderEvent, symbol_token: Optional[str] = None, exchange: str = "NSE") -> Dict[str, Any]:
         """
         Dispatches OrderEvent to Angel One REST API.
         """
         if not self.smart_connect:
             self.authenticate()
+
+        token = symbol_token or getattr(order, "symbol_token", "0")
 
         # Map OrderSide to SmartAPI TransactionType
         txn_type = "BUY" if order.side == OrderSide.BUY else "SELL"
@@ -133,7 +230,7 @@ class AngelBrokerGateway:
         order_params = {
             "variety": "NORMAL",
             "tradingsymbol": f"{order.symbol.upper()}-EQ",
-            "symboltoken": str(symbol_token),
+            "symboltoken": str(token),
             "transactiontype": txn_type,
             "exchange": exchange.upper(),
             "ordertype": ord_type,
