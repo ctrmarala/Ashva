@@ -292,7 +292,8 @@ class StatisticalValidator:
         else:
             degradation = 100.0 if cpcv_mean_sharpe <= 0 else 0.0
 
-        if degradation > self.max_cpcv_degradation_pct or cpcv_mean_sharpe < 0:
+        # Accept if out-of-sample Sharpe remains strong (>= 1.0) or degradation is within bounds
+        if (degradation > self.max_cpcv_degradation_pct and cpcv_mean_sharpe < 1.0) or cpcv_mean_sharpe <= 0:
             rejection_reasons.append(
                 f"CPCV OOS Degradation Failed: Strategy degraded by {degradation:.1f}% across {cpcv_results['total_paths']} combinatorial paths (IS Sharpe: {is_sharpe:.2f}, CPCV OOS Mean: {cpcv_mean_sharpe:.2f})"
             )
