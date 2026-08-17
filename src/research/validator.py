@@ -39,6 +39,7 @@ class StatisticalValidator:
         max_dsr_p_value: float = 0.05,          # Statistical significance threshold
         max_cpcv_degradation_pct: float = 50.0, # Max allowed performance drop OOS
         max_monte_carlo_dd_pct: float = 15.0,   # Max 95th percentile drawdown
+        min_trade_count: int = 25,              # Minimum sample size to avoid small-sample distortion
     ):
         self.cost_model = cost_model or IndianCostModel()
         self.experiment_ledger = experiment_ledger or ResearchExperimentLedger()
@@ -46,6 +47,7 @@ class StatisticalValidator:
         self.max_dsr_p_value = max_dsr_p_value
         self.max_cpcv_degradation_pct = max_cpcv_degradation_pct
         self.max_monte_carlo_dd_pct = max_monte_carlo_dd_pct
+        self.min_trade_count = min_trade_count
 
     @staticmethod
     def calculate_sharpe_ratio(returns: np.ndarray, risk_free_rate: float = 0.065, periods_per_year: int = 252 * 25) -> float:
@@ -275,7 +277,13 @@ class StatisticalValidator:
 
         is_sharpe = is_result.sharpe_ratio
 
-        # 3. Gate 1: Deflated Sharpe Ratio (DSR) Test on Continuous Mark-to-Market Returns
+        # 3. Gate 0: Minimum Statistical Sample Size Gate
+        if full_result.total_trades < self.min_trade_count:
+            rejection_reasons.append(
+                f"Sample Density Gate Failed: Insufficient trade count (N={full_result.total_trades} < {self.min_trade_count}). Small-sample results are statistically unrepresentative."
+            )
+
+        # 4. Gate 1: Deflated Sharpe Ratio (DSR) Test on Continuous Mark-to-Market Returns
         continuous_returns = full_result.equity_curve.pct_change().dropna().values
         dsr_stat, dsr_p_val = self.calculate_deflated_sharpe_ratio(continuous_returns, num_trials=effective_trials)
         if dsr_p_val > self.max_dsr_p_value:

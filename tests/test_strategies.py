@@ -97,6 +97,7 @@ def test_alpha_04_gap_and_go_signals(mock_intraday_dataframe):
 
     grid = strat.get_parameter_grid()
     assert "min_gap_pct" in grid
-    assert "volume_mult" in grid
+    assert "max_gap_pct" in grid
+    assert "rvol_mult" in grid
     assert "min_adx" in grid
     assert "rr_ratio" in grid

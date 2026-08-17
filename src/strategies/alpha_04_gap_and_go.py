@@ -1,9 +1,11 @@
 """
 Ashva Quantitative Strategy: Alpha 04 — Gap & Go (alpha_04_gap_and_go)
-Hypothesis:
-When a liquid NSE stock opens with a meaningful overnight gap and early trading confirms
-that the gap represents genuine new information rather than an immediate liquidity imbalance,
-the initial directional move tends to continue intraday.
+Institutional Overnight Gap Continuation Engine.
+Incorporate:
+1. Upper & lower gap bounds (0.50% to 2.50%).
+2. Time-of-Day (TOD) 09:15 Relative Volume (RVOL) benchmark.
+3. Explicit previous-session final-bar close extraction.
+4. Execution price alignment at 09:30 open.
 """
 
 from typing import Dict, List, Any, Optional
@@ -18,7 +20,6 @@ from src.research.hypothesis import BaseHypothesis, HypothesisMetadata, Hypothes
 class Alpha04GapAndGo(BaseHypothesis):
     """
     Alpha 04: Gap & Go (alpha_04_gap_and_go)
-    Identifies institutional overnight gap continuations confirmed by early volume and gap holding.
     """
 
     def __init__(
@@ -31,10 +32,9 @@ class Alpha04GapAndGo(BaseHypothesis):
             name="alpha_04_gap_and_go",
             category="INTRADAY_MOMENTUM_GAP_CONTINUATION",
             economic_rationale=(
-                "When a liquid NSE stock opens with a meaningful overnight gap and early trading confirms "
-                "that the gap represents genuine new information rather than an immediate liquidity imbalance, "
-                "the initial directional move tends to continue intraday. High opening volume and price holding "
-                "above/below previous day's close confirms institutional consensus."
+                "When a liquid NSE stock opens with a meaningful overnight gap (0.50% to 2.50%) "
+                "and early trading confirms that the gap represents genuine new information rather than "
+                "an immediate liquidity imbalance, the initial directional move tends to continue intraday."
             ),
             target_instruments=[
                 "INFY", "TCS", "ICICIBANK", "HDFCBANK", "SBIN",
@@ -44,27 +44,28 @@ class Alpha04GapAndGo(BaseHypothesis):
             author="AshvaQuantLab",
         )
         params = parameters or {
-            "min_gap_pct": 0.50,         # Minimum 0.50% overnight gap size
-            "volume_mult": 1.30,         # First 15m volume >= 1.3x 20-period Volume SMA
+            "min_gap_pct": 0.50,         # Minimum 0.50% overnight gap
+            "max_gap_pct": 2.50,         # Maximum 2.50% gap cap (avoid freak runaway gap distortions)
+            "rvol_mult": 1.30,           # Opening 09:15 volume >= 1.30x 20-session TOD average
             "min_adx": 16.0,             # Minimum directional trend momentum
             "rr_ratio": 2.0,             # 2.0R Take Profit
             "sl_buffer_atr": 0.5,        # Buffer beyond first bar extreme
-            "entry_time": "09:30",       # Triggered at 09:30 AM after first bar confirmation
             "eod_exit_time": "15:15",
         }
         super().__init__(metadata=meta, parameters=params)
 
     def get_parameter_grid(self) -> Dict[str, List[Any]]:
         return {
-            "min_gap_pct": [0.40, 0.50, 0.70],
-            "volume_mult": [1.10, 1.30, 1.50],
+            "min_gap_pct": [0.40, 0.50, 0.60],
+            "max_gap_pct": [2.0, 2.5, 3.0],
+            "rvol_mult": [1.10, 1.30, 1.50],
             "min_adx": [14.0, 16.0, 18.0],
             "rr_ratio": [1.5, 2.0, 2.5],
         }
 
     def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Generates gap continuation signals when opening gap holds with elevated volume.
+        Generates gap continuation signals with TOD relative volume and explicit prior-session close.
         """
         out = df.copy()
 
@@ -76,25 +77,52 @@ class Alpha04GapAndGo(BaseHypothesis):
                 raise ValueError("DataFrame must have a DatetimeIndex or 'timestamp' column")
 
         min_gap = float(self.parameters.get("min_gap_pct", 0.50))
-        vol_mult = float(self.parameters.get("volume_mult", 1.30))
+        max_gap = float(self.parameters.get("max_gap_pct", 2.50))
+        rvol_m = float(self.parameters.get("rvol_mult", 1.30))
         min_adx = float(self.parameters.get("min_adx", 16.0))
         rr = float(self.parameters.get("rr_ratio", 2.0))
         sl_buffer = float(self.parameters.get("sl_buffer_atr", 0.5))
 
-        # Technical Indicators
+        # 1. Technical Indicators
         out = TI.add_atr(out, period=14)
         out = TI.add_adx(out, period=14)
-        out["vol_sma20"] = out["volume"].rolling(window=20, min_periods=5).mean()
 
-        # Intraday Anchored VWAP
+        # 2. Intraday Anchored VWAP
         typical_p = (out["high"] + out["low"] + out["close"]) / 3.0
         pv = typical_p * out["volume"]
-        dates = pd.to_datetime(out.index).date
-        out["cum_pv"] = pv.groupby(dates).cumsum()
-        out["cum_v"] = out["volume"].groupby(dates).cumsum()
+        dates_series = pd.to_datetime(out.index).date
+        out["cum_pv"] = pv.groupby(dates_series).cumsum()
+        out["cum_v"] = out["volume"].groupby(dates_series).cumsum()
         out["vwap"] = out["cum_pv"] / out["cum_v"].replace(0, np.nan)
         out["vwap"] = out["vwap"].bfill().ffill()
         out.drop(columns=["cum_pv", "cum_v"], inplace=True)
+
+        # 3. Explicit Prior Session Last Close Mapping & 09:15 TOD Relative Volume
+        unique_dates = sorted(list(set(dates_series)))
+        prior_close_map = {}
+        tod_0915_vol_map = {}
+
+        # Build daily 09:15 volumes list for TOD benchmark
+        daily_0915_vols = []
+        for d in unique_dates:
+            day_mask = (dates_series == d)
+            day_df = out[day_mask]
+            if not day_df.empty:
+                # Store 09:15 bar volume
+                t0915_rows = day_df[day_df.index.time == time(9, 15)]
+                v0915 = t0915_rows["volume"].iloc[0] if not t0915_rows.empty else np.nan
+                daily_0915_vols.append(v0915)
+                # Compute rolling 20-session TOD volume average
+                past_vols = [v for v in daily_0915_vols[-21:-1] if not np.isnan(v)]
+                tod_0915_vol_map[d] = np.mean(past_vols) if past_vols else v0915
+
+        # Build explicit prior-day final close map
+        for idx in range(1, len(unique_dates)):
+            prev_d = unique_dates[idx - 1]
+            curr_d = unique_dates[idx]
+            prev_day_df = out[dates_series == prev_d]
+            if not prev_day_df.empty:
+                prior_close_map[curr_d] = prev_day_df["close"].iloc[-1]
 
         n = len(out)
         signals = np.zeros(n, dtype=np.float64)
@@ -107,7 +135,6 @@ class Alpha04GapAndGo(BaseHypothesis):
         highs = out["high"].values
         lows = out["low"].values
         vols = out["volume"].values
-        vol_smas = out["vol_sma20"].values
         vwaps = out["vwap"].values
         adxs = out["adx_14"].values
         atrs = out["atr_14"].values
@@ -124,14 +151,11 @@ class Alpha04GapAndGo(BaseHypothesis):
         curr_tp = 0.0
 
         current_day = None
-        prev_day_close = np.nan
         first_bar_open = np.nan
         first_bar_high = np.nan
         first_bar_low = np.nan
         first_bar_close = np.nan
         first_bar_vol = np.nan
-        first_bar_vol_sma = np.nan
-        first_bar_adx = np.nan
         trade_taken_today = False
 
         for i in range(1, n):
@@ -142,22 +166,18 @@ class Alpha04GapAndGo(BaseHypothesis):
             c_high = highs[i]
             c_low = lows[i]
             c_vol = vols[i]
-            c_vol_sma = vol_smas[i]
             c_vwap = vwaps[i]
             c_adx = adxs[i]
             c_atr = atrs[i]
 
-            # New Trading Day Initialization
+            # Day boundary reset
             if current_day != d:
-                prev_day_close = closes[i - 1]  # Previous session closing price
                 current_day = d
                 first_bar_open = np.nan
                 first_bar_high = np.nan
                 first_bar_low = np.nan
                 first_bar_close = np.nan
                 first_bar_vol = np.nan
-                first_bar_vol_sma = np.nan
-                first_bar_adx = np.nan
                 trade_taken_today = False
 
             # Capture First 15m Bar (09:15 - 09:30 AM)
@@ -167,8 +187,6 @@ class Alpha04GapAndGo(BaseHypothesis):
                 first_bar_low = c_low
                 first_bar_close = c_price
                 first_bar_vol = c_vol
-                first_bar_vol_sma = c_vol_sma
-                first_bar_adx = c_adx
 
             # Intraday EOD Exit
             if t >= t_1515:
@@ -178,18 +196,25 @@ class Alpha04GapAndGo(BaseHypothesis):
                     rationales[i] = "alpha_04_gap_and_go EXIT: Intraday 15:15 EOD Square-Off"
                 continue
 
-            # Gap & Go Trigger at 09:30 AM (Bar 2 Open / Breakout)
-            if (curr_state == 0.0) and not trade_taken_today and not np.isnan(prev_day_close) and not np.isnan(first_bar_close) and (t == t_0930):
+            # Gap & Go Trigger at 09:30 AM (Bar 2 Open)
+            if (curr_state == 0.0) and not trade_taken_today and (d in prior_close_map) and not np.isnan(first_bar_close) and (t == t_0930):
+                prev_day_close = prior_close_map[d]
+                tod_benchmark_vol = tod_0915_vol_map.get(d, first_bar_vol)
+
                 gap_pct = ((first_bar_open - prev_day_close) / prev_day_close) * 100.0
-                vol_ok = (first_bar_vol >= vol_mult * first_bar_vol_sma) if not np.isnan(first_bar_vol_sma) and first_bar_vol_sma > 0 else True
+                abs_gap = abs(gap_pct)
+                rvol = (first_bar_vol / tod_benchmark_vol) if tod_benchmark_vol and tod_benchmark_vol > 0 else 1.0
+
+                gap_valid = (min_gap <= abs_gap <= max_gap)
+                rvol_ok = (rvol >= rvol_m)
                 adx_ok = (c_adx >= min_adx) if not np.isnan(c_adx) else True
 
-                # 1. GAP UP & GO (BULLISH GAP CONTINUATION)
-                # - Meaningful Gap Up: Open >= Prev Close + 0.50%
-                # - Gap Holding: First bar Low did NOT fill the gap (Low >= Prev Close)
-                # - Bullish Acceptance: First bar Close > Open and Close > VWAP
-                # - Institutional Volume: Volume >= 1.3x SMA20
-                if (gap_pct >= min_gap) and (first_bar_low >= prev_day_close) and (first_bar_close > first_bar_open) and (c_price > c_vwap) and vol_ok and adx_ok:
+                # 1. GAP UP & GO (BULLISH CONTINUATION)
+                # - Gap between 0.50% and 2.50%
+                # - First bar Low >= Prev Close (Gap holds)
+                # - First bar Close > Open and Close > VWAP
+                # - TOD 09:15 RVOL >= 1.30x
+                if gap_valid and (gap_pct > 0) and (first_bar_low >= prev_day_close) and (first_bar_close > first_bar_open) and (c_price > c_vwap) and rvol_ok and adx_ok:
                     curr_state = 1.0
                     entry_price = c_open
                     curr_sl = min(first_bar_low - (sl_buffer * c_atr), prev_day_close)
@@ -202,16 +227,16 @@ class Alpha04GapAndGo(BaseHypothesis):
                         stop_loss[i] = curr_sl
                         take_profit[i] = curr_tp
                         rationales[i] = (
-                            f"alpha_04_gap_and_go LONG (GAP UP & GO): Gap={gap_pct:+.2f}% | "
-                            f"Vol={first_bar_vol:.0f} (>={vol_mult}x SMA) | ADX={c_adx:.1f} | SL={curr_sl:.1f} | TP={curr_tp:.1f}"
+                            f"alpha_04_gap_and_go LONG: Gap={gap_pct:+.2f}% | "
+                            f"RVOL_0915={rvol:.2f}x | ADX={c_adx:.1f} | Entry={entry_price:.1f} | SL={curr_sl:.1f} | TP={curr_tp:.1f}"
                         )
 
-                # 2. GAP DOWN & GO (BEARISH GAP CONTINUATION)
-                # - Meaningful Gap Down: Open <= Prev Close - 0.50%
-                # - Gap Holding: First bar High did NOT fill the gap (High <= Prev Close)
-                # - Bearish Acceptance: First bar Close < Open and Close < VWAP
-                # - Institutional Volume: Volume >= 1.3x SMA20
-                elif (gap_pct <= -min_gap) and (first_bar_high <= prev_day_close) and (first_bar_close < first_bar_open) and (c_price < c_vwap) and vol_ok and adx_ok:
+                # 2. GAP DOWN & GO (BEARISH CONTINUATION)
+                # - Gap between -0.50% and -2.50%
+                # - First bar High <= Prev Close (Gap holds)
+                # - First bar Close < Open and Close < VWAP
+                # - TOD 09:15 RVOL >= 1.30x
+                elif gap_valid and (gap_pct < 0) and (first_bar_high <= prev_day_close) and (first_bar_close < first_bar_open) and (c_price < c_vwap) and rvol_ok and adx_ok:
                     curr_state = -1.0
                     entry_price = c_open
                     curr_sl = max(first_bar_high + (sl_buffer * c_atr), prev_day_close)
@@ -224,8 +249,8 @@ class Alpha04GapAndGo(BaseHypothesis):
                         stop_loss[i] = curr_sl
                         take_profit[i] = curr_tp
                         rationales[i] = (
-                            f"alpha_04_gap_and_go SHORT (GAP DOWN & GO): Gap={gap_pct:+.2f}% | "
-                            f"Vol={first_bar_vol:.0f} (>={vol_mult}x SMA) | ADX={c_adx:.1f} | SL={curr_sl:.1f} | TP={curr_tp:.1f}"
+                            f"alpha_04_gap_and_go SHORT: Gap={gap_pct:+.2f}% | "
+                            f"RVOL_0915={rvol:.2f}x | ADX={c_adx:.1f} | Entry={entry_price:.1f} | SL={curr_sl:.1f} | TP={curr_tp:.1f}"
                         )
 
             # In Position: Monitor TP / SL
