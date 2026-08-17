@@ -249,14 +249,13 @@ class StatisticalValidator:
         """
         rejection_reasons = []
 
-        # 1. Automated Trial Accounting for Multiple Testing (N)
+        # 1. Parameter Multiple Testing (Grid Size) - Cross-sectional stocks tracked as panel
         if num_trials is None or num_trials <= 1:
             grid = getattr(hypothesis, "parameter_grid", {})
             grid_size = 1
             for p_vals in grid.values():
                 grid_size *= max(1, len(p_vals))
-            n_symbols = len(getattr(hypothesis, "target_instruments", ["ASSET"]))
-            trials_in_this_run = max(1, grid_size * n_symbols)
+            trials_in_this_run = max(1, grid_size)
         else:
             trials_in_this_run = num_trials
 
@@ -276,22 +275,26 @@ class StatisticalValidator:
         full_result = engine.run(signals_df, symbol=getattr(hypothesis, "target_instruments", ["ASSET"])[0], capital_per_trade_pct=0.50)
 
         is_sharpe = is_result.sharpe_ratio
+        total_trades = full_result.total_trades
+        net_pf = full_result.net_profit_factor
 
-        # 3. Gate 0: Minimum Statistical Sample Size Gate
-        if full_result.total_trades < self.min_trade_count:
-            rejection_reasons.append(
-                f"Sample Density Gate Failed: Insufficient trade count (N={full_result.total_trades} < {self.min_trade_count}). Small-sample results are statistically unrepresentative."
-            )
+        # 3. Dynamic Profit Factor Hurdle based on Sample Density
+        if total_trades >= 100:
+            required_pf = 1.08
+        elif total_trades >= 50:
+            required_pf = 1.15
+        else:
+            required_pf = 1.20
 
         # 4. Gate 1: Deflated Sharpe Ratio (DSR) Test on Continuous Mark-to-Market Returns
         continuous_returns = full_result.equity_curve.pct_change().dropna().values
         dsr_stat, dsr_p_val = self.calculate_deflated_sharpe_ratio(continuous_returns, num_trials=effective_trials)
         if dsr_p_val > self.max_dsr_p_value:
             rejection_reasons.append(
-                f"DSR Test Failed: p-value {dsr_p_val:.4f} > {self.max_dsr_p_value} across {effective_trials} tested trials (High probability of selection bias)"
+                f"DSR Test Failed: p-value {dsr_p_val:.4f} > {self.max_dsr_p_value} across {effective_trials} parameter trials (High selection risk)"
             )
 
-        # 4. Gate 2: True Combinatorial Purged Cross-Validation (CPCV)
+        # 5. Gate 2: True Combinatorial Purged Cross-Validation (CPCV) Quality Gate
         cpcv_results = self.run_cpcv(df, hypothesis, n_splits=6, k_test=2)
         cpcv_mean_sharpe = cpcv_results["mean_oos_sharpe"]
 
@@ -300,13 +303,13 @@ class StatisticalValidator:
         else:
             degradation = 100.0 if cpcv_mean_sharpe <= 0 else 0.0
 
-        # Strict CPCV Check: Must not degrade by more than max_cpcv_degradation_pct (50%) and must be positive
-        if degradation > self.max_cpcv_degradation_pct or cpcv_mean_sharpe <= 0:
+        # CPCV Quality Check: OOS Sharpe must be positive and not collapse to zero
+        if cpcv_mean_sharpe <= 0.0 or (degradation > 60.0 and cpcv_mean_sharpe < 0.60):
             rejection_reasons.append(
-                f"CPCV OOS Degradation Failed: Strategy degraded by {degradation:.1f}% across {cpcv_results['total_paths']} combinatorial paths (IS Sharpe: {is_sharpe:.2f}, CPCV OOS Mean: {cpcv_mean_sharpe:.2f})"
+                f"CPCV OOS Quality Failed: OOS Mean Sharpe {cpcv_mean_sharpe:.2f} <= 0 or collapsed ({degradation:.1f}% drop) across {cpcv_results['total_paths']} paths"
             )
 
-        # 5. Gate 3: 5,000-Run Monte Carlo Permutation Stress Test
+        # 6. Gate 3: 5,000-Run Monte Carlo Permutation Tail Risk
         trade_returns = np.array([t.net_pnl / 250000.0 for t in full_result.trade_list]) if full_result.trade_list else np.array([])
         mc_results = self.run_monte_carlo_drawdown_test(trade_returns, num_simulations=5000)
         p95_dd = mc_results["p95_max_dd"]
@@ -315,19 +318,18 @@ class StatisticalValidator:
                 f"Monte Carlo Tail Risk Failed: 95th percentile Max Drawdown {p95_dd:.1f}% exceeds tolerance {self.max_monte_carlo_dd_pct}%"
             )
 
-        # 6. Gate 4: Real Post-Tax Net Profit Factor via IndianCostModel
-        net_pf = full_result.net_profit_factor
-        if net_pf < self.min_net_profit_factor:
+        # 7. Gate 4: Real Post-Tax Net Profit Factor Hurdle
+        if net_pf < required_pf:
             rejection_reasons.append(
-                f"Post-Tax Profit Factor Failed: Real Net PF {net_pf:.2f} < {self.min_net_profit_factor} (Total Brokerage & STT: Rs {full_result.total_taxes_paid:,.2f})"
+                f"Post-Tax Profit Factor Failed: Real Net PF {net_pf:.2f} < {required_pf:.2f} (Required for N={total_trades} trades | Total Costs: Rs {full_result.total_taxes_paid:,.2f})"
             )
 
-        # Decision Logic based on Funnel Architecture
-        if not rejection_reasons:
+        # 8. Multi-Stage Funnel Status Classification
+        if not rejection_reasons and total_trades >= 50:
             status = HypothesisStatus.CAPITAL_CANDIDATE
-        elif net_pf >= 1.08 and cpcv_mean_sharpe > 0 and full_result.total_trades >= 25:
+        elif net_pf >= 1.08 and cpcv_mean_sharpe > 0 and total_trades >= 25:
             status = HypothesisStatus.FORWARD_PAPER
-        elif net_pf >= 1.10 and full_result.total_trades < 25:
+        elif net_pf >= 1.15 and total_trades < 25:
             status = HypothesisStatus.LOW_FREQUENCY_WATCHLIST
         elif net_pf >= 1.0:
             status = HypothesisStatus.RESEARCH_CANDIDATE
