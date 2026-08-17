@@ -143,4 +143,4 @@ def ingest_data(timeframe: str = "15m", days: int = 540):
 
 
 if __name__ == "__main__":
-    ingest_data(timeframe="15m", days=180)
+    ingest_data(timeframe="15m", days=540)
