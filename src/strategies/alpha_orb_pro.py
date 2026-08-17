@@ -167,8 +167,8 @@ class AlphaAuctionORBPro(BaseHypothesis):
             # Active Trading Window: 09:30 to 13:30
             if (orb_high > orb_low) and not trade_taken_today and (t <= t_1330):
                 range_mid = (orb_high + orb_low) / 2.0
-                vol_ok = (c_vol >= 0.9 * c_vol_sma) if not np.isnan(c_vol_sma) else True
-                adx_ok = (c_adx >= 16.0) if not np.isnan(c_adx) else True
+                vol_ok = (c_vol >= vol_mult * c_vol_sma) if not np.isnan(c_vol_sma) and c_vol_sma > 0 else True
+                adx_ok = (c_adx >= min_adx) if not np.isnan(c_adx) else True
 
                 # Decisive Bullish Breakout:
                 # 1. Close > ORB High

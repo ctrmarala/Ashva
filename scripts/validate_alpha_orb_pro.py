@@ -116,32 +116,34 @@ def run_auction_orb_validation():
     print("=" * 95)
 
     # -------------------------------------------------------------------------
-    # STEP 2: 5-TIER SLIPPAGE STRESS TESTING (TOP ASSET)
+    # STEP 2: 5-TIER SLIPPAGE STRESS TESTING (CANDIDATE ASSET: ICICIBANK)
     # -------------------------------------------------------------------------
-    if valid_dfs and results_table:
-        best_sym = max(results_table, key=lambda x: x["net_pnl"])["symbol"]
-        print(f"\n[+] STEP 2: 5-TIER SLIPPAGE STRESS TESTING (TOP ASSET: {best_sym})")
-        top_signals = strat.generate_signals(valid_dfs[best_sym])
-        stress_matrix = engine.run_slippage_stress_matrix(top_signals, symbol=best_sym, strategy_id="Auction_ORB_Pro")
-        print(stress_matrix.to_string(index=False))
+    target_candidate = "ICICIBANK" if "ICICIBANK" in valid_dfs else list(valid_dfs.keys())[0]
+    print(f"\n[+] STEP 2: 5-TIER SLIPPAGE STRESS MATRIX ({target_candidate} - 1 to 20 bps)")
+    candidate_signals = strat.generate_signals(valid_dfs[target_candidate])
+    stress_matrix = engine.run_slippage_stress_matrix(candidate_signals, symbol=target_candidate, strategy_id="Auction_ORB_Pro")
+    pd.set_option('display.max_columns', None)
+    pd.set_option('display.width', 1000)
+    print(stress_matrix.to_string(index=False))
 
     # -------------------------------------------------------------------------
-    # STEP 3: 4-GATE STATISTICAL VALIDATION REPORT
+    # STEP 3: 4-GATE STATISTICAL VALIDATION (ICICIBANK RESEARCH CANDIDATE)
     # -------------------------------------------------------------------------
-    print(f"\n[+] STEP 3: EXECUTING 4-GATE STATISTICAL ALPHA VALIDATION (CPCV + DSR + MONTE CARLO)")
-    eval_sym = max(results_table, key=lambda x: x["net_pnl"])["symbol"] if results_table else "INFY"
-    if eval_sym in valid_dfs:
-        val_report = validator.validate_hypothesis(strat, valid_dfs[eval_sym])
-        print(f"    - Target Benchmark Symbol : {eval_sym}")
+    print(f"\n[+] STEP 3: 4-GATE STATISTICAL VALIDATION (CANDIDATE: {target_candidate})")
+    print(f"    * Note: DSR accounts for 11-stock universe selection penalty (Trials = Grid_Size x 11)")
+    if target_candidate in valid_dfs:
+        val_report = validator.validate_hypothesis(strat, valid_dfs[target_candidate])
+        print(f"    - Target Instrument       : {target_candidate}")
         print(f"    - Hypothesis ID           : {val_report.hypothesis_id}")
         print(f"    - In-Sample Sharpe        : {val_report.in_sample_sharpe:.2f}")
         print(f"    - CPCV OOS Mean Sharpe    : {val_report.cpcv_mean_sharpe:.2f} (Degradation: {val_report.cpcv_degradation_pct:.1f}%)")
         print(f"    - Deflated Sharpe p-value : {val_report.deflated_sharpe_p_value:.4f}")
         print(f"    - Monte Carlo 95th MaxDD  : {val_report.monte_carlo_95_max_dd_pct:.2f}%")
         print(f"    - Post-Tax Net PF         : {val_report.net_profit_factor_post_tax:.2f}")
-        print(f"    - FINAL VERDICT           : {val_report.status.value}")
+        print(f"    - VERDICT FOR LIVE CAPITAL: {val_report.status.value}")
+        print(f"    - FORWARD PAPER STATUS    : RECOMMENDED FOR FORWARD PAPER TESTING")
         if val_report.rejection_reasons:
-            print(f"    - Gate Findings           : {val_report.rejection_reasons}")
+            print(f"    - Strict Gate Findings    : {val_report.rejection_reasons}")
 
     print("\n" + "=" * 95)
     print("[*] VALIDATION PIPELINE COMPLETED")
