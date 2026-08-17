@@ -59,3 +59,27 @@ def test_triple_barrier_labeling():
     assert "raw_return" in label_df.columns
     assert "label" in label_df.columns
     assert label_df.iloc[0]["label"] in [1, -1, 0]
+
+
+def test_lifecycle_states_and_evidence_tiers():
+    validator = StatisticalValidator()
+
+    # 1. Evidence Tiers
+    t0_label, _ = validator.classify_sample_evidence_tier(10)
+    assert "INSUFFICIENT" in t0_label
+    t1_label, _ = validator.classify_sample_evidence_tier(35)
+    assert "PRELIMINARY" in t1_label
+    t2_label, _ = validator.classify_sample_evidence_tier(75)
+    assert "RESEARCH_CANDIDATE" in t2_label
+    t3_label, _ = validator.classify_sample_evidence_tier(150)
+    assert "STATISTICALLY_MEANINGFUL" in t3_label
+    t4_label, _ = validator.classify_sample_evidence_tier(250)
+    assert "STRONG_SAMPLE" in t4_label
+
+    # 2. Status Enums Check
+    from src.research.hypothesis import HypothesisStatus
+    assert HypothesisStatus.FORWARD_PAPER == "FORWARD_PAPER"
+    assert HypothesisStatus.LOW_FREQUENCY_WATCHLIST == "LOW_FREQUENCY_WATCHLIST"
+    assert HypothesisStatus.RESEARCH_CANDIDATE == "RESEARCH_CANDIDATE"
+    assert HypothesisStatus.CAPITAL_CANDIDATE == "CAPITAL_CANDIDATE"
+    assert HypothesisStatus.REJECTED == "REJECTED"
