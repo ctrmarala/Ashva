@@ -148,7 +148,7 @@ def main():
     ts_gen = QuantTearsheetGenerator()
 
     print("=" * 115)
-    print("[*] ASHVA QUANTITATIVE RESEARCH & HYPOTHESIS LAB")
+    print("[*] ASHVA QUANTITATIVE RESEARCH LAB: 18-MONTH HISTORICAL VALIDATION CANVAS (PRIMARY STANDARD)")
     print(f"[*] Timeframe: {args.timeframe.upper()} | Regulatory Cost Engine: STT, Exchange, GST, SEBI + 3.0 bps Slippage")
     print("=" * 115)
 
@@ -168,7 +168,7 @@ def main():
     for strat_name, strat_cls in strategies_to_run:
         strat_obj = strat_cls()
         print(f"\n" + "#" * 115)
-        print(f"[+] AUDITING STRATEGY: {strat_name}")
+        print(f"[+] PRIMARY 18-MONTH HISTORICAL VALIDATION: {strat_name}")
         print("#" * 115)
 
         results = run_strategy_backtest(strat_name, strat_obj, target_symbols, lake, engine, validator, args.timeframe)
@@ -184,7 +184,7 @@ def main():
         total_trades = sum(r["Trades"] for r in results)
         total_taxes = sum(r["Total_Costs_INR"] for r in results)
         print("-" * 115)
-        print(f"[*] {strat_name} PORTFOLIO TOTAL: Net P&L = Rs {total_pnl:+,.2f} | Trades = {total_trades} | Taxes Paid = Rs {total_taxes:,.2f}")
+        print(f"[*] {strat_name} 18M PORTFOLIO TOTAL: Net P&L = Rs {total_pnl:+,.2f} | Trades = {total_trades} | Taxes Paid = Rs {total_taxes:,.2f}")
 
         # Automated Tearsheet Generation for All Evaluated Candidates with Trades
         if not args.no_tearsheet:
@@ -210,14 +210,14 @@ def main():
                     run_slippage_stress(strat_name, strat_obj, df, sym)
 
                 if args.regimes:
-                    print(f"\n--- 3-TIER MULTI-REGIME PERSISTENCE: {sym} ({strat_name}) ---")
+                    print(f"\n--- REGIME PERSISTENCE ANALYSIS (0-6m Current | 6-12m Recent | 12-18m Older): {sym} ({strat_name}) ---")
                     reg_df = validator.evaluate_multi_regime_persistence(strat_obj, df, symbol=sym)
                     if not reg_df.empty:
                         print(reg_df.to_string(index=False))
 
     if args.all or (len(strategies_to_run) > 1 and len(target_symbols) > 1):
         print("\n" + "=" * 115)
-        print("[*] MASTER LEADERBOARD (SORTED BY NET P&L)")
+        print("[*] 18-MONTH MASTER VALIDATION LEADERBOARD (SORTED BY NET P&L)")
         print("=" * 115)
         m_df = pd.DataFrame([{k: v for k, v in r.items() if not k.startswith("_")} for r in master_results])
         m_df_sorted = m_df.sort_values(by="Net_PnL_INR", ascending=False)
