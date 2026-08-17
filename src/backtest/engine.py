@@ -31,6 +31,11 @@ class BacktestTrade:
     cost_breakdown: TradeCostBreakdown
     duration_bars: int
     exit_reason: str = "SIGNAL"  # "SIGNAL", "STOP_LOSS", "TAKE_PROFIT", "EOD"
+    entry_rationale: str = ""
+    sizing_rationale: str = ""
+    mfe_pct: float = 0.0         # Maximum Favorable Excursion (%)
+    mae_pct: float = 0.0         # Maximum Adverse Excursion (%)
+    slippage_bps: float = 3.0
 
 
 @dataclass
@@ -176,6 +181,19 @@ class BacktestEngine:
                     cash += cost_breakdown.net_pnl
                     bar_equity[i + 1] = cash
 
+                    # Compute MFE and MAE
+                    trade_highs = highs[entry_idx : i + 2]
+                    trade_lows = lows[entry_idx : i + 2]
+                    if len(trade_highs) > 0 and entry_price > 0:
+                        if position_side == "LONG":
+                            mfe = ((np.max(trade_highs) - entry_price) / entry_price) * 100.0
+                            mae = ((np.min(trade_lows) - entry_price) / entry_price) * 100.0
+                        else:
+                            mfe = ((entry_price - np.min(trade_lows)) / entry_price) * 100.0
+                            mae = ((entry_price - np.max(trade_highs)) / entry_price) * 100.0
+                    else:
+                        mfe, mae = 0.0, 0.0
+
                     trades.append(
                         BacktestTrade(
                             trade_id=trade_id,
@@ -191,6 +209,11 @@ class BacktestEngine:
                             cost_breakdown=cost_breakdown,
                             duration_bars=(i + 1 - entry_idx),
                             exit_reason=exit_reason,
+                            entry_rationale=f"{strategy_id} {position_side} Trigger @ {indices[entry_idx]}",
+                            sizing_rationale=f"Qty {entry_qty} (Stop Dist: Rs {abs(entry_price - current_sl):.2f})",
+                            mfe_pct=round(mfe, 2),
+                            mae_pct=round(mae, 2),
+                            slippage_bps=self.cost_model.default_slippage_bps,
                         )
                     )
                     trade_id += 1
@@ -236,6 +259,19 @@ class BacktestEngine:
                 cash += cost_breakdown.net_pnl
                 bar_equity[i + 1] = cash
 
+                # Compute MFE and MAE
+                trade_highs = highs[entry_idx : i + 2]
+                trade_lows = lows[entry_idx : i + 2]
+                if len(trade_highs) > 0 and entry_price > 0:
+                    if position_side == "LONG":
+                        mfe = ((np.max(trade_highs) - entry_price) / entry_price) * 100.0
+                        mae = ((np.min(trade_lows) - entry_price) / entry_price) * 100.0
+                    else:
+                        mfe = ((entry_price - np.min(trade_lows)) / entry_price) * 100.0
+                        mae = ((entry_price - np.max(trade_highs)) / entry_price) * 100.0
+                else:
+                    mfe, mae = 0.0, 0.0
+
                 trades.append(
                     BacktestTrade(
                         trade_id=trade_id,
@@ -251,6 +287,11 @@ class BacktestEngine:
                         cost_breakdown=cost_breakdown,
                         duration_bars=(i + 1 - entry_idx),
                         exit_reason="SIGNAL",
+                        entry_rationale=f"{strategy_id} {position_side} Trigger @ {indices[entry_idx]}",
+                        sizing_rationale=f"Qty {entry_qty} (Stop Dist: Rs {abs(entry_price - current_sl):.2f})",
+                        mfe_pct=round(mfe, 2),
+                        mae_pct=round(mae, 2),
+                        slippage_bps=self.cost_model.default_slippage_bps,
                     )
                 )
                 trade_id += 1
@@ -298,6 +339,18 @@ class BacktestEngine:
             cash += cost_breakdown.net_pnl
             bar_equity[last_idx] = cash
 
+            trade_highs = highs[entry_idx : last_idx + 1]
+            trade_lows = lows[entry_idx : last_idx + 1]
+            if len(trade_highs) > 0 and entry_price > 0:
+                if position_side == "LONG":
+                    mfe = ((np.max(trade_highs) - entry_price) / entry_price) * 100.0
+                    mae = ((np.min(trade_lows) - entry_price) / entry_price) * 100.0
+                else:
+                    mfe = ((entry_price - np.min(trade_lows)) / entry_price) * 100.0
+                    mae = ((entry_price - np.max(trade_highs)) / entry_price) * 100.0
+            else:
+                mfe, mae = 0.0, 0.0
+
             trades.append(
                 BacktestTrade(
                     trade_id=trade_id,
@@ -313,6 +366,11 @@ class BacktestEngine:
                     cost_breakdown=cost_breakdown,
                     duration_bars=(last_idx - entry_idx),
                     exit_reason="EOD",
+                    entry_rationale=f"{strategy_id} {position_side} Trigger @ {indices[entry_idx]}",
+                    sizing_rationale=f"Qty {entry_qty}",
+                    mfe_pct=round(mfe, 2),
+                    mae_pct=round(mae, 2),
+                    slippage_bps=self.cost_model.default_slippage_bps,
                 )
             )
 

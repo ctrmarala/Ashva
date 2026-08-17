@@ -167,3 +167,24 @@ def test_execution_gap_analyzer():
     assert report.total_actual_pnl_inr == 1950.0
     assert report.pnl_execution_gap_inr == -50.0
     assert report.execution_quality_rating == "EXCELLENT"
+
+
+def test_trade_explainability_mfe_mae():
+    """Verify that BacktestTrade records accurate MFE and MAE excursion percentages."""
+    engine = BacktestEngine(initial_capital=500000.0)
+    # Entry at 100 on bar 1, price reaches peak 110 (+10% MFE) and trough 95 (-5% MAE) before exit at 105
+    dates = pd.date_range("2026-08-17 09:15", periods=5, freq="15min")
+    df = pd.DataFrame({
+        "open": [100.0, 100.0, 108.0, 96.0, 105.0],
+        "high": [101.0, 102.0, 110.0, 98.0, 106.0],
+        "low":  [99.0, 98.0, 105.0, 95.0, 104.0],
+        "close": [100.0, 100.0, 108.0, 96.0, 105.0],
+        "signal": [1, 1, 1, 0, 0],
+    }, index=dates)
+
+    res = engine.run(df, symbol="TEST_EXP", strategy_id="ORB_EXPLAIN")
+    assert len(res.trade_list) == 1
+    t = res.trade_list[0]
+    assert t.mfe_pct == 10.0  # (110 - 100) / 100 * 100% = +10.0%
+    assert t.mae_pct == -5.0  # (95 - 100) / 100 * 100% = -5.0%
+    assert "ORB_EXPLAIN" in t.entry_rationale

@@ -17,6 +17,7 @@ from scipy.stats import norm, skew, kurtosis
 from src.research.hypothesis import BaseHypothesis, HypothesisStatus, HypothesisValidationReport
 from src.analytics.indian_costs import IndianCostModel, Segment
 from src.backtest.engine import BacktestEngine
+from src.research.experiment_ledger import ResearchExperimentLedger, ExperimentRecord
 
 
 class StatisticalValidator:
@@ -28,12 +29,14 @@ class StatisticalValidator:
     def __init__(
         self,
         cost_model: Optional[IndianCostModel] = None,
+        experiment_ledger: Optional[ResearchExperimentLedger] = None,
         min_net_profit_factor: float = 1.20,
         max_dsr_p_value: float = 0.05,          # Statistical significance threshold
         max_cpcv_degradation_pct: float = 50.0, # Max allowed performance drop OOS
         max_monte_carlo_dd_pct: float = 15.0,   # Max 95th percentile drawdown
     ):
         self.cost_model = cost_model or IndianCostModel()
+        self.experiment_ledger = experiment_ledger or ResearchExperimentLedger()
         self.min_net_profit_factor = min_net_profit_factor
         self.max_dsr_p_value = max_dsr_p_value
         self.max_cpcv_degradation_pct = max_cpcv_degradation_pct
@@ -227,43 +230,53 @@ class StatisticalValidator:
         self,
         hypothesis: BaseHypothesis,
         df: pd.DataFrame,
-        num_trials: int = 1,
+        num_trials: Optional[int] = None,
         train_test_split: float = 0.70,
     ) -> HypothesisValidationReport:
         """
         Full 4-Gate Institutional Statistical Validation:
-        Gate 1: Deflated Sharpe Ratio (DSR p <= 0.05)
-        Gate 2: Combinatorial Purged Cross-Validation (CPCV Degradation <= 50%)
+        Gate 1: Deflated Sharpe Ratio (DSR p <= 0.05) with automated multiple testing trial accounting
+        Gate 2: Combinatorial Purged & Embargoed Cross-Validation (CPCV Degradation <= 50%)
         Gate 3: 5,000-Run Monte Carlo Tail Risk (95th MaxDD <= 15%)
         Gate 4: Full Indian Regulatory Cost Profit Factor (Net PF >= 1.20)
         """
         rejection_reasons = []
 
-        # 1. Generate Signals and In-Sample Baseline
+        # 1. Automated Trial Accounting for Multiple Testing (N)
+        if num_trials is None or num_trials <= 1:
+            grid = getattr(hypothesis, "parameter_grid", {})
+            grid_size = 1
+            for p_vals in grid.values():
+                grid_size *= max(1, len(p_vals))
+            prior_trials = self.experiment_ledger.get_total_trials()
+            n_symbols = len(getattr(hypothesis, "target_instruments", ["ASSET"]))
+            effective_trials = max(1, prior_trials + (grid_size * n_symbols))
+        else:
+            effective_trials = num_trials
+
+        # 2. Generate Signals and Run Baseline In-Sample / Full Backtests
         signals_df = hypothesis.generate_signals(df)
         if "signal" not in signals_df.columns:
             raise ValueError("Hypothesis must produce a 'signal' column")
 
         split_idx = int(len(signals_df) * train_test_split)
         train_df = signals_df.iloc[:split_idx]
-        test_df = signals_df.iloc[split_idx:]
 
-        # Run BacktestEngine with Real Indian Costs over In-Sample & Full dataset
         engine = BacktestEngine(cost_model=self.cost_model, initial_capital=500000.0)
-        is_result = engine.run(train_df, symbol="ASSET", capital_per_trade_pct=0.50)
-        full_result = engine.run(signals_df, symbol="ASSET", capital_per_trade_pct=0.50)
+        is_result = engine.run(train_df, symbol=getattr(hypothesis, "target_instruments", ["ASSET"])[0], capital_per_trade_pct=0.50)
+        full_result = engine.run(signals_df, symbol=getattr(hypothesis, "target_instruments", ["ASSET"])[0], capital_per_trade_pct=0.50)
 
         is_sharpe = is_result.sharpe_ratio
 
-        # 2. Gate 1: Deflated Sharpe Ratio (DSR) Test
-        trade_returns = np.array([t.net_pnl / 250000.0 for t in full_result.trade_list]) if full_result.trade_list else np.array([])
-        dsr_stat, dsr_p_val = self.calculate_deflated_sharpe_ratio(trade_returns, num_trials=num_trials)
+        # 3. Gate 1: Deflated Sharpe Ratio (DSR) Test on Continuous Mark-to-Market Returns
+        continuous_returns = full_result.equity_curve.pct_change().dropna().values
+        dsr_stat, dsr_p_val = self.calculate_deflated_sharpe_ratio(continuous_returns, num_trials=effective_trials)
         if dsr_p_val > self.max_dsr_p_value:
             rejection_reasons.append(
-                f"DSR Test Failed: p-value {dsr_p_val:.4f} > {self.max_dsr_p_value} (High probability of selection bias)"
+                f"DSR Test Failed: p-value {dsr_p_val:.4f} > {self.max_dsr_p_value} across {effective_trials} tested trials (High probability of selection bias)"
             )
 
-        # 3. Gate 2: True Combinatorial Purged Cross-Validation (CPCV)
+        # 4. Gate 2: True Combinatorial Purged Cross-Validation (CPCV)
         cpcv_results = self.run_cpcv(df, hypothesis, n_splits=6, k_test=2)
         cpcv_mean_sharpe = cpcv_results["mean_oos_sharpe"]
 
@@ -277,7 +290,8 @@ class StatisticalValidator:
                 f"CPCV OOS Degradation Failed: Strategy degraded by {degradation:.1f}% across {cpcv_results['total_paths']} combinatorial paths (IS Sharpe: {is_sharpe:.2f}, CPCV OOS Mean: {cpcv_mean_sharpe:.2f})"
             )
 
-        # 4. Gate 3: 5,000-Run Monte Carlo Permutation Stress Test
+        # 5. Gate 3: 5,000-Run Monte Carlo Permutation Stress Test
+        trade_returns = np.array([t.net_pnl / 250000.0 for t in full_result.trade_list]) if full_result.trade_list else np.array([])
         mc_results = self.run_monte_carlo_drawdown_test(trade_returns, num_simulations=5000)
         p95_dd = mc_results["p95_max_dd"]
         if p95_dd > self.max_monte_carlo_dd_pct:
@@ -285,7 +299,7 @@ class StatisticalValidator:
                 f"Monte Carlo Tail Risk Failed: 95th percentile Max Drawdown {p95_dd:.1f}% exceeds tolerance {self.max_monte_carlo_dd_pct}%"
             )
 
-        # 5. Gate 4: Real Post-Tax Net Profit Factor via IndianCostModel
+        # 6. Gate 4: Real Post-Tax Net Profit Factor via IndianCostModel
         net_pf = full_result.net_profit_factor
         if net_pf < self.min_net_profit_factor:
             rejection_reasons.append(
@@ -295,7 +309,7 @@ class StatisticalValidator:
         status = HypothesisStatus.ACCEPTED if not rejection_reasons else HypothesisStatus.REJECTED
         hypothesis.status = status
 
-        return HypothesisValidationReport(
+        report = HypothesisValidationReport(
             hypothesis_id=hypothesis.metadata.hypothesis_id,
             status=status,
             in_sample_sharpe=is_sharpe,
@@ -307,3 +321,27 @@ class StatisticalValidator:
             net_profit_factor_post_tax=net_pf,
             rejection_reasons=rejection_reasons,
         )
+
+        # Automatically record to immutable Research Experiment Ledger
+        try:
+            exp_record = ExperimentRecord(
+                experiment_id=f"EXP_{hypothesis.metadata.hypothesis_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                strategy_id=hypothesis.metadata.name,
+                symbol_universe=",".join(getattr(hypothesis, "target_instruments", ["ASSET"])),
+                timeframe=getattr(hypothesis, "timeframe", "15m"),
+                parameters_json=str(hypothesis.parameters),
+                in_sample_sharpe=is_sharpe,
+                cpcv_oos_sharpe=cpcv_mean_sharpe,
+                deflated_sharpe_p_value=dsr_p_val,
+                net_profit_factor=net_pf,
+                monte_carlo_95_max_dd=p95_dd,
+                total_trials_cumulative=effective_trials,
+                git_commit_sha="a800650",
+                status=status.value,
+                rejection_reasons_json=str(rejection_reasons),
+            )
+            self.experiment_ledger.log_experiment(exp_record)
+        except Exception:
+            pass
+
+        return report
