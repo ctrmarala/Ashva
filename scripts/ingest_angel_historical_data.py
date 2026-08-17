@@ -28,12 +28,16 @@ QUALIFIED_UNIVERSE = [
     "LT",
     "TATASTEEL",
     "BHARTIARTL",
+    "BAJFINANCE",
+    "MARUTI",
+    "TATAMOTORS",
+    "SUNPHARMA",
 ]
 
 
-def ingest_data(timeframe: str = "15m", days: int = 60):
+def ingest_data(timeframe: str = "15m", days: int = 180):
     print("=" * 80)
-    print(f"[*] INGESTING ANGEL ONE HISTORICAL DATA ({timeframe.upper()} - LAST {days} DAYS)")
+    print(f"[*] INGESTING ANGEL ONE HISTORICAL DATA ({timeframe.upper()} - LAST {days} DAYS CHUNKED)")
     print("=" * 80)
 
     # 1. Load credentials
@@ -62,32 +66,76 @@ def ingest_data(timeframe: str = "15m", days: int = 60):
         print(f"[!] SmartAPI Login failed: {e}")
         return
 
-    to_date = datetime.now()
-    from_date = to_date - timedelta(days=days)
-
+    end_date = datetime.now()
+    chunk_size_days = 60
     success_count = 0
+
     for symbol in QUALIFIED_UNIVERSE:
         try:
-            print(f"[>] Fetching {symbol} ({timeframe}) from {from_date.strftime('%Y-%m-%d')} to {to_date.strftime('%Y-%m-%d')}...")
-            df = fetcher.fetch_and_store(
-                symbol=symbol,
-                exchange="NSE",
-                timeframe=timeframe,
-                from_date=from_date,
-                to_date=to_date,
-            )
-            if not df.empty:
-                print(f"    [+] Saved {len(df)} bars for {symbol} (Date Range: {df.index.min()} to {df.index.max()})")
+            print(f"\n[>] Ingesting {symbol} ({timeframe}) across {days} days...")
+            all_chunks = []
+            
+            # Fetch in 60-day chunks moving backwards
+            curr_end = end_date
+            total_fetched_days = 0
+            while total_fetched_days < days:
+                curr_start = curr_end - timedelta(days=min(chunk_size_days, days - total_fetched_days))
+                
+                # Fetch chunk from Angel One
+                token = fetcher.get_token_for_symbol(symbol, "NSE")
+                if not token:
+                    print(f"    [!] Could not find token for {symbol}")
+                    break
+                
+                interval = fetcher.INTERVAL_MAP.get(timeframe.lower())
+                f_str = curr_start.strftime("%Y-%m-%d %H:%M")
+                t_str = curr_end.strftime("%Y-%m-%d %H:%M")
+                
+                import time as _t
+                _t.sleep(0.6)
+                
+                params = {
+                    "exchange": "NSE",
+                    "symboltoken": token,
+                    "interval": interval,
+                    "fromdate": f_str,
+                    "todate": t_str,
+                }
+                
+                candle_resp = fetcher.smart_api.getCandleData(params)
+                if isinstance(candle_resp, dict) and candle_resp.get("status"):
+                    raw_data = candle_resp.get("data", [])
+                    if raw_data:
+                        chunk_df = pd.DataFrame(raw_data, columns=["timestamp", "open", "high", "low", "close", "volume"])
+                        chunk_df["timestamp"] = pd.to_datetime(chunk_df["timestamp"])
+                        all_chunks.append(chunk_df)
+                        print(f"    [+] Chunk ({curr_start.strftime('%Y-%m-%d')} to {curr_end.strftime('%Y-%m-%d')}): {len(chunk_df)} bars")
+                
+                curr_end = curr_start
+                total_fetched_days += chunk_size_days
+
+            if all_chunks:
+                full_df = pd.concat(all_chunks, ignore_index=True)
+                full_df.drop_duplicates(subset=["timestamp"], inplace=True)
+                full_df.sort_values(by="timestamp", inplace=True)
+                full_df["open"] = full_df["open"].astype(float)
+                full_df["high"] = full_df["high"].astype(float)
+                full_df["low"] = full_df["low"].astype(float)
+                full_df["close"] = full_df["close"].astype(float)
+                full_df["volume"] = full_df["volume"].astype(int)
+
+                lake.save_bars(full_df, symbol=symbol.upper(), timeframe=timeframe.lower(), source="ANGEL_ONE")
+                print(f"    [+] Successfully stored {len(full_df)} total bars for {symbol} ({full_df['timestamp'].min()} to {full_df['timestamp'].max()})")
                 success_count += 1
             else:
-                print(f"    [!] Warning: Empty data returned for {symbol}")
+                print(f"    [!] No data returned for {symbol}")
         except Exception as e:
-            print(f"    [!] Error fetching {symbol}: {e}")
+            print(f"    [!] Error ingesting {symbol}: {e}")
 
-    print("=" * 80)
-    print(f"[+] Ingestion complete: {success_count}/{len(QUALIFIED_UNIVERSE)} symbols stored in Data Lake.")
+    print("\n" + "=" * 80)
+    print(f"[+] 180-Day Ingestion complete: {success_count}/{len(QUALIFIED_UNIVERSE)} symbols stored in Data Lake.")
     print("=" * 80)
 
 
 if __name__ == "__main__":
-    ingest_data(timeframe="15m", days=60)
+    ingest_data(timeframe="15m", days=180)

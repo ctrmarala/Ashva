@@ -50,6 +50,9 @@ def run_auction_orb_validation():
         "LT",
         "TATASTEEL",
         "BHARTIARTL",
+        "BAJFINANCE",
+        "MARUTI",
+        "SUNPHARMA",
     ]
 
     results_table = []

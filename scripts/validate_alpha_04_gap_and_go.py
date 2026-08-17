@@ -53,6 +53,9 @@ def run_gap_and_go_validation():
         "LT",
         "TATASTEEL",
         "BHARTIARTL",
+        "BAJFINANCE",
+        "MARUTI",
+        "SUNPHARMA",
     ]
 
     results_table = []
