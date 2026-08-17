@@ -6,7 +6,7 @@ and market slippage models for Indian Equities and Derivatives (NSE/BSE).
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 
 class Segment(str, Enum):
@@ -97,11 +97,12 @@ class IndianCostModel:
         brokerage_pct_cap: float = 0.0003,  # 0.03% cap
         exchange: Exchange = Exchange.NSE,
         default_slippage_bps: float = 3.0,  # 3 basis points = 0.03%
+        slippage_bps: Optional[float] = None,
     ):
         self.brokerage_per_order = brokerage_per_order
         self.brokerage_pct_cap = brokerage_pct_cap
         self.exchange = exchange
-        self.default_slippage_bps = default_slippage_bps
+        self.default_slippage_bps = slippage_bps if slippage_bps is not None else default_slippage_bps
 
     def calculate_brokerage(self, turnover: float) -> float:
         """

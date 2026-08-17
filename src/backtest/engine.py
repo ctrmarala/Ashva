@@ -352,3 +352,42 @@ class BacktestEngine:
             equity_curve=equity_df,
             trade_list=trades,
         )
+
+    def run_slippage_stress_matrix(
+        self,
+        df_with_signals: pd.DataFrame,
+        symbol: str = "ASSET",
+        strategy_id: str = "STRATEGY",
+        capital_per_trade_pct: float = 0.95,
+    ) -> pd.DataFrame:
+        """
+        Executes a 5-tier institutional slippage sensitivity stress test:
+        - Optimistic:   1 bps (0.01%)
+        - Base:         3 bps (0.03%)
+        - Conservative: 5 bps (0.05%)
+        - Stress:       10 bps (0.10%)
+        - Extreme:      20 bps (0.20%)
+        """
+        tiers = [
+            ("Optimistic", 1.0),
+            ("Base", 3.0),
+            ("Conservative", 5.0),
+            ("Stress", 10.0),
+            ("Extreme", 20.0),
+        ]
+        results = []
+        for name, bps in tiers:
+            cost_model = IndianCostModel(slippage_bps=bps)
+            eng = BacktestEngine(cost_model=cost_model, initial_capital=self.initial_capital, segment=self.segment)
+            res = eng.run(df_with_signals, symbol=symbol, strategy_id=strategy_id, capital_per_trade_pct=capital_per_trade_pct)
+            results.append({
+                "Scenario": name,
+                "Slippage_Bps": bps,
+                "Net_Pnl_INR": round(res.total_net_pnl, 2),
+                "Net_ROI_Pct": round(res.net_roi_pct, 2),
+                "Profit_Factor": round(res.net_profit_factor, 2),
+                "Sharpe": round(res.sharpe_ratio, 2),
+                "MaxDD_Pct": round(res.max_drawdown_pct, 2),
+                "Total_Taxes_INR": round(res.total_taxes_paid, 2),
+            })
+        return pd.DataFrame(results)

@@ -86,12 +86,14 @@ class SignalEvent:
 
 @dataclass(frozen=True)
 class OrderEvent:
-    order_id: str
     symbol: str
-    timestamp: datetime
     side: OrderSide
     order_type: OrderType
     quantity: int
+    order_id: str = field(default_factory=lambda: f"ORD_{datetime.now().strftime('%Y%m%d%H%M%S%f')[:17]}")
+    timestamp: datetime = field(default_factory=datetime.now)
+    strategy_id: str = ""
+    is_reduce_only: bool = False
     product_type: ProductType = ProductType.INTRADAY
     limit_price: Optional[float] = None
     stop_price: Optional[float] = None
