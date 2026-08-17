@@ -4,6 +4,7 @@ Research Experiment Registry, and Slippage Stress Matrix.
 """
 
 from datetime import datetime, time
+from typing import Dict, List, Any
 import pandas as pd
 import pytest
 
@@ -188,3 +189,67 @@ def test_trade_explainability_mfe_mae():
     assert t.mfe_pct == 10.0  # (110 - 100) / 100 * 100% = +10.0%
     assert t.mae_pct == -5.0  # (95 - 100) / 100 * 100% = -5.0%
     assert "ORB_EXPLAIN" in t.entry_rationale
+
+
+def test_custom_strategy_rationale_explainability():
+    """Verify that strategy-generated economic rationales are preserved in trade ledger."""
+    engine = BacktestEngine(initial_capital=500000.0)
+    dates = pd.date_range("2026-08-17 09:15", periods=5, freq="15min")
+    df = pd.DataFrame({
+        "open": [100.0, 100.0, 108.0, 96.0, 105.0],
+        "high": [101.0, 102.0, 110.0, 98.0, 106.0],
+        "low":  [99.0, 98.0, 105.0, 95.0, 104.0],
+        "close": [100.0, 100.0, 108.0, 96.0, 105.0],
+        "signal": [1, 1, 1, 0, 0],
+        "rationale": [
+            "ORB_15M: Breakout above Day High 100.0 | VWAP +0.5% | Volume 3x Avg",
+            "HOLD", "HOLD", "EXIT", "FLAT"
+        ]
+    }, index=dates)
+
+    res = engine.run(df, symbol="RELIANCE", strategy_id="ORB_15M")
+    assert len(res.trade_list) == 1
+    t = res.trade_list[0]
+    assert t.entry_rationale == "ORB_15M: Breakout above Day High 100.0 | VWAP +0.5% | Volume 3x Avg"
+
+
+def test_validator_auto_logs_to_experiment_ledger(tmp_path):
+    """Verify that StatisticalValidator automatically logs every validation run to ResearchExperimentLedger."""
+    from src.research.validator import StatisticalValidator
+    from src.research.experiment_ledger import ResearchExperimentLedger
+    from src.research.hypothesis import BaseHypothesis, HypothesisMetadata
+
+    ledger_db = str(tmp_path / "test_ledger.db")
+    ledger = ResearchExperimentLedger(db_path=ledger_db)
+    validator = StatisticalValidator(experiment_ledger=ledger)
+
+    class DummyHypothesis(BaseHypothesis):
+        def generate_signals(self, data: pd.DataFrame) -> pd.DataFrame:
+            out = data.copy()
+            out["signal"] = 1.0
+            return out
+
+        def get_parameter_grid(self) -> Dict[str, List[Any]]:
+            return {"lookback": [10, 20]}
+
+    hyp = DummyHypothesis(
+        metadata=HypothesisMetadata(
+            hypothesis_id="HYP_TEST_AUTO_LOG",
+            name="TestAutoLogStrat",
+            category="MOMENTUM",
+            economic_rationale="Momentum Premium",
+            target_instruments=["RELIANCE"],
+            timeframe="15m",
+            author="Quant",
+        ),
+        parameters={"lookback": 20},
+    )
+
+    dates = pd.date_range("2026-01-01 09:15", periods=200, freq="15min")
+    prices = [1000.0 + i * 0.5 for i in range(200)]
+    df = pd.DataFrame({"open": prices, "high": [p + 2 for p in prices], "low": [p - 2 for p in prices], "close": prices}, index=dates)
+
+    report = validator.validate_hypothesis(hyp, df)
+    assert report.hypothesis_id == "HYP_TEST_AUTO_LOG"
+    # Verify ledger recorded the experiment
+    assert ledger.get_total_trials() == 1

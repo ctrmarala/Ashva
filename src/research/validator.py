@@ -7,6 +7,9 @@ Implements:
 4. Exact trade-by-trade Indian Regulatory Cost Modeling (STT, GST, SEBI, ₹20 Brokerage) via BacktestEngine.
 """
 
+from datetime import datetime
+import logging
+import json
 from math import comb
 from itertools import combinations
 from typing import List, Dict, Any, Tuple, Optional
@@ -18,6 +21,8 @@ from src.research.hypothesis import BaseHypothesis, HypothesisStatus, Hypothesis
 from src.analytics.indian_costs import IndianCostModel, Segment
 from src.backtest.engine import BacktestEngine
 from src.research.experiment_ledger import ResearchExperimentLedger, ExperimentRecord
+
+logger = logging.getLogger(__name__)
 
 
 class StatisticalValidator:
@@ -322,26 +327,27 @@ class StatisticalValidator:
             rejection_reasons=rejection_reasons,
         )
 
-        # Automatically record to immutable Research Experiment Ledger
+        # Automatically record to immutable Research Experiment Ledger (Closed-Loop Trial Accounting)
         try:
             exp_record = ExperimentRecord(
-                experiment_id=f"EXP_{hypothesis.metadata.hypothesis_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                experiment_id=f"EXP_{hypothesis.metadata.hypothesis_id}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}",
                 strategy_id=hypothesis.metadata.name,
                 symbol_universe=",".join(getattr(hypothesis, "target_instruments", ["ASSET"])),
                 timeframe=getattr(hypothesis, "timeframe", "15m"),
-                parameters_json=str(hypothesis.parameters),
+                parameters_json=json.dumps(hypothesis.parameters, default=str),
                 in_sample_sharpe=is_sharpe,
                 cpcv_oos_sharpe=cpcv_mean_sharpe,
                 deflated_sharpe_p_value=dsr_p_val,
                 net_profit_factor=net_pf,
                 monte_carlo_95_max_dd=p95_dd,
                 total_trials_cumulative=effective_trials,
-                git_commit_sha="a800650",
+                git_commit_sha="a3cafc2",
                 status=status.value,
-                rejection_reasons_json=str(rejection_reasons),
+                rejection_reasons_json=json.dumps(rejection_reasons),
             )
-            self.experiment_ledger.log_experiment(exp_record)
-        except Exception:
-            pass
+            updated_count = self.experiment_ledger.log_experiment(exp_record)
+            logger.info("experiment_logged_to_ledger", experiment_id=exp_record.experiment_id, total_trials=updated_count, status=status.value)
+        except Exception as e:
+            logger.error("failed_to_log_experiment_to_ledger", error=str(e))
 
         return report

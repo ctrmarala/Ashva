@@ -102,12 +102,12 @@ class BacktestEngine:
         df_with_signals: pd.DataFrame,
         symbol: str = "ASSET",
         strategy_id: str = "STRATEGY",
-        capital_per_trade_pct: float = 0.95,
+        capital_per_trade_pct: float = 0.50,
         risk_per_trade_pct: Optional[float] = None,  # e.g., 0.005 for 0.50% account risk per trade
     ) -> BacktestResult:
         """
         Executes backtest over DataFrame containing 'close', 'signal' (+1, -1, 0),
-        and optionally 'open', 'high', 'low', 'stop_loss', 'take_profit'.
+        and optionally 'open', 'high', 'low', 'stop_loss', 'take_profit', 'rationale'.
         Supports both Capital-Weighted Sizing and Risk-Budget Sizing (Risk/Stop Distance).
         """
         if "signal" not in df_with_signals.columns or "close" not in df_with_signals.columns:
@@ -126,6 +126,9 @@ class BacktestEngine:
         stop_losses = df["stop_loss"].values if has_stops else np.zeros(n_bars)
         take_profits = df["take_profit"].values if has_stops else np.zeros(n_bars)
 
+        has_rationales = "rationale" in df.columns or "entry_rationale" in df.columns
+        rationale_col = "rationale" if "rationale" in df.columns else ("entry_rationale" if "entry_rationale" in df.columns else None)
+
         trades: List[BacktestTrade] = []
         cash = self.initial_capital
         bar_equity = np.full(n_bars, self.initial_capital, dtype=np.float64)
@@ -137,6 +140,7 @@ class BacktestEngine:
         entry_qty = 0
         current_sl = 0.0
         current_tp = 0.0
+        current_entry_rationale = ""
         trade_id = 1
 
         for i in range(n_bars - 1):
@@ -230,6 +234,12 @@ class BacktestEngine:
                 current_sl = stop_losses[i] if has_stops else 0.0
                 current_tp = take_profits[i] if has_stops else 0.0
 
+                if has_rationales and rationale_col is not None:
+                    rat_val = str(df[rationale_col].iloc[i])
+                    current_entry_rationale = rat_val if rat_val and rat_val != "nan" else f"{strategy_id} {position_side} Trigger @ {indices[entry_idx]}"
+                else:
+                    current_entry_rationale = f"{strategy_id} {position_side} Trigger @ {indices[entry_idx]}"
+
                 # Risk-Based Sizing vs Capital-Percentage Sizing
                 if risk_per_trade_pct is not None and current_sl > 0:
                     stop_dist = abs(entry_price - current_sl)
@@ -287,7 +297,7 @@ class BacktestEngine:
                         cost_breakdown=cost_breakdown,
                         duration_bars=(i + 1 - entry_idx),
                         exit_reason="SIGNAL",
-                        entry_rationale=f"{strategy_id} {position_side} Trigger @ {indices[entry_idx]}",
+                        entry_rationale=current_entry_rationale or f"{strategy_id} {position_side} Trigger @ {indices[entry_idx]}",
                         sizing_rationale=f"Qty {entry_qty} (Stop Dist: Rs {abs(entry_price - current_sl):.2f})",
                         mfe_pct=round(mfe, 2),
                         mae_pct=round(mae, 2),
@@ -302,6 +312,12 @@ class BacktestEngine:
                     entry_price = next_open
                     current_sl = stop_losses[i] if has_stops else 0.0
                     current_tp = take_profits[i] if has_stops else 0.0
+
+                    if has_rationales and rationale_col is not None:
+                        rat_val = str(df[rationale_col].iloc[i])
+                        current_entry_rationale = rat_val if rat_val and rat_val != "nan" else f"{strategy_id} {position_side} Trigger @ {indices[entry_idx]}"
+                    else:
+                        current_entry_rationale = f"{strategy_id} {position_side} Trigger @ {indices[entry_idx]}"
 
                     if risk_per_trade_pct is not None and current_sl > 0:
                         stop_dist = abs(entry_price - current_sl)
@@ -318,6 +334,7 @@ class BacktestEngine:
                 else:
                     in_position = False
                     position_side = None
+                    current_entry_rationale = ""
 
             # 3. Continuous Mark-to-Market Bar Equity Update
             if in_position:
