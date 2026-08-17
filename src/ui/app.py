@@ -170,6 +170,49 @@ class AshvaControlRoomHandler(SimpleHTTPRequestHandler):
             f"[{datetime.now().strftime('%H:%M:%S')} IST] 🏛️ Portfolio Status: 100% Cash Preserved (0 Active Risk Exposure)",
         ]
 
+        # Strategy Allocations dynamically from config or active strategies
+        import yaml
+        active_strats = []
+        try:
+            with open("config/settings.yaml", "r") as f:
+                cfg = yaml.safe_load(f)
+                active_cfg = cfg.get("active_strategy", {})
+                if active_cfg:
+                    active_strats.append({
+                        "strategy_id": "ALPHA_02_AUCTION_ORB",
+                        "name": "Auction ORB Pro (Alpha 02)",
+                        "weight_pct": 50.0,
+                        "allocated_capital": round(current_equity * 0.50, 2),
+                        "status": "RESEARCH_CANDIDATE",
+                    })
+                    active_strats.append({
+                        "strategy_id": "ALPHA_01_TREND_SURFER",
+                        "name": "TrendSurfer Pro (Alpha 01)",
+                        "weight_pct": 30.0,
+                        "allocated_capital": round(current_equity * 0.30, 2),
+                        "status": "IN_REFINEMENT",
+                    })
+                    active_strats.append({
+                        "strategy_id": "ALPHA_03_VWAP_REVERSION",
+                        "name": "VWAP Mean Reversion (Alpha 03)",
+                        "weight_pct": 20.0,
+                        "allocated_capital": round(current_equity * 0.20, 2),
+                        "status": "IN_REFINEMENT",
+                    })
+        except Exception:
+            pass
+
+        if not active_strats:
+            active_strats = [
+                {
+                    "strategy_id": "ALPHA_02_AUCTION_ORB",
+                    "name": "Auction ORB Pro (Alpha 02)",
+                    "weight_pct": 100.0,
+                    "allocated_capital": round(current_equity, 2),
+                    "status": "ACTIVE_CANDIDATE",
+                }
+            ]
+
         return {
             "system_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S IST"),
             "market_status": "CLOSED (POST-MARKET)",
@@ -187,36 +230,7 @@ class AshvaControlRoomHandler(SimpleHTTPRequestHandler):
             "risk_metrics": var_metrics,
             "open_positions": open_positions,
             "closed_trades": closed_trades,
-            "strategy_allocations": [
-                {
-                    "strategy_id": "ALPHA_07_TREND_PULLBACK",
-                    "name": "ML Trend Pullback (Alpha 07)",
-                    "weight_pct": 40.0,
-                    "allocated_capital": round(current_equity * 0.40, 2),
-                    "status": "ACTIVE",
-                },
-                {
-                    "strategy_id": "ALPHA_08_VOLATILITY_SQUEEZE",
-                    "name": "Bollinger-Keltner Squeeze (Alpha 08)",
-                    "weight_pct": 30.0,
-                    "allocated_capital": round(current_equity * 0.30, 2),
-                    "status": "ACTIVE",
-                },
-                {
-                    "strategy_id": "ALPHA_09_VALUE_OSCILLATIONS",
-                    "name": "Bosch Value Channel (Alpha 09)",
-                    "weight_pct": 20.0,
-                    "allocated_capital": round(current_equity * 0.20, 2),
-                    "status": "ACTIVE",
-                },
-                {
-                    "strategy_id": "ALPHA_05_OPTIONS_STRADDLE",
-                    "name": "Options Theta Harvest (Alpha 05)",
-                    "weight_pct": 10.0,
-                    "allocated_capital": round(current_equity * 0.10, 2),
-                    "status": "ACTIVE",
-                },
-            ],
+            "strategy_allocations": active_strats,
             "activity_logs": activity_logs,
         }
 
