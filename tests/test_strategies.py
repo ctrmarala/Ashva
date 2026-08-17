@@ -393,3 +393,48 @@ def test_alpha_20_vwap_trend_continuation_signals(mock_intraday_dataframe):
     assert len(signals_df) == len(mock_intraday_dataframe)
     assert set(signals_df["signal"].unique()).issubset({-1.0, 0.0, 1.0})
     assert "min_rvol" in strat.get_parameter_grid()
+
+
+def test_alpha_21_high_velocity_momentum_signals(mock_intraday_dataframe):
+    from src.strategies.alpha_21_high_velocity_momentum import Alpha21HighVelocityMomentum
+    strat = Alpha21HighVelocityMomentum()
+    signals_df = strat.generate_signals(mock_intraday_dataframe)
+
+    assert "signal" in signals_df.columns
+    assert "stop_loss" in signals_df.columns
+    assert "take_profit" in signals_df.columns
+    assert "rationale" in signals_df.columns
+    assert len(signals_df) == len(mock_intraday_dataframe)
+    assert set(signals_df["signal"].unique()).issubset({-1.0, 0.0, 1.0})
+    assert "min_rvol" in strat.get_parameter_grid()
+    assert "target_rr" in strat.get_parameter_grid()
+
+
+def test_alpha_22_apex_momentum_signals(mock_intraday_dataframe):
+    from src.strategies.alpha_22_apex_momentum import Alpha22ApexMomentum
+    strat = Alpha22ApexMomentum()
+    signals_df = strat.generate_signals(mock_intraday_dataframe)
+
+    assert "signal" in signals_df.columns
+    assert "stop_loss" in signals_df.columns
+    assert "take_profit" in signals_df.columns
+    assert "rationale" in signals_df.columns
+    assert len(signals_df) == len(mock_intraday_dataframe)
+    assert set(signals_df["signal"].unique()).issubset({-1.0, 0.0, 1.0})
+    assert "min_rvol" in strat.get_parameter_grid()
+    assert "target_rr" in strat.get_parameter_grid()
+
+
+def test_alpha_23_velocity_50_scanner_signals(mock_intraday_dataframe):
+    from src.strategies.alpha_23_velocity_50_scanner import Alpha23Velocity50Scanner
+    strat = Alpha23Velocity50Scanner()
+    signals_df = strat.generate_signals(mock_intraday_dataframe)
+
+    assert "signal" in signals_df.columns
+    assert "stop_loss" in signals_df.columns
+    assert "take_profit" in signals_df.columns
+    assert "rationale" in signals_df.columns
+    assert len(signals_df) == len(mock_intraday_dataframe)
+    assert set(signals_df["signal"].unique()).issubset({-1.0, 0.0, 1.0})
+    assert "min_rvol" in strat.get_parameter_grid()
+    assert "target_rr" in strat.get_parameter_grid()

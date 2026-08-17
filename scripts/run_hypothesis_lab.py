@@ -55,6 +55,9 @@ from src.strategies.alpha_17_volume_shock_momentum import Alpha17VolumeShockMome
 from src.strategies.alpha_18_three_day_trend_orb import Alpha18ThreeDayTrendORB
 from src.strategies.alpha_19_power_hour_momentum import Alpha19PowerHourMomentum
 from src.strategies.alpha_20_vwap_trend_continuation import Alpha20VWAPTrendContinuation
+from src.strategies.alpha_21_high_velocity_momentum import Alpha21HighVelocityMomentum
+from src.strategies.alpha_22_apex_momentum import Alpha22ApexMomentum
+from src.strategies.alpha_23_velocity_50_scanner import Alpha23Velocity50Scanner
 
 STRATEGY_MAP = {
     "alpha_01": ("ALPHA_01_TRENDSURFER", AlphaTrendSurfer),
@@ -77,6 +80,9 @@ STRATEGY_MAP = {
     "alpha_18": ("ALPHA_18_THREE_DAY_TREND_ORB", Alpha18ThreeDayTrendORB),
     "alpha_19": ("ALPHA_19_POWER_HOUR_MOMENTUM", Alpha19PowerHourMomentum),
     "alpha_20": ("ALPHA_20_VWAP_TREND_CONTINUATION", Alpha20VWAPTrendContinuation),
+    "alpha_21": ("ALPHA_21_HIGH_VELOCITY_MOMENTUM", Alpha21HighVelocityMomentum),
+    "alpha_22": ("ALPHA_22_APEX_MOMENTUM", Alpha22ApexMomentum),
+    "alpha_23": ("ALPHA_23_VELOCITY_50_SCANNER", Alpha23Velocity50Scanner),
 }
 
 DEFAULT_UNIVERSE = [
