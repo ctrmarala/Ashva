@@ -206,3 +206,24 @@ def test_alpha_09_opening_relative_strength_signals(mock_intraday_dataframe):
     assert "min_body_ratio" in grid
     assert "min_rvol" in grid
     assert "target_rr" in grid
+
+
+def test_alpha_10_statistical_range_reversion_signals(mock_intraday_dataframe):
+    from src.strategies.alpha_10_statistical_range_reversion import Alpha10StatisticalRangeReversion
+    strat = Alpha10StatisticalRangeReversion()
+    signals_df = strat.generate_signals(mock_intraday_dataframe)
+
+    assert "signal" in signals_df.columns
+    assert "stop_loss" in signals_df.columns
+    assert "take_profit" in signals_df.columns
+    assert "rationale" in signals_df.columns
+    assert len(signals_df) == len(mock_intraday_dataframe)
+
+    unique_sigs = set(signals_df["signal"].unique())
+    assert unique_sigs.issubset({-1.0, 0.0, 1.0})
+
+    grid = strat.get_parameter_grid()
+    assert "range_window_days" in grid
+    assert "max_daily_adx" in grid
+    assert "min_reward_risk_ratio" in grid
+    assert "stop_buffer_atr_mult" in grid

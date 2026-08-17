@@ -24,6 +24,22 @@ class HypothesisStatus(str, Enum):
     ACCEPTED = "CAPITAL_CANDIDATE"
 
 
+class StrategyHorizon(str, Enum):
+    INTRADAY = "INTRADAY"     # Minutes to hours, 15:15 EOD square-off
+    SWING = "SWING"           # 1 to 10 trading days, overnight delivery
+    POSITIONAL = "POSITIONAL" # Weeks to months
+
+
+class MarketMechanism(str, Enum):
+    MOMENTUM = "MOMENTUM"
+    RANGE = "RANGE"
+    MEAN_REVERSION = "MEAN_REVERSION"
+    BREAKOUT = "BREAKOUT"
+    RELATIVE_VALUE = "RELATIVE_VALUE"
+    VOLATILITY = "VOLATILITY"
+    EVENT = "EVENT"
+
+
 @dataclass
 class HypothesisMetadata:
     hypothesis_id: str
@@ -32,6 +48,8 @@ class HypothesisMetadata:
     economic_rationale: str    # Why does this market inefficiency exist?
     target_instruments: List[str]
     timeframe: str
+    horizon: StrategyHorizon = StrategyHorizon.INTRADAY
+    mechanism: MarketMechanism = MarketMechanism.MOMENTUM
     author: str = "AshvaQuantLab"
     created_at: datetime = field(default_factory=datetime.now)
 

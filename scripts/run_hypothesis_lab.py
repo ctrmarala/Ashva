@@ -44,6 +44,7 @@ from src.strategies.alpha_06_pdh_pdl_sweep import Alpha06PDHPDLSweep
 from src.strategies.alpha_07_opening_volatility_expansion import Alpha07OpeningVolatilityExpansion
 from src.strategies.alpha_08_opening_imbalance import Alpha08OpeningImbalance
 from src.strategies.alpha_09_opening_relative_strength import Alpha09OpeningRelativeStrength
+from src.strategies.alpha_10_statistical_range_reversion import Alpha10StatisticalRangeReversion
 
 STRATEGY_MAP = {
     "alpha_01": ("ALPHA_01_TRENDSURFER", AlphaTrendSurfer),
@@ -55,6 +56,7 @@ STRATEGY_MAP = {
     "alpha_07": ("ALPHA_07_OPENING_VOLATILITY_EXPANSION", Alpha07OpeningVolatilityExpansion),
     "alpha_08": ("ALPHA_08_OPENING_IMBALANCE", Alpha08OpeningImbalance),
     "alpha_09": ("ALPHA_09_OPENING_RELATIVE_STRENGTH", Alpha09OpeningRelativeStrength),
+    "alpha_10": ("ALPHA_10_STATISTICAL_RANGE_REVERSION", Alpha10StatisticalRangeReversion),
 }
 
 DEFAULT_UNIVERSE = [
@@ -74,6 +76,13 @@ def run_strategy_backtest(
     timeframe: str = "15m",
 ) -> List[Dict]:
     results = []
+
+    # Configure Engine Segment based on Strategy Horizon
+    if hasattr(strat_obj, "metadata") and getattr(strat_obj.metadata, "horizon", None) in ["SWING", "POSITIONAL"]:
+        engine.segment = Segment.EQUITY_DELIVERY
+    else:
+        engine.segment = Segment.EQUITY_INTRADAY
+
     for sym in symbols:
         df = lake.load_bars(sym, timeframe)
         if df.empty or len(df) < 100:
