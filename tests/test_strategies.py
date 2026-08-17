@@ -309,3 +309,87 @@ def test_alpha_14_gap_momentum_drift_signals(mock_intraday_dataframe):
     assert "min_body_ratio" in grid
     assert "min_rvol" in grid
     assert "target_rr" in grid
+
+
+def test_alpha_15_nr7_volatility_expansion_signals(mock_intraday_dataframe):
+    from src.strategies.alpha_15_nr7_volatility_expansion import Alpha15NR7VolatilityExpansion
+    strat = Alpha15NR7VolatilityExpansion()
+    signals_df = strat.generate_signals(mock_intraday_dataframe)
+
+    assert "signal" in signals_df.columns
+    assert "stop_loss" in signals_df.columns
+    assert "take_profit" in signals_df.columns
+    assert "rationale" in signals_df.columns
+    assert len(signals_df) == len(mock_intraday_dataframe)
+    assert set(signals_df["signal"].unique()).issubset({-1.0, 0.0, 1.0})
+    assert "min_rvol" in strat.get_parameter_grid()
+
+
+def test_alpha_16_inside_day_breakout_signals(mock_intraday_dataframe):
+    from src.strategies.alpha_16_inside_day_breakout import Alpha16InsideDayBreakout
+    strat = Alpha16InsideDayBreakout()
+    signals_df = strat.generate_signals(mock_intraday_dataframe)
+
+    assert "signal" in signals_df.columns
+    assert "stop_loss" in signals_df.columns
+    assert "take_profit" in signals_df.columns
+    assert "rationale" in signals_df.columns
+    assert len(signals_df) == len(mock_intraday_dataframe)
+    assert set(signals_df["signal"].unique()).issubset({-1.0, 0.0, 1.0})
+    assert "min_rvol" in strat.get_parameter_grid()
+
+
+def test_alpha_17_volume_shock_momentum_signals(mock_intraday_dataframe):
+    from src.strategies.alpha_17_volume_shock_momentum import Alpha17VolumeShockMomentum
+    strat = Alpha17VolumeShockMomentum()
+    signals_df = strat.generate_signals(mock_intraday_dataframe)
+
+    assert "signal" in signals_df.columns
+    assert "stop_loss" in signals_df.columns
+    assert "take_profit" in signals_df.columns
+    assert "rationale" in signals_df.columns
+    assert len(signals_df) == len(mock_intraday_dataframe)
+    assert set(signals_df["signal"].unique()).issubset({-1.0, 0.0, 1.0})
+    assert "min_shock_rvol" in strat.get_parameter_grid()
+
+
+def test_alpha_18_three_day_trend_orb_signals(mock_intraday_dataframe):
+    from src.strategies.alpha_18_three_day_trend_orb import Alpha18ThreeDayTrendORB
+    strat = Alpha18ThreeDayTrendORB()
+    signals_df = strat.generate_signals(mock_intraday_dataframe)
+
+    assert "signal" in signals_df.columns
+    assert "stop_loss" in signals_df.columns
+    assert "take_profit" in signals_df.columns
+    assert "rationale" in signals_df.columns
+    assert len(signals_df) == len(mock_intraday_dataframe)
+    assert set(signals_df["signal"].unique()).issubset({-1.0, 0.0, 1.0})
+    assert "min_rvol" in strat.get_parameter_grid()
+
+
+def test_alpha_19_power_hour_momentum_signals(mock_intraday_dataframe):
+    from src.strategies.alpha_19_power_hour_momentum import Alpha19PowerHourMomentum
+    strat = Alpha19PowerHourMomentum()
+    signals_df = strat.generate_signals(mock_intraday_dataframe)
+
+    assert "signal" in signals_df.columns
+    assert "stop_loss" in signals_df.columns
+    assert "take_profit" in signals_df.columns
+    assert "rationale" in signals_df.columns
+    assert len(signals_df) == len(mock_intraday_dataframe)
+    assert set(signals_df["signal"].unique()).issubset({-1.0, 0.0, 1.0})
+    assert "min_rvol" in strat.get_parameter_grid()
+
+
+def test_alpha_20_vwap_trend_continuation_signals(mock_intraday_dataframe):
+    from src.strategies.alpha_20_vwap_trend_continuation import Alpha20VWAPTrendContinuation
+    strat = Alpha20VWAPTrendContinuation()
+    signals_df = strat.generate_signals(mock_intraday_dataframe)
+
+    assert "signal" in signals_df.columns
+    assert "stop_loss" in signals_df.columns
+    assert "take_profit" in signals_df.columns
+    assert "rationale" in signals_df.columns
+    assert len(signals_df) == len(mock_intraday_dataframe)
+    assert set(signals_df["signal"].unique()).issubset({-1.0, 0.0, 1.0})
+    assert "min_rvol" in strat.get_parameter_grid()

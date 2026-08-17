@@ -49,6 +49,12 @@ from src.strategies.alpha_11_donchian_breakout import Alpha11DonchianBreakout
 from src.strategies.alpha_12_european_open_momentum import Alpha12EuropeanOpenMomentum
 from src.strategies.alpha_13_htf_aligned_orb import Alpha13HTFAlignedORB
 from src.strategies.alpha_14_gap_momentum_drift import Alpha14GapMomentumDrift
+from src.strategies.alpha_15_nr7_volatility_expansion import Alpha15NR7VolatilityExpansion
+from src.strategies.alpha_16_inside_day_breakout import Alpha16InsideDayBreakout
+from src.strategies.alpha_17_volume_shock_momentum import Alpha17VolumeShockMomentum
+from src.strategies.alpha_18_three_day_trend_orb import Alpha18ThreeDayTrendORB
+from src.strategies.alpha_19_power_hour_momentum import Alpha19PowerHourMomentum
+from src.strategies.alpha_20_vwap_trend_continuation import Alpha20VWAPTrendContinuation
 
 STRATEGY_MAP = {
     "alpha_01": ("ALPHA_01_TRENDSURFER", AlphaTrendSurfer),
@@ -65,6 +71,12 @@ STRATEGY_MAP = {
     "alpha_12": ("ALPHA_12_EUROPEAN_OPEN_MOMENTUM", Alpha12EuropeanOpenMomentum),
     "alpha_13": ("ALPHA_13_HTF_ALIGNED_ORB", Alpha13HTFAlignedORB),
     "alpha_14": ("ALPHA_14_GAP_MOMENTUM_DRIFT", Alpha14GapMomentumDrift),
+    "alpha_15": ("ALPHA_15_NR7_VOLATILITY_EXPANSION", Alpha15NR7VolatilityExpansion),
+    "alpha_16": ("ALPHA_16_INSIDE_DAY_BREAKOUT", Alpha16InsideDayBreakout),
+    "alpha_17": ("ALPHA_17_VOLUME_SHOCK_MOMENTUM", Alpha17VolumeShockMomentum),
+    "alpha_18": ("ALPHA_18_THREE_DAY_TREND_ORB", Alpha18ThreeDayTrendORB),
+    "alpha_19": ("ALPHA_19_POWER_HOUR_MOMENTUM", Alpha19PowerHourMomentum),
+    "alpha_20": ("ALPHA_20_VWAP_TREND_CONTINUATION", Alpha20VWAPTrendContinuation),
 }
 
 DEFAULT_UNIVERSE = [
