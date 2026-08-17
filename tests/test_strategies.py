@@ -227,3 +227,85 @@ def test_alpha_10_statistical_range_reversion_signals(mock_intraday_dataframe):
     assert "max_daily_adx" in grid
     assert "min_reward_risk_ratio" in grid
     assert "stop_buffer_atr_mult" in grid
+
+
+def test_alpha_11_donchian_breakout_signals(mock_intraday_dataframe):
+    from src.strategies.alpha_11_donchian_breakout import Alpha11DonchianBreakout
+    strat = Alpha11DonchianBreakout()
+    signals_df = strat.generate_signals(mock_intraday_dataframe)
+
+    assert "signal" in signals_df.columns
+    assert "stop_loss" in signals_df.columns
+    assert "take_profit" in signals_df.columns
+    assert "rationale" in signals_df.columns
+    assert len(signals_df) == len(mock_intraday_dataframe)
+
+    unique_sigs = set(signals_df["signal"].unique())
+    assert unique_sigs.issubset({-1.0, 0.0, 1.0})
+
+    grid = strat.get_parameter_grid()
+    assert "donchian_window_days" in grid
+    assert "min_daily_adx" in grid
+    assert "stop_atr_mult" in grid
+    assert "target_atr_mult" in grid
+
+
+def test_alpha_12_european_open_momentum_signals(mock_intraday_dataframe):
+    from src.strategies.alpha_12_european_open_momentum import Alpha12EuropeanOpenMomentum
+    strat = Alpha12EuropeanOpenMomentum()
+    signals_df = strat.generate_signals(mock_intraday_dataframe)
+
+    assert "signal" in signals_df.columns
+    assert "stop_loss" in signals_df.columns
+    assert "take_profit" in signals_df.columns
+    assert "rationale" in signals_df.columns
+    assert len(signals_df) == len(mock_intraday_dataframe)
+
+    unique_sigs = set(signals_df["signal"].unique())
+    assert unique_sigs.issubset({-1.0, 0.0, 1.0})
+
+    grid = strat.get_parameter_grid()
+    assert "min_rvol" in grid
+    assert "target_rr" in grid
+    assert "max_box_atr_ratio" in grid
+
+
+def test_alpha_13_htf_aligned_orb_signals(mock_intraday_dataframe):
+    from src.strategies.alpha_13_htf_aligned_orb import Alpha13HTFAlignedORB
+    strat = Alpha13HTFAlignedORB()
+    signals_df = strat.generate_signals(mock_intraday_dataframe)
+
+    assert "signal" in signals_df.columns
+    assert "stop_loss" in signals_df.columns
+    assert "take_profit" in signals_df.columns
+    assert "rationale" in signals_df.columns
+    assert len(signals_df) == len(mock_intraday_dataframe)
+
+    unique_sigs = set(signals_df["signal"].unique())
+    assert unique_sigs.issubset({-1.0, 0.0, 1.0})
+
+    grid = strat.get_parameter_grid()
+    assert "min_rvol" in grid
+    assert "target_rr" in grid
+    assert "max_or_atr_ratio" in grid
+
+
+def test_alpha_14_gap_momentum_drift_signals(mock_intraday_dataframe):
+    from src.strategies.alpha_14_gap_momentum_drift import Alpha14GapMomentumDrift
+    strat = Alpha14GapMomentumDrift()
+    signals_df = strat.generate_signals(mock_intraday_dataframe)
+
+    assert "signal" in signals_df.columns
+    assert "stop_loss" in signals_df.columns
+    assert "take_profit" in signals_df.columns
+    assert "rationale" in signals_df.columns
+    assert len(signals_df) == len(mock_intraday_dataframe)
+
+    unique_sigs = set(signals_df["signal"].unique())
+    assert unique_sigs.issubset({-1.0, 0.0, 1.0})
+
+    grid = strat.get_parameter_grid()
+    assert "min_gap_pct" in grid
+    assert "min_body_ratio" in grid
+    assert "min_rvol" in grid
+    assert "target_rr" in grid

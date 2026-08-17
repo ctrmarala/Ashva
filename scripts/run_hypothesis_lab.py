@@ -45,6 +45,10 @@ from src.strategies.alpha_07_opening_volatility_expansion import Alpha07OpeningV
 from src.strategies.alpha_08_opening_imbalance import Alpha08OpeningImbalance
 from src.strategies.alpha_09_opening_relative_strength import Alpha09OpeningRelativeStrength
 from src.strategies.alpha_10_statistical_range_reversion import Alpha10StatisticalRangeReversion
+from src.strategies.alpha_11_donchian_breakout import Alpha11DonchianBreakout
+from src.strategies.alpha_12_european_open_momentum import Alpha12EuropeanOpenMomentum
+from src.strategies.alpha_13_htf_aligned_orb import Alpha13HTFAlignedORB
+from src.strategies.alpha_14_gap_momentum_drift import Alpha14GapMomentumDrift
 
 STRATEGY_MAP = {
     "alpha_01": ("ALPHA_01_TRENDSURFER", AlphaTrendSurfer),
@@ -57,6 +61,10 @@ STRATEGY_MAP = {
     "alpha_08": ("ALPHA_08_OPENING_IMBALANCE", Alpha08OpeningImbalance),
     "alpha_09": ("ALPHA_09_OPENING_RELATIVE_STRENGTH", Alpha09OpeningRelativeStrength),
     "alpha_10": ("ALPHA_10_STATISTICAL_RANGE_REVERSION", Alpha10StatisticalRangeReversion),
+    "alpha_11": ("ALPHA_11_DONCHIAN_BREAKOUT", Alpha11DonchianBreakout),
+    "alpha_12": ("ALPHA_12_EUROPEAN_OPEN_MOMENTUM", Alpha12EuropeanOpenMomentum),
+    "alpha_13": ("ALPHA_13_HTF_ALIGNED_ORB", Alpha13HTFAlignedORB),
+    "alpha_14": ("ALPHA_14_GAP_MOMENTUM_DRIFT", Alpha14GapMomentumDrift),
 }
 
 DEFAULT_UNIVERSE = [
