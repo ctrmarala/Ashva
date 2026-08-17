@@ -20,7 +20,7 @@ from scipy.stats import norm, skew, kurtosis
 from src.research.hypothesis import BaseHypothesis, HypothesisStatus, HypothesisValidationReport
 from src.analytics.indian_costs import IndianCostModel, Segment
 from src.backtest.engine import BacktestEngine
-from src.research.experiment_ledger import ResearchExperimentLedger, ExperimentRecord
+from src.research.experiment_ledger import ResearchExperimentLedger, ExperimentRecord, get_current_git_sha
 
 logger = logging.getLogger(__name__)
 
@@ -253,11 +253,13 @@ class StatisticalValidator:
             grid_size = 1
             for p_vals in grid.values():
                 grid_size *= max(1, len(p_vals))
-            prior_trials = self.experiment_ledger.get_total_trials()
             n_symbols = len(getattr(hypothesis, "target_instruments", ["ASSET"]))
-            effective_trials = max(1, prior_trials + (grid_size * n_symbols))
+            trials_in_this_run = max(1, grid_size * n_symbols)
         else:
-            effective_trials = num_trials
+            trials_in_this_run = num_trials
+
+        prior_trials = self.experiment_ledger.get_total_trials()
+        effective_trials = prior_trials + trials_in_this_run
 
         # 2. Generate Signals and Run Baseline In-Sample / Full Backtests
         signals_df = hypothesis.generate_signals(df)
@@ -340,14 +342,15 @@ class StatisticalValidator:
                 deflated_sharpe_p_value=dsr_p_val,
                 net_profit_factor=net_pf,
                 monte_carlo_95_max_dd=p95_dd,
+                trials_in_experiment=trials_in_this_run,
                 total_trials_cumulative=effective_trials,
-                git_commit_sha="a3cafc2",
+                git_commit_sha=get_current_git_sha(),
                 status=status.value,
                 rejection_reasons_json=json.dumps(rejection_reasons),
             )
             updated_count = self.experiment_ledger.log_experiment(exp_record)
-            logger.info("experiment_logged_to_ledger", experiment_id=exp_record.experiment_id, total_trials=updated_count, status=status.value)
+            logger.info(f"Experiment logged to ledger: {exp_record.experiment_id} | Trials in run: {trials_in_this_run} | Total Cumulative Trials: {updated_count}")
         except Exception as e:
-            logger.error("failed_to_log_experiment_to_ledger", error=str(e))
+            logger.error(f"Failed to log experiment to ledger: {e}")
 
         return report

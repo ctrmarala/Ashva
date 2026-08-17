@@ -9,7 +9,17 @@ from datetime import datetime
 import json
 from pathlib import Path
 import sqlite3
+import subprocess
 from typing import Dict, List, Any, Optional
+
+
+def get_current_git_sha() -> str:
+    """Dynamically returns current Git commit SHA or 'UNKNOWN'."""
+    try:
+        res = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL, text=True)
+        return res.strip()
+    except Exception:
+        return "DEV_DIRTY"
 
 
 @dataclass
@@ -24,6 +34,7 @@ class ExperimentRecord:
     deflated_sharpe_p_value: float
     net_profit_factor: float
     monte_carlo_95_max_dd: float
+    trials_in_experiment: int
     total_trials_cumulative: int
     git_commit_sha: str
     status: str
@@ -33,6 +44,8 @@ class ExperimentRecord:
     def __post_init__(self):
         if not self.timestamp:
             self.timestamp = datetime.now().isoformat()
+        if not self.git_commit_sha:
+            self.git_commit_sha = get_current_git_sha()
 
 
 class ResearchExperimentLedger:
@@ -62,6 +75,7 @@ class ResearchExperimentLedger:
                     deflated_sharpe_p_value DOUBLE NOT NULL,
                     net_profit_factor DOUBLE NOT NULL,
                     monte_carlo_95_max_dd DOUBLE NOT NULL,
+                    trials_in_experiment INTEGER NOT NULL DEFAULT 1,
                     total_trials_cumulative INTEGER NOT NULL,
                     git_commit_sha TEXT NOT NULL,
                     status TEXT NOT NULL,
@@ -70,10 +84,10 @@ class ResearchExperimentLedger:
             """)
 
     def get_total_trials(self) -> int:
-        """Returns cumulative count of all tested hypotheses across the platform history."""
+        """Returns cumulative count of all tested hypotheses/parameter trials across platform history."""
         with sqlite3.connect(self.db_path) as conn:
-            row = conn.execute("SELECT COUNT(*) FROM experiment_journal").fetchone()
-            return row[0] if row else 0
+            row = conn.execute("SELECT COALESCE(SUM(trials_in_experiment), 0) FROM experiment_journal").fetchone()
+            return int(row[0]) if row and row[0] is not None else 0
 
     def log_experiment(self, record: ExperimentRecord) -> int:
         """Logs an experiment and returns the updated cumulative trial count."""
@@ -82,9 +96,9 @@ class ResearchExperimentLedger:
                 INSERT OR REPLACE INTO experiment_journal (
                     experiment_id, timestamp, strategy_id, symbol_universe, timeframe,
                     parameters_json, in_sample_sharpe, cpcv_oos_sharpe, deflated_sharpe_p_value,
-                    net_profit_factor, monte_carlo_95_max_dd, total_trials_cumulative,
-                    git_commit_sha, status, rejection_reasons_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    net_profit_factor, monte_carlo_95_max_dd, trials_in_experiment,
+                    total_trials_cumulative, git_commit_sha, status, rejection_reasons_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """, (
                 record.experiment_id,
                 record.timestamp,
@@ -97,6 +111,7 @@ class ResearchExperimentLedger:
                 record.deflated_sharpe_p_value,
                 record.net_profit_factor,
                 record.monte_carlo_95_max_dd,
+                record.trials_in_experiment,
                 record.total_trials_cumulative,
                 record.git_commit_sha,
                 record.status,

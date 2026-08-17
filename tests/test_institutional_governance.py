@@ -33,6 +33,8 @@ class MockBrokerGateway:
 
     def place_order(self, order):
         self.placed_orders.append(order)
+        if getattr(order, "tag", "") == "EMERGENCY_FLATTEN":
+            self.positions = []
 
 
 def test_rms_allows_exits_when_max_positions_reached():
@@ -104,13 +106,14 @@ def test_experiment_ledger_trial_counting(tmp_path):
         deflated_sharpe_p_value=0.01,
         net_profit_factor=1.45,
         monte_carlo_95_max_dd=8.5,
-        total_trials_cumulative=1,
+        trials_in_experiment=5,
+        total_trials_cumulative=5,
         git_commit_sha="2393f38",
         status="ACCEPTED",
         rejection_reasons_json="[]",
     )
     n1 = ledger.log_experiment(rec1)
-    assert n1 == 1
+    assert n1 == 5
 
     rec2 = ExperimentRecord(
         experiment_id="EXP_002",
@@ -123,13 +126,14 @@ def test_experiment_ledger_trial_counting(tmp_path):
         deflated_sharpe_p_value=0.12,
         net_profit_factor=0.95,
         monte_carlo_95_max_dd=16.5,
-        total_trials_cumulative=2,
+        trials_in_experiment=10,
+        total_trials_cumulative=15,
         git_commit_sha="2393f38",
         status="REJECTED",
         rejection_reasons_json="[\"DSR Failed\"]",
     )
     n2 = ledger.log_experiment(rec2)
-    assert n2 == 2
+    assert n2 == 15
 
 
 def test_slippage_stress_matrix():

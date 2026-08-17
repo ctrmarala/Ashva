@@ -97,21 +97,38 @@ class RiskManager:
                     # 3. Post-Liquidation Verification Loop (Confirm Flatness)
                     is_flat = False
                     for attempt in range(3):
+                        import time
+                        time.sleep(0.5 * (attempt + 1))
                         try:
                             remaining = broker_gateway.get_positions()
                             active_rem = [p for p in remaining if p.get("quantity", 0) > 0]
                             if not active_rem:
                                 is_flat = True
-                                logger.info("[RMS] KILL SWITCH VERIFIED: All positions confirmed FLAT at broker.")
+                                logger.info("[RMS] KILL SWITCH VERIFIED: All positions confirmed 100% FLAT at broker.")
                                 break
+                            else:
+                                logger.warning(f"[RMS] Verification attempt {attempt+1}: {len(active_rem)} open positions remain. Re-submitting market square-off...")
+                                for pos in active_rem:
+                                    qty = pos.get("quantity", 0)
+                                    sym = pos.get("symbol", "")
+                                    side = pos.get("side", "")
+                                    if qty > 0 and sym:
+                                        opp_side = OrderSide.SELL if side == "LONG" else OrderSide.BUY
+                                        broker_gateway.place_order(OrderEvent(
+                                            symbol=sym, side=opp_side, order_type=OrderType.MARKET,
+                                            quantity=qty, strategy_id="RMS_KILL_SWITCH", tag="EMERGENCY_FLATTEN"
+                                        ))
                         except Exception as e:
                             logger.warning(f"[RMS] Verification poll attempt {attempt+1} encountered: {e}")
 
                     if not is_flat and positions:
-                        logger.critical("[RMS] CRITICAL RMS ALERT: Liquidation order dispatched, awaiting broker fill confirmation.")
+                        logger.critical("[RMS] CRITICAL RMS ALERT: Kill switch failed to verify zero exposure after 3 retries!")
+                        raise RuntimeError("KILL_SWITCH_UNCONFIRMED_EXPOSURE: Broker positions could not be confirmed flat.")
 
             except Exception as e:
                 logger.error(f"[RMS] Failed during active liquidation: {e}")
+                if "KILL_SWITCH_UNCONFIRMED_EXPOSURE" in str(e):
+                    raise
 
         return risk_event
 
