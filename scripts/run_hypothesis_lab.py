@@ -60,6 +60,7 @@ def run_strategy_backtest(
     symbols: List[str],
     lake: DataLake,
     engine: BacktestEngine,
+    validator: StatisticalValidator,
     timeframe: str = "15m",
 ) -> List[Dict]:
     results = []
@@ -68,18 +69,16 @@ def run_strategy_backtest(
         if df.empty or len(df) < 100:
             continue
 
+        # Set target instrument dynamically on hypothesis metadata
+        if hasattr(strat_obj, "metadata"):
+            strat_obj.metadata.target_instruments = [sym]
+
+        # 1. Run Baseline Backtest
         signals_df = strat_obj.generate_signals(df)
         res = engine.run(signals_df, symbol=sym, strategy_id=strat_id, risk_per_trade_pct=0.005, capital_per_trade_pct=0.25)
 
-        # Classify status using calibrated validator rules
-        if res.net_profit_factor < 1.0:
-            verdict = "[REJECTED: Negative Net Expectancy]"
-        elif res.total_trades < 25:
-            verdict = "[LOW_FREQ_WATCH: N < 25, Positive Payoff]"
-        elif res.net_profit_factor >= 1.08 and res.sharpe_ratio > 0:
-            verdict = "[FORWARD_PAPER: Viable Edge]"
-        else:
-            verdict = "[RESEARCH_CANDIDATE]"
+        # 2. Run Centralized Statistical Validation (Single Source of Truth)
+        report = validator.validate_hypothesis(strat_obj, df)
 
         results.append({
             "Strategy": strat_id,
@@ -92,8 +91,9 @@ def run_strategy_backtest(
             "Sharpe": round(res.sharpe_ratio, 2),
             "Max_DD_Pct": round(res.max_drawdown_pct, 2),
             "Total_Costs_INR": round(res.total_taxes_paid, 2),
-            "Verdict": verdict,
+            "Verdict": f"[{report.status.value}]",
             "_result_obj": res,
+            "_report": report,
             "_df": df,
             "_signals_df": signals_df,
         })
@@ -171,7 +171,7 @@ def main():
         print(f"[+] AUDITING STRATEGY: {strat_name}")
         print("#" * 115)
 
-        results = run_strategy_backtest(strat_name, strat_obj, target_symbols, lake, engine, args.timeframe)
+        results = run_strategy_backtest(strat_name, strat_obj, target_symbols, lake, engine, validator, args.timeframe)
         if not results:
             print("[-] No data found for specified symbols.")
             continue
