@@ -35,9 +35,14 @@ QUALIFIED_UNIVERSE = [
 ]
 
 
-def ingest_data(timeframe: str = "15m", days: int = 180):
+# Ashva 18-Month Historical Horizon Policy
+MAX_HORIZON_DAYS = 540  # Hard ceiling: 18 Months (~1.5 Years)
+
+
+def ingest_data(timeframe: str = "15m", days: int = 540):
+    days = min(days, MAX_HORIZON_DAYS)
     print("=" * 80)
-    print(f"[*] INGESTING ANGEL ONE HISTORICAL DATA ({timeframe.upper()} - LAST {days} DAYS CHUNKED)")
+    print(f"[*] INGESTING ANGEL ONE HISTORICAL DATA ({timeframe.upper()} - LAST {days} DAYS / 18 MONTHS CHUNKED)")
     print("=" * 80)
 
     # 1. Load credentials

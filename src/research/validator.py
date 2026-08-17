@@ -360,6 +360,91 @@ class StatisticalValidator:
             updated_count = self.experiment_ledger.log_experiment(exp_record)
             logger.info(f"Experiment logged to ledger: {exp_record.experiment_id} | Trials in run: {trials_in_this_run} | Total Cumulative Trials: {updated_count}")
         except Exception as e:
-            logger.error(f"Failed to log experiment to ledger: {e}")
+            logger.warning(f"Could not log to experiment ledger: {e}")
 
         return report
+
+    @staticmethod
+    def classify_sample_evidence_tier(trade_count: int) -> Tuple[str, str]:
+        """
+        Classifies sample size into institutional evidence tiers:
+        < 25   -> 🔴 INSUFFICIENT_EVIDENCE
+        25-49  -> 🟠 PRELIMINARY
+        50-99  -> 🟡 RESEARCH_CANDIDATE
+        100-199-> 🟢 STATISTICALLY_MEANINGFUL
+        200+   -> 🟢 STRONG_SAMPLE
+        """
+        if trade_count < 25:
+            return "[TIER_0: INSUFFICIENT_EVIDENCE]", "Insufficient sample density (N < 25). Results subject to small-sample bias."
+        elif trade_count < 50:
+            return "[TIER_1: PRELIMINARY]", f"Preliminary sample (N={trade_count}). Encouraging but requires historical expansion."
+        elif trade_count < 100:
+            return "[TIER_2: RESEARCH_CANDIDATE]", f"Solid research candidate sample (N={trade_count}). Ready for forward paper surveillance."
+        elif trade_count < 200:
+            return "[TIER_3: STATISTICALLY_MEANINGFUL]", f"Statistically meaningful candidate sample (N={trade_count})."
+        else:
+            return "[TIER_4: STRONG_SAMPLE]", f"Strong robust sample size (N={trade_count})."
+
+    def evaluate_multi_regime_persistence(
+        self,
+        hypothesis: BaseHypothesis,
+        df: pd.DataFrame,
+        symbol: str = "ASSET",
+    ) -> pd.DataFrame:
+        """
+        Evaluates 3-Tier Multi-Regime Breakdown:
+        - Tier 1: Current Regime (0–6 Months / Last 180 Days) -> Is it working now?
+        - Tier 2: Recent Regime (6–12 Months / 180 to 365 Days ago) -> Is the edge persistent?
+        - Tier 3: Extended Context (12–18 Months / 365 to 540 Days ago) -> Does it survive prior regimes?
+        """
+        if df.empty or len(df) < 100:
+            return pd.DataFrame()
+
+        signals_df = hypothesis.generate_signals(df)
+        engine = BacktestEngine(cost_model=self.cost_model, initial_capital=500000.0)
+
+        end_date = signals_df.index.max()
+        t1_start = end_date - pd.Timedelta(days=180)
+        t2_start = end_date - pd.Timedelta(days=365)
+        t3_start = end_date - pd.Timedelta(days=540)
+
+        windows = [
+            ("Current (0-6m)", t1_start, end_date),
+            ("Recent (6-12m)", t2_start, t1_start),
+            ("Extended (12-18m)", t3_start, t2_start),
+            ("Overall (0-18m Full)", t3_start, end_date),
+        ]
+
+        rows = []
+        for name, start_dt, end_dt in windows:
+            sub_df = signals_df[(signals_df.index >= start_dt) & (signals_df.index <= end_dt)]
+            if sub_df.empty or len(sub_df) < 30:
+                rows.append({
+                    "Regime_Window": name,
+                    "Date_Range": f"{start_dt.strftime('%Y-%m-%d')} to {end_dt.strftime('%Y-%m-%d')}",
+                    "Trades": 0,
+                    "Win_Rate_Pct": 0.0,
+                    "Net_PnL_INR": 0.0,
+                    "Net_Profit_Factor": 0.0,
+                    "Sharpe": 0.0,
+                    "Max_DD_Pct": 0.0,
+                    "Status": "NO_DATA",
+                })
+                continue
+
+            r = engine.run(sub_df, symbol=symbol, strategy_id=hypothesis.metadata.name, risk_per_trade_pct=0.005, capital_per_trade_pct=0.25)
+            tier_label, _ = self.classify_sample_evidence_tier(r.total_trades)
+
+            rows.append({
+                "Regime_Window": name,
+                "Date_Range": f"{sub_df.index.min().strftime('%Y-%m-%d')} to {sub_df.index.max().strftime('%Y-%m-%d')}",
+                "Trades": r.total_trades,
+                "Win_Rate_Pct": round(r.win_rate_pct, 1),
+                "Net_PnL_INR": round(r.total_net_pnl, 2),
+                "Net_Profit_Factor": round(r.net_profit_factor, 2),
+                "Sharpe": round(r.sharpe_ratio, 2),
+                "Max_DD_Pct": round(r.max_drawdown_pct, 2),
+                "Evidence_Tier": tier_label,
+            })
+
+        return pd.DataFrame(rows)
