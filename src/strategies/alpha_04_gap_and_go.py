@@ -50,6 +50,8 @@ class Alpha04GapAndGo(BaseHypothesis):
             "min_adx": 16.0,             # Minimum directional trend momentum
             "rr_ratio": 2.0,             # 2.0R Take Profit
             "sl_buffer_atr": 0.5,        # Buffer beyond first bar extreme
+            "min_atr_pct": 0.80,         # Minimum 0.80% normalized ATR (avoid dead/sluggish stocks)
+            "max_atr_pct": 3.50,         # Maximum 3.50% normalized ATR (avoid extreme erratic whip)
             "eod_exit_time": "15:15",
         }
         super().__init__(metadata=meta, parameters=params)
@@ -82,6 +84,8 @@ class Alpha04GapAndGo(BaseHypothesis):
         min_adx = float(self.parameters.get("min_adx", 16.0))
         rr = float(self.parameters.get("rr_ratio", 2.0))
         sl_buffer = float(self.parameters.get("sl_buffer_atr", 0.5))
+        min_atr_pct = float(self.parameters.get("min_atr_pct", 0.80))
+        max_atr_pct = float(self.parameters.get("max_atr_pct", 3.50))
 
         # 1. Technical Indicators
         out = TI.add_atr(out, period=14)
@@ -204,8 +208,9 @@ class Alpha04GapAndGo(BaseHypothesis):
                 gap_pct = ((first_bar_open - prev_day_close) / prev_day_close) * 100.0
                 abs_gap = abs(gap_pct)
                 rvol = (first_bar_vol / tod_benchmark_vol) if tod_benchmark_vol and tod_benchmark_vol > 0 else 1.0
+                norm_atr = (c_atr / prev_day_close) * 100.0 if prev_day_close > 0 else 0.0
 
-                gap_valid = (min_gap <= abs_gap <= max_gap)
+                gap_valid = (min_gap <= abs_gap <= max_gap) and (min_atr_pct <= norm_atr <= max_atr_pct)
                 rvol_ok = (rvol >= rvol_m)
                 adx_ok = (c_adx >= min_adx) if not np.isnan(c_adx) else True
 
