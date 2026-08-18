@@ -73,6 +73,7 @@ class HypothesisValidationReport:
     current_regime_score: float = 0.0        # 0 to 100% descriptive indicator of 60d trajectory
     recency_weighted_score: float = 0.0      # Sample-confidence weighted return metric (-1.0 to +1.0)
     window_metrics: Dict[str, Dict[str, Any]] = field(default_factory=dict) # 60d, 180d, 365d, 540d
+    portfolio_correlation: float = 0.0       # Max absolute correlation with baseline portfolio
     validated_at: datetime = field(default_factory=datetime.now)
 
     def is_accepted(self) -> bool:
@@ -93,6 +94,7 @@ class HypothesisValidationReport:
             "regime_stability_score": round(self.regime_stability_score, 1),
             "current_regime_score": round(self.current_regime_score, 1),
             "recency_weighted_score": round(self.recency_weighted_score, 2),
+            "portfolio_correlation": round(self.portfolio_correlation, 3),
             "window_metrics": self.window_metrics,
             "rejection_reasons": self.rejection_reasons,
             "trials_tested": self.tested_trials_count,

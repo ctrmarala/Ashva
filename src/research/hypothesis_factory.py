@@ -16,10 +16,11 @@ class HypothesisFactory:
     Automated factory to instantiate, parameterize, test, and filter hypotheses.
     """
 
-    def __init__(self, validator: StatisticalValidator = None):
+    def __init__(self, validator: StatisticalValidator = None, baseline_portfolio_returns: pd.DataFrame = None):
         self.validator = validator or StatisticalValidator()
         self.accepted_hypotheses: List[Dict[str, Any]] = []
         self.rejected_hypotheses: List[Dict[str, Any]] = []
+        self.baseline_portfolio_returns = baseline_portfolio_returns if baseline_portfolio_returns is not None else pd.DataFrame()
 
     def generate_parameter_combinations(self, param_grid: Dict[str, List[Any]]) -> List[Dict[str, Any]]:
         """
@@ -56,6 +57,7 @@ class HypothesisFactory:
                 hypothesis=hyp_instance,
                 df=df,
                 num_trials=num_trials,
+                baseline_portfolio_returns=self.baseline_portfolio_returns,
             )
             
             record = {

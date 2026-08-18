@@ -40,6 +40,7 @@ class StatisticalValidator:
         max_cpcv_degradation_pct: float = 50.0, # Max allowed performance drop OOS
         max_monte_carlo_dd_pct: float = 15.0,   # Max 95th percentile drawdown
         min_trade_count: int = 25,              # Minimum sample size to avoid small-sample distortion
+        max_portfolio_correlation: float = 0.50,# Max absolute correlation allowed with existing portfolio
     ):
         self.cost_model = cost_model or IndianCostModel()
         self.experiment_ledger = experiment_ledger or ResearchExperimentLedger()
@@ -48,6 +49,7 @@ class StatisticalValidator:
         self.max_cpcv_degradation_pct = max_cpcv_degradation_pct
         self.max_monte_carlo_dd_pct = max_monte_carlo_dd_pct
         self.min_trade_count = min_trade_count
+        self.max_portfolio_correlation = max_portfolio_correlation
 
     @staticmethod
     def calculate_sharpe_ratio(returns: np.ndarray, risk_free_rate: float = 0.0, periods_per_year: int = 252) -> float:
@@ -217,6 +219,7 @@ class StatisticalValidator:
         num_trials: Optional[int] = None,
         train_test_split: float = 0.70,
         symbol: Optional[str] = None,
+        baseline_portfolio_returns: Optional[pd.DataFrame] = None,
     ) -> HypothesisValidationReport:
         """
         Full 4-Gate Institutional Statistical Validation with Recency-Weighted Multi-Window Analysis:
@@ -349,12 +352,29 @@ class StatisticalValidator:
 
         # 6. Gate 1: Deflated Sharpe Ratio (DSR) Test on Daily Mark-to-Market Returns
         daily_equity = full_result.equity_curve.resample("1D").last().dropna()
-        daily_returns = daily_equity.pct_change().dropna().values
+        daily_returns_series = daily_equity.pct_change().dropna()
+        daily_returns = daily_returns_series.values
         dsr_stat, dsr_p_val = self.calculate_deflated_sharpe_ratio(daily_returns, num_trials=effective_trials, periods_per_year=252)
         if dsr_p_val > self.max_dsr_p_value:
             rejection_reasons.append(
                 f"DSR Test Failed: p-value {dsr_p_val:.4f} > {self.max_dsr_p_value} across {effective_trials} parameter trials (High selection risk)"
             )
+
+        # 6.5. Gate 1.5: Portfolio Independence (Correlation)
+        max_corr = 0.0
+        if baseline_portfolio_returns is not None and not baseline_portfolio_returns.empty:
+            strategy_daily_ret = daily_returns_series.rename("strategy")
+            aligned_returns = pd.concat([baseline_portfolio_returns, strategy_daily_ret], axis=1).dropna()
+            if not aligned_returns.empty and len(aligned_returns) > 30:
+                corr_matrix = aligned_returns.corr(method="pearson")
+                corrs = corr_matrix["strategy"].drop("strategy").abs()
+                if not corrs.empty:
+                    max_corr = float(corrs.max())
+                
+                if max_corr > self.max_portfolio_correlation:
+                    rejection_reasons.append(
+                        f"Portfolio Independence Failed: Max absolute correlation {max_corr:.2f} > {self.max_portfolio_correlation} with baseline portfolio"
+                    )
 
         # 7. Gate 2: True Combinatorial Purged Cross-Validation (CPCV) Quality Gate
         cpcv_results = self.run_cpcv(df, hypothesis, n_splits=6, k_test=2)
@@ -418,6 +438,7 @@ class StatisticalValidator:
             regime_stability_score=regime_stability,
             current_regime_score=current_regime_score,
             recency_weighted_score=recency_weighted_score,
+            portfolio_correlation=max_corr,
             window_metrics=window_metrics,
             rejection_reasons=rejection_reasons,
             tested_trials_count=effective_trials,
