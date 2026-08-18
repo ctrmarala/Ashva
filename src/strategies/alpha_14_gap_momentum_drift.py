@@ -138,22 +138,47 @@ class Alpha14GapMomentumDrift(BaseHypothesis):
 
         current_day = None
         traded_today = False
+        curr_state = 0.0
+        curr_sl = 0.0
+        curr_tp = 0.0
+        curr_rationale = ""
+
+        t_0915 = pd.to_datetime("09:15:00").time()
+        t_1515 = pd.to_datetime("15:15:00").time()
 
         for i in range(n):
             bar_date = dates[i]
             bar_time = times[i]
-            hour = bar_time.hour
-            minute = bar_time.minute
 
             if bar_date != current_day:
                 current_day = bar_date
                 traded_today = False
+                curr_state = 0.0
+                curr_sl = 0.0
+                curr_tp = 0.0
+                curr_rationale = ""
+
+            # Intraday 15:15 EOD Square-Off
+            if bar_time >= t_1515:
+                if curr_state != 0.0:
+                    curr_state = 0.0
+                    signals[i] = 0.0
+                    rationales[i] = "Alpha 14 EXIT: Intraday 15:15 EOD Square-Off"
+                continue
+
+            # Maintain active position across intraday bars
+            if curr_state != 0.0:
+                signals[i] = curr_state
+                stop_loss[i] = curr_sl
+                take_profit[i] = curr_tp
+                rationales[i] = curr_rationale
+                continue
 
             if traded_today:
                 continue
 
             # Evaluate strictly on Bar 1 (09:15 to 09:30)
-            if hour == 9 and minute == 15:
+            if bar_time == t_0915:
                 p_close = prev_closes[i]
                 c_atr = daily_atrs[i]
                 c_open = opens[i]
@@ -184,28 +209,36 @@ class Alpha14GapMomentumDrift(BaseHypothesis):
 
                 # Bullish Gap & Continuation (LONG)
                 if (gap_pct >= min_gap) and (c_close > c_open) and (body_ratio >= min_body) and (rvol >= min_rvol):
-                    signals[i] = 1.0
+                    curr_state = 1.0
                     sl_price = c_low
                     stop_dist = max(c_close - sl_price, 0.15 * c_atr)
-                    stop_loss[i] = c_close - stop_dist
-                    take_profit[i] = c_close + (target_rr * stop_dist)
-                    rationales[i] = (
+                    curr_sl = c_close - stop_dist
+                    curr_tp = c_close + (target_rr * stop_dist)
+                    curr_rationale = (
                         f"Alpha 14 GAP LONG: Gap=+{gap_pct*100:.2f}% | Body={body_ratio*100:.1f}% | "
-                        f"RVOL={rvol:.2f}x | SL=Rs {stop_loss[i]:.1f} | TP=Rs {take_profit[i]:.1f} (1:{target_rr:.1f} RR)"
+                        f"RVOL={rvol:.2f}x | SL=Rs {curr_sl:.1f} | TP=Rs {curr_tp:.1f} (1:{target_rr:.1f} RR)"
                     )
+                    signals[i] = 1.0
+                    stop_loss[i] = curr_sl
+                    take_profit[i] = curr_tp
+                    rationales[i] = curr_rationale
                     traded_today = True
 
                 # Bearish Gap & Continuation (SHORT)
                 elif (gap_pct <= -min_gap) and (c_close < c_open) and (body_ratio >= min_body) and (rvol >= min_rvol):
-                    signals[i] = -1.0
+                    curr_state = -1.0
                     sl_price = c_high
                     stop_dist = max(sl_price - c_close, 0.15 * c_atr)
-                    stop_loss[i] = c_close + stop_dist
-                    take_profit[i] = c_close - (target_rr * stop_dist)
-                    rationales[i] = (
+                    curr_sl = c_close + stop_dist
+                    curr_tp = c_close - (target_rr * stop_dist)
+                    curr_rationale = (
                         f"Alpha 14 GAP SHORT: Gap={gap_pct*100:.2f}% | Body={body_ratio*100:.1f}% | "
-                        f"RVOL={rvol:.2f}x | SL=Rs {stop_loss[i]:.1f} | TP=Rs {take_profit[i]:.1f} (1:{target_rr:.1f} RR)"
+                        f"RVOL={rvol:.2f}x | SL=Rs {curr_sl:.1f} | TP=Rs {curr_tp:.1f} (1:{target_rr:.1f} RR)"
                     )
+                    signals[i] = -1.0
+                    stop_loss[i] = curr_sl
+                    take_profit[i] = curr_tp
+                    rationales[i] = curr_rationale
                     traded_today = True
 
         out["signal"] = signals
