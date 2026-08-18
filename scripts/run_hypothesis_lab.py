@@ -60,6 +60,11 @@ from src.strategies.alpha_22_apex_momentum import Alpha22ApexMomentum
 from src.strategies.alpha_23_velocity_50_scanner import Alpha23Velocity50Scanner
 from src.strategies.alpha_24_volatility_vacuum_release import Alpha24VolatilityVacuumRelease
 from src.strategies.alpha_25_cross_sectional_residual_reversion import Alpha25CrossSectionalResidualReversion
+from src.strategies.alpha_27_sector_momentum_drift import Alpha27SectorMomentumDrift
+from src.strategies.alpha_28_value_area_expansion import Alpha28ValueAreaExpansion
+from src.strategies.alpha_29_trend_exhaustion_climax import Alpha29TrendExhaustionClimax
+from src.strategies.alpha_30_midday_squeeze_trend import Alpha30MiddaySqueezeTrend
+from src.strategies.alpha_31_failed_opening_drive_fade import Alpha31FailedOpeningDriveFade
 
 STRATEGY_MAP = {
     "alpha_01": ("ALPHA_01_TRENDSURFER", AlphaTrendSurfer),
@@ -87,6 +92,11 @@ STRATEGY_MAP = {
     "alpha_23": ("ALPHA_23_VELOCITY_50_SCANNER", Alpha23Velocity50Scanner),
     "alpha_24": ("ALPHA_24_VOLATILITY_VACUUM_RELEASE", Alpha24VolatilityVacuumRelease),
     "alpha_25": ("ALPHA_25_CROSS_SECTIONAL_RESIDUAL_REVERSION", Alpha25CrossSectionalResidualReversion),
+    "alpha_27": ("ALPHA_27_SECTOR_MOMENTUM_DRIFT", Alpha27SectorMomentumDrift),
+    "alpha_28": ("ALPHA_28_VALUE_AREA_EXPANSION", Alpha28ValueAreaExpansion),
+    "alpha_29": ("ALPHA_29_TREND_EXHAUSTION_CLIMAX", Alpha29TrendExhaustionClimax),
+    "alpha_30": ("ALPHA_30_MIDDAY_SQUEEZE_TREND", Alpha30MiddaySqueezeTrend),
+    "alpha_31": ("ALPHA_31_FAILED_OPENING_DRIVE_FADE", Alpha31FailedOpeningDriveFade),
 }
 
 DEFAULT_UNIVERSE = [
