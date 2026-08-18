@@ -146,6 +146,13 @@ class Alpha18ThreeDayTrendORB(BaseHypothesis):
         or_low = 0.0
         or_established = False
         traded_today = False
+        curr_state = 0.0
+        curr_sl = 0.0
+        curr_tp = 0.0
+        curr_rationale = ""
+
+        t_0915 = pd.to_datetime("09:15:00").time()
+        t_1515 = pd.to_datetime("15:15:00").time()
 
         for i in range(n):
             bar_date = dates[i]
@@ -159,6 +166,26 @@ class Alpha18ThreeDayTrendORB(BaseHypothesis):
                 or_low = 0.0
                 or_established = False
                 traded_today = False
+                curr_state = 0.0
+                curr_sl = 0.0
+                curr_tp = 0.0
+                curr_rationale = ""
+
+            # Intraday 15:15 EOD Square-Off
+            if bar_time >= t_1515:
+                if curr_state != 0.0:
+                    curr_state = 0.0
+                    signals[i] = 0.0
+                    rationales[i] = "Alpha 18 EXIT: Intraday 15:15 EOD Square-Off"
+                continue
+
+            # Maintain active position across intraday bars
+            if curr_state != 0.0:
+                signals[i] = curr_state
+                stop_loss[i] = curr_sl
+                take_profit[i] = curr_tp
+                rationales[i] = curr_rationale
+                continue
 
             c_close = closes[i]
             c_open = opens[i]
@@ -172,7 +199,7 @@ class Alpha18ThreeDayTrendORB(BaseHypothesis):
             # -------------------------------------------------------------
             # 1. Establish 09:15 Opening Range (Bar 1)
             # -------------------------------------------------------------
-            if hour == 9 and minute == 15:
+            if bar_time == t_0915:
                 or_high = c_high
                 or_low = c_low
                 or_established = True
@@ -194,26 +221,34 @@ class Alpha18ThreeDayTrendORB(BaseHypothesis):
 
                 # Bullish 3-Day Trend Aligned Breakout (LONG)
                 if (c_trend == 1) and (c_close > or_high) and (c_close > c_open) and (rvol >= min_rvol):
-                    signals[i] = 1.0
+                    curr_state = 1.0
                     stop_dist = max(c_close - or_mid, 0.15 * c_atr)
-                    stop_loss[i] = c_close - stop_dist
-                    take_profit[i] = c_close + (target_rr * stop_dist)
-                    rationales[i] = (
+                    curr_sl = c_close - stop_dist
+                    curr_tp = c_close + (target_rr * stop_dist)
+                    curr_rationale = (
                         f"Alpha 18 3D LONG: 3 Consecutive Higher Lows | OR15 Breakout Close={c_close:.1f} > OR_High={or_high:.1f} | "
-                        f"RVOL={rvol:.2f}x | SL=Rs {stop_loss[i]:.1f} | TP=Rs {take_profit[i]:.1f} (1:{target_rr:.1f} RR)"
+                        f"RVOL={rvol:.2f}x | SL=Rs {curr_sl:.1f} | TP=Rs {curr_tp:.1f} (1:{target_rr:.1f} RR)"
                     )
+                    signals[i] = 1.0
+                    stop_loss[i] = curr_sl
+                    take_profit[i] = curr_tp
+                    rationales[i] = curr_rationale
                     traded_today = True
 
                 # Bearish 3-Day Trend Aligned Breakdown (SHORT)
                 elif (c_trend == -1) and (c_close < or_low) and (c_close < c_open) and (rvol >= min_rvol):
-                    signals[i] = -1.0
+                    curr_state = -1.0
                     stop_dist = max(or_mid - c_close, 0.15 * c_atr)
-                    stop_loss[i] = c_close + stop_dist
-                    take_profit[i] = c_close - (target_rr * stop_dist)
-                    rationales[i] = (
+                    curr_sl = c_close + stop_dist
+                    curr_tp = c_close - (target_rr * stop_dist)
+                    curr_rationale = (
                         f"Alpha 18 3D SHORT: 3 Consecutive Lower Highs | OR15 Breakdown Close={c_close:.1f} < OR_Low={or_low:.1f} | "
-                        f"RVOL={rvol:.2f}x | SL=Rs {stop_loss[i]:.1f} | TP=Rs {take_profit[i]:.1f} (1:{target_rr:.1f} RR)"
+                        f"RVOL={rvol:.2f}x | SL=Rs {curr_sl:.1f} | TP=Rs {curr_tp:.1f} (1:{target_rr:.1f} RR)"
                     )
+                    signals[i] = -1.0
+                    stop_loss[i] = curr_sl
+                    take_profit[i] = curr_tp
+                    rationales[i] = curr_rationale
                     traded_today = True
 
         out["signal"] = signals

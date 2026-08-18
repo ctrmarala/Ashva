@@ -199,9 +199,10 @@ class AlphaTrendSurfer(BaseHypothesis):
                     signals[i] = 0.0
                     rationales[i] = "TrendSurfer EXIT LONG: SL/TP or Trend Reversal"
                 else:
-                    signals[i] = 0.0  # Holding state: No new entry order
+                    signals[i] = 1.0  # Holding active position
                     stop_loss[i] = stop_loss[i - 1]
                     take_profit[i] = take_profit[i - 1]
+                    rationales[i] = rationales[i - 1]
             elif curr_state == -1.0:
                 # Check SL / TP
                 if c_high >= stop_loss[i - 1] or c_low <= take_profit[i - 1] or c_efast > c_eslow:
@@ -209,9 +210,10 @@ class AlphaTrendSurfer(BaseHypothesis):
                     signals[i] = 0.0
                     rationales[i] = "TrendSurfer EXIT SHORT: SL/TP or Trend Reversal"
                 else:
-                    signals[i] = 0.0  # Holding state: No new entry order
+                    signals[i] = -1.0  # Holding active position
                     stop_loss[i] = stop_loss[i - 1]
                     take_profit[i] = take_profit[i - 1]
+                    rationales[i] = rationales[i - 1]
 
         out["signal"] = signals
         out["stop_loss"] = stop_loss

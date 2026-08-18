@@ -190,9 +190,10 @@ class Alpha11DonchianBreakout(BaseHypothesis):
                         + ("Take Profit Hit" if hit_tp else ("Stop Loss Hit" if hit_sl else "Max 10-Day Duration Reached"))
                     )
                 else:
-                    signals[i] = 0.0
+                    signals[i] = 1.0  # Holding swing position across days
                     stop_loss[i] = active_sl
                     take_profit[i] = active_tp
+                    rationales[i] = rationales[i - 1]
                 continue
 
             # -------------------------------------------------------------

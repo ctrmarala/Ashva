@@ -122,16 +122,22 @@ class Alpha05OpeningDrivePullback(BaseHypothesis):
 
         # State tracking per session
         current_day = None
-        drive_side = None          # "BULLISH" or "BEARISH"
+        drive_side = None
         drive_high = 0.0
         drive_low = 0.0
         drive_vol = 0.0
-        pullback_extreme = 0.0     # Lowest low during pullback (for Long) or highest high (for Short)
+        pullback_extreme = 0.0
         in_pullback_zone = False
         traded_today = False
+        curr_state = 0.0
+        curr_sl = 0.0
+        curr_tp = 0.0
+        curr_rationale = ""
 
-        for i in range(1, n):
-            ts = timestamps[i]
+        t_1515 = pd.to_datetime("15:15:00").time()
+
+        for i in range(n):
+            ts = df.index[i]
             bar_date = ts.date()
             bar_time = times[i]
             hour = bar_time.hour
@@ -147,6 +153,26 @@ class Alpha05OpeningDrivePullback(BaseHypothesis):
                 pullback_extreme = 0.0
                 in_pullback_zone = False
                 traded_today = False
+                curr_state = 0.0
+                curr_sl = 0.0
+                curr_tp = 0.0
+                curr_rationale = ""
+
+            # Intraday 15:15 EOD Square-Off
+            if bar_time >= t_1515:
+                if curr_state != 0.0:
+                    curr_state = 0.0
+                    signals[i] = 0.0
+                    rationales[i] = "Alpha 05 EXIT: Intraday 15:15 EOD Square-Off"
+                continue
+
+            # Maintain active position across intraday bars
+            if curr_state != 0.0:
+                signals[i] = curr_state
+                stop_loss[i] = curr_sl
+                take_profit[i] = curr_tp
+                rationales[i] = curr_rationale
+                continue
 
             c_close = closes[i]
             c_open = opens[i]
@@ -211,15 +237,18 @@ class Alpha05OpeningDrivePullback(BaseHypothesis):
 
                 # 3. Phase 3: Continuation Resumption Trigger
                 if in_pullback_zone and (c_close > opens[i]) and (c_close > highs[i - 1]):
-                    # Discrete Entry Pulse
-                    signals[i] = 1.0
+                    curr_state = 1.0
                     stop_dist = max(c_close - pullback_extreme, 0.40 * c_atr)
-                    stop_loss[i] = c_close - stop_dist
-                    take_profit[i] = c_close + (target_rr * stop_dist)
-                    rationales[i] = (
+                    curr_sl = c_close - stop_dist
+                    curr_tp = c_close + (target_rr * stop_dist)
+                    curr_rationale = (
                         f"Alpha 05 LONG: DriveRange=Rs {drive_range:.1f} | Retrac={(drive_high - c_low)/drive_range*100:.1f}% | "
-                        f"SL=Rs {stop_loss[i]:.1f} | TP=Rs {take_profit[i]:.1f} (1:{target_rr:.1f} RR)"
+                        f"SL=Rs {curr_sl:.1f} | TP=Rs {curr_tp:.1f} (1:{target_rr:.1f} RR)"
                     )
+                    signals[i] = 1.0
+                    stop_loss[i] = curr_sl
+                    take_profit[i] = curr_tp
+                    rationales[i] = curr_rationale
                     traded_today = True
                     drive_side = None
 
@@ -240,15 +269,18 @@ class Alpha05OpeningDrivePullback(BaseHypothesis):
 
                 # 3. Phase 3: Continuation Resumption Trigger
                 if in_pullback_zone and (c_close < opens[i]) and (c_close < lows[i - 1]):
-                    # Discrete Entry Pulse
-                    signals[i] = -1.0
+                    curr_state = -1.0
                     stop_dist = max(pullback_extreme - c_close, 0.40 * c_atr)
-                    stop_loss[i] = c_close + stop_dist
-                    take_profit[i] = c_close - (target_rr * stop_dist)
-                    rationales[i] = (
+                    curr_sl = c_close + stop_dist
+                    curr_tp = c_close - (target_rr * stop_dist)
+                    curr_rationale = (
                         f"Alpha 05 SHORT: DriveRange=Rs {drive_range:.1f} | Retrac={(c_high - drive_low)/drive_range*100:.1f}% | "
-                        f"SL=Rs {stop_loss[i]:.1f} | TP=Rs {take_profit[i]:.1f} (1:{target_rr:.1f} RR)"
+                        f"SL=Rs {curr_sl:.1f} | TP=Rs {curr_tp:.1f} (1:{target_rr:.1f} RR)"
                     )
+                    signals[i] = -1.0
+                    stop_loss[i] = curr_sl
+                    take_profit[i] = curr_tp
+                    rationales[i] = curr_rationale
                     traded_today = True
                     drive_side = None
 

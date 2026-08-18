@@ -123,6 +123,12 @@ class Alpha07OpeningVolatilityExpansion(BaseHypothesis):
         is_compressed = False
         traded_today = False
         bar_count_today = 0
+        curr_state = 0.0
+        curr_sl = 0.0
+        curr_tp = 0.0
+        curr_rationale = ""
+
+        t_1515 = pd.to_datetime("15:15:00").time()
 
         for i in range(n):
             ts = timestamps[i]
@@ -139,6 +145,26 @@ class Alpha07OpeningVolatilityExpansion(BaseHypothesis):
                 is_compressed = False
                 traded_today = False
                 bar_count_today = 0
+                curr_state = 0.0
+                curr_sl = 0.0
+                curr_tp = 0.0
+                curr_rationale = ""
+
+            # Intraday 15:15 EOD Square-Off
+            if bar_time >= t_1515:
+                if curr_state != 0.0:
+                    curr_state = 0.0
+                    signals[i] = 0.0
+                    rationales[i] = "Alpha 07 EXIT: Intraday 15:15 EOD Square-Off"
+                continue
+
+            # Maintain active position across intraday bars
+            if curr_state != 0.0:
+                signals[i] = curr_state
+                stop_loss[i] = curr_sl
+                take_profit[i] = curr_tp
+                rationales[i] = curr_rationale
+                continue
 
             bar_count_today += 1
             c_high = highs[i]
@@ -184,28 +210,36 @@ class Alpha07OpeningVolatilityExpansion(BaseHypothesis):
 
             # Bullish Breakout Expansion (LONG)
             if (c_close > or30_high) and (c_close > c_open) and (rvol >= min_rvol):
-                signals[i] = 1.0
+                curr_state = 1.0
                 stop_dist = max(c_close - or30_low, 0.15 * c_daily_atr)
-                stop_loss[i] = c_close - stop_dist
-                take_profit[i] = c_close + (target_rr * stop_dist)
-                rationales[i] = (
+                curr_sl = c_close - stop_dist
+                curr_tp = c_close + (target_rr * stop_dist)
+                curr_rationale = (
                     f"Alpha 07 LONG: OR30 Breakout Close={c_close:.1f} > High={or30_high:.1f} | "
                     f"OR30 Range={or30_range:.1f} ({or30_range/c_daily_atr*100:.1f}% Daily ATR) | "
-                    f"RVOL={rvol:.2f}x | SL=Rs {stop_loss[i]:.1f} | TP=Rs {take_profit[i]:.1f} (1:{target_rr:.1f} RR)"
+                    f"RVOL={rvol:.2f}x | SL=Rs {curr_sl:.1f} | TP=Rs {curr_tp:.1f} (1:{target_rr:.1f} RR)"
                 )
+                signals[i] = 1.0
+                stop_loss[i] = curr_sl
+                take_profit[i] = curr_tp
+                rationales[i] = curr_rationale
                 traded_today = True
 
             # Bearish Breakdown Expansion (SHORT)
             elif (c_close < or30_low) and (c_close < c_open) and (rvol >= min_rvol):
-                signals[i] = -1.0
+                curr_state = -1.0
                 stop_dist = max(or30_high - c_close, 0.15 * c_daily_atr)
-                stop_loss[i] = c_close + stop_dist
-                take_profit[i] = c_close - (target_rr * stop_dist)
-                rationales[i] = (
+                curr_sl = c_close + stop_dist
+                curr_tp = c_close - (target_rr * stop_dist)
+                curr_rationale = (
                     f"Alpha 07 SHORT: OR30 Breakdown Close={c_close:.1f} < Low={or30_low:.1f} | "
                     f"OR30 Range={or30_range:.1f} ({or30_range/c_daily_atr*100:.1f}% Daily ATR) | "
-                    f"RVOL={rvol:.2f}x | SL=Rs {stop_loss[i]:.1f} | TP=Rs {take_profit[i]:.1f} (1:{target_rr:.1f} RR)"
+                    f"RVOL={rvol:.2f}x | SL=Rs {curr_sl:.1f} | TP=Rs {curr_tp:.1f} (1:{target_rr:.1f} RR)"
                 )
+                signals[i] = -1.0
+                stop_loss[i] = curr_sl
+                take_profit[i] = curr_tp
+                rationales[i] = curr_rationale
                 traded_today = True
 
         out["signal"] = signals

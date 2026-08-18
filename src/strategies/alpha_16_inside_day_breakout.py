@@ -139,6 +139,12 @@ class Alpha16InsideDayBreakout(BaseHypothesis):
 
         current_day = None
         traded_today = False
+        curr_state = 0.0
+        curr_sl = 0.0
+        curr_tp = 0.0
+        curr_rationale = ""
+
+        t_1515 = pd.to_datetime("15:15:00").time()
 
         for i in range(n):
             bar_date = dates[i]
@@ -149,6 +155,26 @@ class Alpha16InsideDayBreakout(BaseHypothesis):
             if bar_date != current_day:
                 current_day = bar_date
                 traded_today = False
+                curr_state = 0.0
+                curr_sl = 0.0
+                curr_tp = 0.0
+                curr_rationale = ""
+
+            # Intraday 15:15 EOD Square-Off
+            if bar_time >= t_1515:
+                if curr_state != 0.0:
+                    curr_state = 0.0
+                    signals[i] = 0.0
+                    rationales[i] = "Alpha 16 EXIT: Intraday 15:15 EOD Square-Off"
+                continue
+
+            # Maintain active position across intraday bars
+            if curr_state != 0.0:
+                signals[i] = curr_state
+                stop_loss[i] = curr_sl
+                take_profit[i] = curr_tp
+                rationales[i] = curr_rationale
+                continue
 
             if traded_today or not id_flags[i]:
                 continue
@@ -171,26 +197,34 @@ class Alpha16InsideDayBreakout(BaseHypothesis):
 
                 # Bullish Inside Day Breakout (LONG)
                 if (c_close > c_id_high) and (c_close > c_open) and (rvol >= min_rvol):
-                    signals[i] = 1.0
+                    curr_state = 1.0
                     stop_dist = max(c_close - c_id_mid, 0.15 * c_atr)
-                    stop_loss[i] = c_close - stop_dist
-                    take_profit[i] = c_close + (target_rr * stop_dist)
-                    rationales[i] = (
+                    curr_sl = c_close - stop_dist
+                    curr_tp = c_close + (target_rr * stop_dist)
+                    curr_rationale = (
                         f"Alpha 16 ID LONG: Close={c_close:.1f} > ID_High={c_id_high:.1f} | "
-                        f"RVOL={rvol:.2f}x | SL=Rs {stop_loss[i]:.1f} | TP=Rs {take_profit[i]:.1f} (1:{target_rr:.1f} RR)"
+                        f"RVOL={rvol:.2f}x | SL=Rs {curr_sl:.1f} | TP=Rs {curr_tp:.1f} (1:{target_rr:.1f} RR)"
                     )
+                    signals[i] = 1.0
+                    stop_loss[i] = curr_sl
+                    take_profit[i] = curr_tp
+                    rationales[i] = curr_rationale
                     traded_today = True
 
                 # Bearish Inside Day Breakdown (SHORT)
                 elif (c_close < c_id_low) and (c_close < c_open) and (rvol >= min_rvol):
-                    signals[i] = -1.0
+                    curr_state = -1.0
                     stop_dist = max(c_id_mid - c_close, 0.15 * c_atr)
-                    stop_loss[i] = c_close + stop_dist
-                    take_profit[i] = c_close - (target_rr * stop_dist)
-                    rationales[i] = (
+                    curr_sl = c_close + stop_dist
+                    curr_tp = c_close - (target_rr * stop_dist)
+                    curr_rationale = (
                         f"Alpha 16 ID SHORT: Close={c_close:.1f} < ID_Low={c_id_low:.1f} | "
-                        f"RVOL={rvol:.2f}x | SL=Rs {stop_loss[i]:.1f} | TP=Rs {take_profit[i]:.1f} (1:{target_rr:.1f} RR)"
+                        f"RVOL={rvol:.2f}x | SL=Rs {curr_sl:.1f} | TP=Rs {curr_tp:.1f} (1:{target_rr:.1f} RR)"
                     )
+                    signals[i] = -1.0
+                    stop_loss[i] = curr_sl
+                    take_profit[i] = curr_tp
+                    rationales[i] = curr_rationale
                     traded_today = True
 
         out["signal"] = signals

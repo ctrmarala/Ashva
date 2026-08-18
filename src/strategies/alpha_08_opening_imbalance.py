@@ -123,13 +123,49 @@ class Alpha08OpeningImbalance(BaseHypothesis):
         min_rvol = float(self.parameters.get("min_rvol", 1.20))
         target_rr = float(self.parameters.get("target_rr", 1.50))
 
+        current_day = None
+        traded_today = False
+        curr_state = 0.0
+        curr_sl = 0.0
+        curr_tp = 0.0
+        curr_rationale = ""
+
+        t_0915 = pd.to_datetime("09:15:00").time()
+        t_1515 = pd.to_datetime("15:15:00").time()
+
         for i in range(n):
+            bar_date = dates[i]
             bar_time = times[i]
-            hour = bar_time.hour
-            minute = bar_time.minute
+
+            if bar_date != current_day:
+                current_day = bar_date
+                traded_today = False
+                curr_state = 0.0
+                curr_sl = 0.0
+                curr_tp = 0.0
+                curr_rationale = ""
+
+            # Intraday 15:15 EOD Square-Off
+            if bar_time >= t_1515:
+                if curr_state != 0.0:
+                    curr_state = 0.0
+                    signals[i] = 0.0
+                    rationales[i] = "Alpha 08 EXIT: Intraday 15:15 EOD Square-Off"
+                continue
+
+            # Maintain active position across intraday bars
+            if curr_state != 0.0:
+                signals[i] = curr_state
+                stop_loss[i] = curr_sl
+                take_profit[i] = curr_tp
+                rationales[i] = curr_rationale
+                continue
+
+            if traded_today:
+                continue
 
             # Alpha 08 evaluates ONLY the first 15m candle of the session (09:15 IST)
-            if hour == 9 and minute == 15:
+            if bar_time == t_0915:
                 c_open = opens[i]
                 c_high = highs[i]
                 c_low = lows[i]
@@ -165,16 +201,20 @@ class Alpha08OpeningImbalance(BaseHypothesis):
                     lower_wick_ratio = lower_wick / candle_range
 
                     if lower_wick_ratio <= max_wick:
-                        # Discrete Entry Pulse on 09:15 bar (filled at 09:30 next_open)
-                        signals[i] = 1.0
+                        curr_state = 1.0
                         stop_dist = max(c_close - c_low, 0.05)
-                        stop_loss[i] = c_low  # Stop at exact Bar-1 extreme
-                        take_profit[i] = c_close + (target_rr * stop_dist)
-                        rationales[i] = (
+                        curr_sl = c_low  # Stop at exact Bar-1 extreme
+                        curr_tp = c_close + (target_rr * stop_dist)
+                        curr_rationale = (
                             f"Alpha 08 LONG: Open~Low (LWick={lower_wick_ratio*100:.1f}%) | "
                             f"Body={body_ratio*100:.1f}% | Range={candle_range:.1f} ({candle_range/c_daily_atr*100:.1f}% ATR) | "
-                            f"RVOL={rvol:.2f}x | SL=Rs {stop_loss[i]:.1f} | TP=Rs {take_profit[i]:.1f} (1:{target_rr:.1f} RR)"
+                            f"RVOL={rvol:.2f}x | SL=Rs {curr_sl:.1f} | TP=Rs {curr_tp:.1f} (1:{target_rr:.1f} RR)"
                         )
+                        signals[i] = 1.0
+                        stop_loss[i] = curr_sl
+                        take_profit[i] = curr_tp
+                        rationales[i] = curr_rationale
+                        traded_today = True
 
                 # -------------------------------------------------------------
                 # Bearish Imbalance: Open ≈ High (Minimal Upper Wick)
@@ -184,16 +224,20 @@ class Alpha08OpeningImbalance(BaseHypothesis):
                     upper_wick_ratio = upper_wick / candle_range
 
                     if upper_wick_ratio <= max_wick:
-                        # Discrete Entry Pulse on 09:15 bar (filled at 09:30 next_open)
-                        signals[i] = -1.0
+                        curr_state = -1.0
                         stop_dist = max(c_high - c_close, 0.05)
-                        stop_loss[i] = c_high  # Stop at exact Bar-1 extreme
-                        take_profit[i] = c_close - (target_rr * stop_dist)
-                        rationales[i] = (
+                        curr_sl = c_high  # Stop at exact Bar-1 extreme
+                        curr_tp = c_close - (target_rr * stop_dist)
+                        curr_rationale = (
                             f"Alpha 08 SHORT: Open~High (UWick={upper_wick_ratio*100:.1f}%) | "
                             f"Body={body_ratio*100:.1f}% | Range={candle_range:.1f} ({candle_range/c_daily_atr*100:.1f}% ATR) | "
-                            f"RVOL={rvol:.2f}x | SL=Rs {stop_loss[i]:.1f} | TP=Rs {take_profit[i]:.1f} (1:{target_rr:.1f} RR)"
+                            f"RVOL={rvol:.2f}x | SL=Rs {curr_sl:.1f} | TP=Rs {curr_tp:.1f} (1:{target_rr:.1f} RR)"
                         )
+                        signals[i] = -1.0
+                        stop_loss[i] = curr_sl
+                        take_profit[i] = curr_tp
+                        rationales[i] = curr_rationale
+                        traded_today = True
 
         out["signal"] = signals
         out["stop_loss"] = stop_loss

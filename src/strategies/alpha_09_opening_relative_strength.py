@@ -161,6 +161,13 @@ class Alpha09OpeningRelativeStrength(BaseHypothesis):
         is_bearish_laggard = False
         stock_rs_pct = 0.0
         traded_today = False
+        curr_state = 0.0
+        curr_sl = 0.0
+        curr_tp = 0.0
+        curr_rationale = ""
+
+        t_0915 = pd.to_datetime("09:15:00").time()
+        t_1515 = pd.to_datetime("15:15:00").time()
 
         for i in range(n):
             ts = timestamps[i]
@@ -178,6 +185,26 @@ class Alpha09OpeningRelativeStrength(BaseHypothesis):
                 is_bearish_laggard = False
                 stock_rs_pct = 0.0
                 traded_today = False
+                curr_state = 0.0
+                curr_sl = 0.0
+                curr_tp = 0.0
+                curr_rationale = ""
+
+            # Intraday 15:15 EOD Square-Off
+            if bar_time >= t_1515:
+                if curr_state != 0.0:
+                    curr_state = 0.0
+                    signals[i] = 0.0
+                    rationales[i] = "Alpha 09 EXIT: Intraday 15:15 EOD Square-Off"
+                continue
+
+            # Maintain active position across intraday bars
+            if curr_state != 0.0:
+                signals[i] = curr_state
+                stop_loss[i] = curr_sl
+                take_profit[i] = curr_tp
+                rationales[i] = curr_rationale
+                continue
 
             c_open = opens[i]
             c_high = highs[i]
@@ -189,7 +216,7 @@ class Alpha09OpeningRelativeStrength(BaseHypothesis):
             # -------------------------------------------------------------
             # Phase 1 & 2: 09:15 Relative Strength & Quality Evaluation
             # -------------------------------------------------------------
-            if hour == 9 and minute == 15:
+            if bar_time == t_0915:
                 or15_high = c_high
                 or15_low = c_low
                 candle_range = c_high - c_low
@@ -224,26 +251,34 @@ class Alpha09OpeningRelativeStrength(BaseHypothesis):
 
             # Bullish Leader Breakout (LONG)
             if is_bullish_leader and (c_close > or15_high) and (c_close > c_open):
-                signals[i] = 1.0
+                curr_state = 1.0
                 stop_dist = max(c_close - or15_low, 0.05)
-                stop_loss[i] = or15_low
-                take_profit[i] = c_close + (target_rr * stop_dist)
-                rationales[i] = (
+                curr_sl = or15_low
+                curr_tp = c_close + (target_rr * stop_dist)
+                curr_rationale = (
                     f"Alpha 09 LONG: Leader Breakout Close={c_close:.1f} > OR15_High={or15_high:.1f} | "
-                    f"RS={stock_rs_pct:+.2f}% vs Universe | SL=Rs {stop_loss[i]:.1f} | TP=Rs {take_profit[i]:.1f} (1:{target_rr:.1f} RR)"
+                    f"RS={stock_rs_pct:+.2f}% vs Universe | SL=Rs {curr_sl:.1f} | TP=Rs {curr_tp:.1f} (1:{target_rr:.1f} RR)"
                 )
+                signals[i] = 1.0
+                stop_loss[i] = curr_sl
+                take_profit[i] = curr_tp
+                rationales[i] = curr_rationale
                 traded_today = True
 
             # Bearish Laggard Breakdown (SHORT)
             elif is_bearish_laggard and (c_close < or15_low) and (c_close < c_open):
-                signals[i] = -1.0
+                curr_state = -1.0
                 stop_dist = max(or15_high - c_close, 0.05)
-                stop_loss[i] = or15_high
-                take_profit[i] = c_close - (target_rr * stop_dist)
-                rationales[i] = (
+                curr_sl = or15_high
+                curr_tp = c_close - (target_rr * stop_dist)
+                curr_rationale = (
                     f"Alpha 09 SHORT: Laggard Breakdown Close={c_close:.1f} < OR15_Low={or15_low:.1f} | "
-                    f"RS={stock_rs_pct:+.2f}% vs Universe | SL=Rs {stop_loss[i]:.1f} | TP=Rs {take_profit[i]:.1f} (1:{target_rr:.1f} RR)"
+                    f"RS={stock_rs_pct:+.2f}% vs Universe | SL=Rs {curr_sl:.1f} | TP=Rs {curr_tp:.1f} (1:{target_rr:.1f} RR)"
                 )
+                signals[i] = -1.0
+                stop_loss[i] = curr_sl
+                take_profit[i] = curr_tp
+                rationales[i] = curr_rationale
                 traded_today = True
 
         out["signal"] = signals

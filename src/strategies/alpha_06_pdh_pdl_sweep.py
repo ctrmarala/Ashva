@@ -123,9 +123,14 @@ class Alpha06PDHPDLSweep(BaseHypothesis):
         current_day = None
         pdh_traded_today = False
         pdl_traded_today = False
+        curr_state = 0.0
+        curr_sl = 0.0
+        curr_tp = 0.0
+        curr_rationale = ""
 
-        for i in range(1, n):
-            ts = timestamps[i]
+        t_1515 = pd.to_datetime("15:15:00").time()
+
+        for i in range(n):
             bar_date = dates[i]
             bar_time = times[i]
             hour = bar_time.hour
@@ -136,6 +141,26 @@ class Alpha06PDHPDLSweep(BaseHypothesis):
                 current_day = bar_date
                 pdh_traded_today = False
                 pdl_traded_today = False
+                curr_state = 0.0
+                curr_sl = 0.0
+                curr_tp = 0.0
+                curr_rationale = ""
+
+            # Intraday 15:15 EOD Square-Off
+            if bar_time >= t_1515:
+                if curr_state != 0.0:
+                    curr_state = 0.0
+                    signals[i] = 0.0
+                    rationales[i] = "Alpha 06 EXIT: Intraday 15:15 EOD Square-Off"
+                continue
+
+            # Maintain active position across intraday bars
+            if curr_state != 0.0:
+                signals[i] = curr_state
+                stop_loss[i] = curr_sl
+                take_profit[i] = curr_tp
+                rationales[i] = curr_rationale
+                continue
 
             c_pdh = pdhs[i]
             c_pdl = pdls[i]
@@ -170,16 +195,19 @@ class Alpha06PDHPDLSweep(BaseHypothesis):
                         is_bearish_body = (c_close < c_open)
 
                         if (upper_wick_pct >= min_wick_r) or is_bearish_body:
-                            # Discrete Entry Pulse
-                            signals[i] = -1.0
+                            curr_state = -1.0
                             sl_price = c_high + (sl_buffer * c_atr)
                             stop_dist = max(sl_price - c_close, 0.30 * c_atr)
-                            stop_loss[i] = c_close + stop_dist
-                            take_profit[i] = c_close - (target_rr * stop_dist)
-                            rationales[i] = (
+                            curr_sl = c_close + stop_dist
+                            curr_tp = c_close - (target_rr * stop_dist)
+                            curr_rationale = (
                                 f"Alpha 06 SHORT: PDH Sweep={c_high:.1f} (PDH={c_pdh:.1f}) | "
-                                f"Wick={upper_wick_pct*100:.1f}% | SL=Rs {stop_loss[i]:.1f} | TP=Rs {take_profit[i]:.1f} (1:{target_rr:.1f} RR)"
+                                f"Wick={upper_wick_pct*100:.1f}% | SL=Rs {curr_sl:.1f} | TP=Rs {curr_tp:.1f} (1:{target_rr:.1f} RR)"
                             )
+                            signals[i] = -1.0
+                            stop_loss[i] = curr_sl
+                            take_profit[i] = curr_tp
+                            rationales[i] = curr_rationale
                             pdh_traded_today = True
                             continue
 
@@ -198,16 +226,19 @@ class Alpha06PDHPDLSweep(BaseHypothesis):
                         is_bullish_body = (c_close > c_open)
 
                         if (lower_wick_pct >= min_wick_r) or is_bullish_body:
-                            # Discrete Entry Pulse
-                            signals[i] = 1.0
+                            curr_state = 1.0
                             sl_price = c_low - (sl_buffer * c_atr)
                             stop_dist = max(c_close - sl_price, 0.30 * c_atr)
-                            stop_loss[i] = c_close - stop_dist
-                            take_profit[i] = c_close + (target_rr * stop_dist)
-                            rationales[i] = (
+                            curr_sl = c_close - stop_dist
+                            curr_tp = c_close + (target_rr * stop_dist)
+                            curr_rationale = (
                                 f"Alpha 06 LONG: PDL Sweep={c_low:.1f} (PDL={c_pdl:.1f}) | "
-                                f"Wick={lower_wick_pct*100:.1f}% | SL=Rs {stop_loss[i]:.1f} | TP=Rs {take_profit[i]:.1f} (1:{target_rr:.1f} RR)"
+                                f"Wick={lower_wick_pct*100:.1f}% | SL=Rs {curr_sl:.1f} | TP=Rs {curr_tp:.1f} (1:{target_rr:.1f} RR)"
                             )
+                            signals[i] = 1.0
+                            stop_loss[i] = curr_sl
+                            take_profit[i] = curr_tp
+                            rationales[i] = curr_rationale
                             pdl_traded_today = True
                             continue
 
