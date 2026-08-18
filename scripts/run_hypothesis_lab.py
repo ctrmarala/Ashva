@@ -123,16 +123,12 @@ def run_strategy_backtest(
             if df.empty or len(df) < 50:
                 continue
 
-        # Set target instrument dynamically on hypothesis metadata
-        if hasattr(strat_obj, "metadata"):
-            strat_obj.metadata.target_instruments = [sym]
-
         # 1. Run Baseline Backtest
         signals_df = strat_obj.generate_signals(df)
         res = engine.run(signals_df, symbol=sym, strategy_id=strat_id, risk_per_trade_pct=0.005, capital_per_trade_pct=0.25)
 
-        # 2. Run Centralized Statistical Validation (Single Source of Truth)
-        report = validator.validate_hypothesis(strat_obj, df)
+        # 2. Run Centralized Statistical Validation (Single Source of Truth with Explicit Symbol)
+        report = validator.validate_hypothesis(strat_obj, df, symbol=sym)
 
         w60 = report.window_metrics.get("60d", {})
         w180 = report.window_metrics.get("180d", {})
@@ -144,13 +140,15 @@ def run_strategy_backtest(
             "Symbol": sym,
             "Net_PnL_INR": round(res.total_net_pnl, 2),
             "Trades": res.total_trades,
+            "Tier": report.evidence_tier,
             "Win_Rate": f"{res.win_rate_pct:.1f}%",
             "PF_540d": f"{w540.get('net_pf', res.net_profit_factor):.2f}",
             "PF_365d": f"{w365.get('net_pf', 0.0):.2f}",
             "PF_180d": f"{w180.get('net_pf', 0.0):.2f}",
             "PF_60d": f"{w60.get('net_pf', 0.0):.2f}",
             "Stability": f"{report.regime_stability_score:.0f}%",
-            "Momentum": f"{report.current_momentum_score:.0f}%",
+            "Regime_60d": f"{report.current_regime_score:.0f}%",
+            "Recency_Q": f"{report.recency_weighted_score:+.2f}",
             "Sharpe": round(res.sharpe_ratio, 2),
             "MaxDD": f"{res.max_drawdown_pct:.2f}%",
             "Costs_INR": round(res.total_taxes_paid, 2),

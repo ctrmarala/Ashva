@@ -50,9 +50,9 @@ class StatisticalValidator:
         self.min_trade_count = min_trade_count
 
     @staticmethod
-    def calculate_sharpe_ratio(returns: np.ndarray, risk_free_rate: float = 0.065, periods_per_year: int = 252 * 25) -> float:
+    def calculate_sharpe_ratio(returns: np.ndarray, risk_free_rate: float = 0.0, periods_per_year: int = 252) -> float:
         """
-        Calculates annualized Sharpe Ratio for intraday returns.
+        Calculates annualized Sharpe Ratio for daily or periodic strategy excess returns.
         """
         clean_ret = returns[~np.isnan(returns)]
         if len(clean_ret) < 2:
@@ -62,7 +62,7 @@ class StatisticalValidator:
         if std_ret < 1e-8:
             return 0.0
         
-        rf_per_period = (1.0 + risk_free_rate) ** (1.0 / periods_per_year) - 1.0
+        rf_per_period = (1.0 + risk_free_rate) ** (1.0 / periods_per_year) - 1.0 if risk_free_rate > 0 else 0.0
         excess_mean = mean_ret - rf_per_period
         annualized_sharpe = (excess_mean / std_ret) * np.sqrt(periods_per_year)
         return float(annualized_sharpe)
@@ -73,6 +73,8 @@ class StatisticalValidator:
         strategy_returns: np.ndarray,
         num_trials: int = 1,
         benchmark_sharpe_var: float = 0.5,
+        periods_per_year: int = 252,
+        risk_free_rate: float = 0.0,
     ) -> Tuple[float, float]:
         """
         Computes Deflated Sharpe Ratio (DSR) and p-value (Bailey & López de Prado, 2014).
@@ -83,7 +85,7 @@ class StatisticalValidator:
         if t < 5:
             return 0.0, 1.0
 
-        sr = cls.calculate_sharpe_ratio(clean_ret)
+        sr = cls.calculate_sharpe_ratio(clean_ret, risk_free_rate=risk_free_rate, periods_per_year=periods_per_year)
         if sr <= 0:
             return 0.0, 1.0
 
@@ -214,6 +216,7 @@ class StatisticalValidator:
         df: pd.DataFrame,
         num_trials: Optional[int] = None,
         train_test_split: float = 0.70,
+        symbol: Optional[str] = None,
     ) -> HypothesisValidationReport:
         """
         Full 4-Gate Institutional Statistical Validation with Recency-Weighted Multi-Window Analysis:
@@ -221,7 +224,7 @@ class StatisticalValidator:
         Gate 2: Combinatorial Purged & Embargoed Cross-Validation (CPCV Degradation <= 60%)
         Gate 3: 5,000-Run Monte Carlo Tail Risk (95th MaxDD <= 15%)
         Gate 4: Full Indian Regulatory Cost Profit Factor (Net PF >= 1.08 - 1.20)
-        + 4-Tier Recency-Weighted Multi-Window Analysis (60d, 180d, 365d, 540d)
+        + 4-Tier Recency-Weighted Multi-Window Analysis (60d, 180d, 365d, 540d) with Confidence Shrinkage
         """
         rejection_reasons = []
 
@@ -243,6 +246,8 @@ class StatisticalValidator:
         is_swing = getattr(hypothesis.metadata, "horizon", None) in [StrategyHorizon.SWING, StrategyHorizon.POSITIONAL]
         seg = Segment.EQUITY_DELIVERY if is_swing else Segment.EQUITY_INTRADAY
 
+        sym = symbol or (getattr(hypothesis.metadata, "target_instruments", ["ASSET"])[0] if hasattr(hypothesis, "metadata") and hypothesis.metadata.target_instruments else "ASSET")
+
         # 3. Generate Signals and Run Baseline In-Sample / Full Backtests
         signals_df = hypothesis.generate_signals(df)
         if "signal" not in signals_df.columns:
@@ -252,57 +257,87 @@ class StatisticalValidator:
         train_df = signals_df.iloc[:split_idx]
 
         engine = BacktestEngine(cost_model=self.cost_model, initial_capital=500000.0, segment=seg)
-        is_result = engine.run(train_df, symbol=getattr(hypothesis.metadata, "target_instruments", ["ASSET"])[0], capital_per_trade_pct=0.50)
-        full_result = engine.run(signals_df, symbol=getattr(hypothesis.metadata, "target_instruments", ["ASSET"])[0], capital_per_trade_pct=0.50)
+        is_result = engine.run(train_df, symbol=sym, capital_per_trade_pct=0.50)
+        full_result = engine.run(signals_df, symbol=sym, capital_per_trade_pct=0.50)
 
         is_sharpe = is_result.sharpe_ratio
         total_trades = full_result.total_trades
         net_pf = full_result.net_profit_factor if full_result.net_profit_factor < 90 else 99.0
 
-        # 4. Multi-Window Recency Performance Breakdown (60d, 180d, 365d, 540d)
+        # 4. Multi-Window Recency Performance Breakdown (60d, 180d, 365d, 540d) with Confidence Shrinkage
         max_ts = signals_df.index.max()
         window_days = {"60d": 60, "180d": 180, "365d": 365, "540d": 540}
         window_metrics = {}
+        window_qualities = {}
 
         for w_name, days in window_days.items():
             cutoff = max_ts - pd.Timedelta(days=days)
             w_sig = signals_df[signals_df.index >= cutoff]
             if not w_sig.empty:
-                w_res = engine.run(w_sig, symbol=getattr(hypothesis.metadata, "target_instruments", ["ASSET"])[0], capital_per_trade_pct=0.50)
+                w_res = engine.run(w_sig, symbol=sym, capital_per_trade_pct=0.50)
+                n_w = w_res.total_trades
+                pnl_w = w_res.total_net_pnl
+                pf_w = w_res.net_profit_factor if w_res.net_profit_factor < 90 else 99.0
+
+                # Sample confidence factor: sqrt(N / 10), max 1.0 (prevents low-N explosion)
+                conf_factor = min(1.0, np.sqrt(max(0, n_w) / 10.0))
+                # Bounded return quality using hyperbolic tangent: tanh(pnl / 10000)
+                q_w = conf_factor * float(np.tanh(pnl_w / 10000.0)) if n_w > 0 else 0.0
+                window_qualities[w_name] = q_w
+
                 window_metrics[w_name] = {
-                    "trades": w_res.total_trades,
-                    "net_pnl": round(w_res.total_net_pnl, 2),
-                    "net_pf": round(w_res.net_profit_factor if w_res.net_profit_factor < 90 else 99.0, 2),
+                    "trades": n_w,
+                    "net_pnl": round(pnl_w, 2),
+                    "net_pf": round(pf_w, 2),
                     "win_rate": round(w_res.win_rate_pct, 1),
                     "sharpe": round(w_res.sharpe_ratio, 2),
                     "max_dd_pct": round(w_res.max_drawdown_pct, 2),
+                    "quality_score": round(float(q_w), 3),
                 }
             else:
-                window_metrics[w_name] = {"trades": 0, "net_pnl": 0.0, "net_pf": 0.0, "win_rate": 0.0, "sharpe": 0.0, "max_dd_pct": 0.0}
+                window_qualities[w_name] = 0.0
+                window_metrics[w_name] = {"trades": 0, "net_pnl": 0.0, "net_pf": 0.0, "win_rate": 0.0, "sharpe": 0.0, "max_dd_pct": 0.0, "quality_score": 0.0}
 
-        pf_60d = window_metrics["60d"]["net_pf"]
-        pf_180d = window_metrics["180d"]["net_pf"]
-        pf_365d = window_metrics["365d"]["net_pf"]
-        pf_540d = window_metrics["540d"]["net_pf"]
+        # Composite Recency-Weighted Quality Score (-1.0 to +1.0)
+        # Weights: 50% 60d, 25% 180d, 15% 365d, 10% 540d
+        recency_weighted_score = float(
+            (0.50 * window_qualities["60d"]) +
+            (0.25 * window_qualities["180d"]) +
+            (0.15 * window_qualities["365d"]) +
+            (0.10 * window_qualities["540d"])
+        )
 
-        # Recency-Weighted Score: 50% 60d, 25% 180d, 15% 365d, 10% 540d
-        recency_weighted_score = (0.50 * pf_60d) + (0.25 * pf_180d) + (0.15 * pf_365d) + (0.10 * pf_540d)
+        # Regime Stability Score: % of active historical windows (180d, 365d, 540d) where net PnL > 0 and Sharpe > 0
+        active_historical = [window_metrics[k] for k in ["180d", "365d", "540d"] if window_metrics[k]["trades"] > 0]
+        stable_count = sum(1 for m in active_historical if m["net_pnl"] > 0 and m["sharpe"] > 0)
+        regime_stability = (stable_count / max(1, len(active_historical))) * 100.0 if active_historical else 0.0
 
-        # Regime Stability Score: % of active windows with PF >= 1.05
-        active_windows = [m for m in window_metrics.values() if m["trades"] > 0]
-        stable_count = sum(1 for m in active_windows if m["net_pf"] >= 1.05 and m["sharpe"] > 0)
-        regime_stability = (stable_count / max(1, len(active_windows))) * 100.0
+        # Current Regime Score (Descriptive indicator of 60d trajectory)
+        curr_60 = window_metrics["60d"]
+        n_60 = curr_60["trades"]
+        pnl_60 = curr_60["net_pnl"]
+        pf_60 = curr_60["net_pf"]
 
-        # Current Momentum Score: based on 60d performance
-        curr_m = window_metrics["60d"]
-        if curr_m["trades"] >= 3 and curr_m["net_pf"] >= 1.20 and curr_m["sharpe"] >= 1.0:
-            current_momentum = 95.0
-        elif curr_m["net_pf"] >= 1.08:
-            current_momentum = 75.0
-        elif curr_m["net_pf"] >= 0.90:
-            current_momentum = 45.0
+        if n_60 == 0:
+            current_regime_score = 50.0  # Neutral / No recent trades
+        elif n_60 >= 3 and pnl_60 > 0 and pf_60 >= 1.25 and curr_60["sharpe"] >= 1.0:
+            current_regime_score = 90.0  # Accelerating
+        elif pnl_60 > 0:
+            current_regime_score = 70.0  # Positive
+        elif pnl_60 < 0 and n_60 >= 2:
+            current_regime_score = 25.0  # Decaying
         else:
-            current_momentum = 15.0
+            current_regime_score = 40.0  # Sub-optimal
+
+        # Evidence Tier Classification based strictly on total trade count
+        if total_trades >= 100:
+            evidence_tier = "STRONG"
+        elif total_trades >= 50:
+            evidence_tier = "MODERATE"
+        elif total_trades >= 25:
+            evidence_tier = "PRELIMINARY"
+        else:
+            evidence_tier = "LOW_SAMPLE"
 
         # 5. Dynamic Profit Factor Hurdle based on Sample Density
         if total_trades >= 100:
@@ -312,9 +347,10 @@ class StatisticalValidator:
         else:
             required_pf = 1.20
 
-        # 6. Gate 1: Deflated Sharpe Ratio (DSR) Test on Continuous Mark-to-Market Returns
-        continuous_returns = full_result.equity_curve.pct_change().dropna().values
-        dsr_stat, dsr_p_val = self.calculate_deflated_sharpe_ratio(continuous_returns, num_trials=effective_trials)
+        # 6. Gate 1: Deflated Sharpe Ratio (DSR) Test on Daily Mark-to-Market Returns
+        daily_equity = full_result.equity_curve.resample("1D").last().dropna()
+        daily_returns = daily_equity.pct_change().dropna().values
+        dsr_stat, dsr_p_val = self.calculate_deflated_sharpe_ratio(daily_returns, num_trials=effective_trials, periods_per_year=252)
         if dsr_p_val > self.max_dsr_p_value:
             rejection_reasons.append(
                 f"DSR Test Failed: p-value {dsr_p_val:.4f} > {self.max_dsr_p_value} across {effective_trials} parameter trials (High selection risk)"
@@ -349,23 +385,29 @@ class StatisticalValidator:
                 f"Post-Tax Profit Factor Failed: Real Net PF {net_pf:.2f} < {required_pf:.2f} (Required for N={total_trades} trades | Total Costs: Rs {full_result.total_taxes_paid:,.2f})"
             )
 
-        # 10. Multi-Stage Funnel Status Classification
-        if not rejection_reasons and total_trades >= 50:
+        # 10. Decoupled Lifecycle Classification
+        is_statistically_valid = (not rejection_reasons) and (net_pf >= required_pf) and (cpcv_mean_sharpe > 0)
+
+        if not is_statistically_valid:
+            status = HypothesisStatus.REJECTED
+        elif curr_60["trades"] >= 2 and curr_60["net_pnl"] < 0 and total_trades >= 25:
+            # Historically strong, but decaying in current 60d regime
+            status = HypothesisStatus.DECAYING_WATCHLIST
+        elif total_trades >= 50 and regime_stability >= 66.0 and current_regime_score >= 60.0:
             status = HypothesisStatus.CAPITAL_CANDIDATE
-        elif net_pf >= 1.08 and cpcv_mean_sharpe > 0 and total_trades >= 25:
+        elif total_trades >= 25 and (window_metrics["180d"]["net_pnl"] > 0 or window_metrics["365d"]["net_pnl"] > 0):
             status = HypothesisStatus.FORWARD_PAPER
-        elif net_pf >= 1.15 and total_trades < 25:
+        elif total_trades < 25:
             status = HypothesisStatus.LOW_FREQUENCY_WATCHLIST
-        elif net_pf >= 1.0:
-            status = HypothesisStatus.RESEARCH_CANDIDATE
         else:
-            status = HypothesisStatus.REJECTED  # Structural negative edge after costs
+            status = HypothesisStatus.RESEARCH_CANDIDATE
 
         hypothesis.status = status
 
         report = HypothesisValidationReport(
             hypothesis_id=hypothesis.metadata.hypothesis_id,
             status=status,
+            evidence_tier=evidence_tier,
             in_sample_sharpe=is_sharpe,
             out_of_sample_sharpe=cpcv_mean_sharpe,
             deflated_sharpe_p_value=dsr_p_val,
@@ -374,7 +416,7 @@ class StatisticalValidator:
             monte_carlo_95_max_dd_pct=p95_dd,
             net_profit_factor_post_tax=net_pf,
             regime_stability_score=regime_stability,
-            current_momentum_score=current_momentum,
+            current_regime_score=current_regime_score,
             recency_weighted_score=recency_weighted_score,
             window_metrics=window_metrics,
             rejection_reasons=rejection_reasons,
@@ -386,7 +428,7 @@ class StatisticalValidator:
             exp_record = ExperimentRecord(
                 experiment_id=f"EXP_{hypothesis.metadata.hypothesis_id}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}",
                 strategy_id=hypothesis.metadata.name,
-                symbol_universe=",".join(getattr(hypothesis.metadata, "target_instruments", ["ASSET"])),
+                symbol_universe=sym,
                 timeframe=getattr(hypothesis.metadata, "timeframe", "15m"),
                 parameters_json=json.dumps(hypothesis.parameters, default=str),
                 in_sample_sharpe=is_sharpe,

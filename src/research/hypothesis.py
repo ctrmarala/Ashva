@@ -17,6 +17,7 @@ class HypothesisStatus(str, Enum):
     FORWARD_PAPER = "FORWARD_PAPER"
     CAPITAL_CANDIDATE = "CAPITAL_CANDIDATE"
     LOW_FREQUENCY_WATCHLIST = "LOW_FREQUENCY_WATCHLIST"
+    DECAYING_WATCHLIST = "DECAYING_WATCHLIST"
     REJECTED = "REJECTED"
     # Backward compatibility
     FORMULATED = "DISCOVERY"
@@ -67,9 +68,10 @@ class HypothesisValidationReport:
     net_profit_factor_post_tax: float # dynamic hurdle 1.08 - 1.20
     rejection_reasons: List[str] = field(default_factory=list)
     tested_trials_count: int = 1
+    evidence_tier: str = "PRELIMINARY"       # LOW_SAMPLE, PRELIMINARY, MODERATE, STRONG
     regime_stability_score: float = 0.0      # 0 to 100% across historical windows
-    current_momentum_score: float = 0.0      # 0 to 100% based on recent 60d trajectory
-    recency_weighted_score: float = 0.0      # Composite weighted metric (50% 60d, 25% 180d, 15% 365d, 10% 540d)
+    current_regime_score: float = 0.0        # 0 to 100% descriptive indicator of 60d trajectory
+    recency_weighted_score: float = 0.0      # Sample-confidence weighted return metric (-1.0 to +1.0)
     window_metrics: Dict[str, Dict[str, Any]] = field(default_factory=dict) # 60d, 180d, 365d, 540d
     validated_at: datetime = field(default_factory=datetime.now)
 
@@ -80,6 +82,7 @@ class HypothesisValidationReport:
         return {
             "hypothesis_id": self.hypothesis_id,
             "status": self.status.value,
+            "evidence_tier": self.evidence_tier,
             "in_sample_sharpe": round(self.in_sample_sharpe, 3),
             "out_of_sample_sharpe": round(self.out_of_sample_sharpe, 3),
             "dsr_p_value": round(self.deflated_sharpe_p_value, 4),
@@ -88,7 +91,7 @@ class HypothesisValidationReport:
             "monte_carlo_95_max_dd_pct": round(self.monte_carlo_95_max_dd_pct, 2),
             "net_profit_factor_post_tax": round(self.net_profit_factor_post_tax, 2),
             "regime_stability_score": round(self.regime_stability_score, 1),
-            "current_momentum_score": round(self.current_momentum_score, 1),
+            "current_regime_score": round(self.current_regime_score, 1),
             "recency_weighted_score": round(self.recency_weighted_score, 2),
             "window_metrics": self.window_metrics,
             "rejection_reasons": self.rejection_reasons,
