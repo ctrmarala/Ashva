@@ -1,11 +1,11 @@
 """
 Ashva Quantitative Strategy: Overnight Gap Momentum Drift (Alpha 14 - Intraday Gap Expansion)
-Captures persistent institutional order-flow continuation following overnight price/information imbalances.
+Captures persistent institutional order-flow continuation following overnight price/volume imbalances.
 
 Hypothesis:
 When a liquid equity opens with a moderate overnight gap (>= 0.30%) and the opening 15-minute bar confirms
-directional acceptance (Body >= 50% in gap direction with elevated volume RVOL >= 1.25x), the overnight
-institutional order flow drives persistent intraday continuation toward a 1.5R target.
+directional acceptance (Body >= 50% in gap direction with elevated volume RVOL >= 1.25x), persistent
+intraday continuation occurs toward a 1.5R target.
 """
 
 from typing import Dict, List, Any, Optional
@@ -44,7 +44,7 @@ class Alpha14GapMomentumDrift(BaseHypothesis):
             economic_rationale=(
                 "When a liquid equity opens with a moderate overnight gap (>= 0.30%) and the opening "
                 "15-minute bar confirms directional acceptance (Body >= 50% with RVOL >= 1.25x), "
-                "institutional portfolio rebalancing and overnight news drift drive persistent intraday continuation."
+                "early institutional order-flow continuation drives persistent intraday expansion."
             ),
             target_instruments=[
                 "INFY", "TCS", "ICICIBANK", "HDFCBANK", "SBIN", "AXISBANK",
