@@ -104,10 +104,13 @@ class DataLake:
         timeframe: str,
         start_time: Optional[str] = None,
         end_time: Optional[str] = None,
+        max_lookback_days: int = 540,
     ) -> pd.DataFrame:
         """
         Loads OHLCV bars as a clean Pandas DataFrame with DatetimeIndex.
+        Enforces Ashva's 540-day (18-Month) maximum research lookback ceiling.
         """
+        df = pd.DataFrame()
         if self.conn is None:
             parquet_file = self.parquet_dir / f"{symbol.upper()}_{timeframe.lower()}.parquet"
             if parquet_file.exists():
@@ -120,30 +123,34 @@ class DataLake:
                         df = df[df["timestamp"] <= end_time]
                     df.set_index("timestamp", inplace=True)
                     df.sort_index(inplace=True)
-                    return df
-            return pd.DataFrame()
+        else:
+            query = """
+                SELECT timestamp, open, high, low, close, volume
+                FROM ohlcv_bars
+                WHERE symbol = ? AND timeframe = ?
+            """
+            params = [symbol.upper(), timeframe.lower()]
 
-        query = """
-            SELECT timestamp, open, high, low, close, volume
-            FROM ohlcv_bars
-            WHERE symbol = ? AND timeframe = ?
-        """
-        params = [symbol.upper(), timeframe.lower()]
+            if start_time:
+                query += " AND timestamp >= ?"
+                params.append(start_time)
+            if end_time:
+                query += " AND timestamp <= ?"
+                params.append(end_time)
 
-        if start_time:
-            query += " AND timestamp >= ?"
-            params.append(start_time)
-        if end_time:
-            query += " AND timestamp <= ?"
-            params.append(end_time)
+            query += " ORDER BY timestamp ASC"
 
-        query += " ORDER BY timestamp ASC"
+            df = self.conn.execute(query, params).df()
+            if not df.empty:
+                df["timestamp"] = pd.to_datetime(df["timestamp"])
+                df.set_index("timestamp", inplace=True)
+                df.sort_index(inplace=True)
 
-        df = self.conn.execute(query, params).df()
-        if not df.empty:
-            df["timestamp"] = pd.to_datetime(df["timestamp"])
-            df.set_index("timestamp", inplace=True)
-            df.sort_index(inplace=True)
+        if not df.empty and max_lookback_days > 0:
+            max_ts = df.index.max()
+            hard_cutoff = max_ts - pd.Timedelta(days=max_lookback_days)
+            df = df[df.index >= hard_cutoff]
+
         return df
 
     def list_symbols(self, timeframe: Optional[str] = None) -> List[str]:

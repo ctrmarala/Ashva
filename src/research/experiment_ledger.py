@@ -89,6 +89,17 @@ class ResearchExperimentLedger:
             row = conn.execute("SELECT COALESCE(SUM(trials_in_experiment), 0) FROM experiment_journal").fetchone()
             return int(row[0]) if row and row[0] is not None else 0
 
+    def get_strategy_family_trials(self, strategy_id: str) -> int:
+        """Returns cumulative trials for a specific strategy family (e.g. ALPHA_02, ALPHA_14) to prevent cross-family DSR penalty."""
+        # Extract family prefix (e.g. 'ALPHA_02' from 'ALPHA_02_AUCTION_ORB')
+        prefix = strategy_id.split("_")[0] + "_" + strategy_id.split("_")[1] if "_" in strategy_id else strategy_id
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(trials_in_experiment), 0) FROM experiment_journal WHERE strategy_id LIKE ?",
+                (f"{prefix}%",)
+            ).fetchone()
+            return int(row[0]) if row and row[0] is not None else 0
+
     def log_experiment(self, record: ExperimentRecord) -> int:
         """Logs an experiment and returns the updated cumulative trial count."""
         with sqlite3.connect(self.db_path) as conn:

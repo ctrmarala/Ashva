@@ -54,7 +54,7 @@ class Alpha10StatisticalRangeReversion(BaseHypothesis):
                 "KOTAKBANK", "RELIANCE", "LT", "TATASTEEL", "BHARTIARTL",
                 "BAJFINANCE", "MARUTI", "SUNPHARMA"
             ],
-            timeframe="15m",
+            timeframe="1d",
             horizon=StrategyHorizon.SWING,
             mechanism=MarketMechanism.RANGE,
             author="AshvaQuantLab",

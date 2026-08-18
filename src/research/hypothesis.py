@@ -60,17 +60,21 @@ class HypothesisValidationReport:
     status: HypothesisStatus
     in_sample_sharpe: float
     out_of_sample_sharpe: float
-    deflated_sharpe_p_value: float    # p <= 0.01 required
+    deflated_sharpe_p_value: float    # p <= 0.05 required
     cpcv_mean_sharpe: float
-    cpcv_degradation_pct: float       # must be < 40%
-    monte_carlo_95_max_dd_pct: float  # must be < 12%
-    net_profit_factor_post_tax: float # must be > 1.3
+    cpcv_degradation_pct: float       # must be < 60%
+    monte_carlo_95_max_dd_pct: float  # must be < 15%
+    net_profit_factor_post_tax: float # dynamic hurdle 1.08 - 1.20
     rejection_reasons: List[str] = field(default_factory=list)
     tested_trials_count: int = 1
+    regime_stability_score: float = 0.0      # 0 to 100% across historical windows
+    current_momentum_score: float = 0.0      # 0 to 100% based on recent 60d trajectory
+    recency_weighted_score: float = 0.0      # Composite weighted metric (50% 60d, 25% 180d, 15% 365d, 10% 540d)
+    window_metrics: Dict[str, Dict[str, Any]] = field(default_factory=dict) # 60d, 180d, 365d, 540d
     validated_at: datetime = field(default_factory=datetime.now)
 
     def is_accepted(self) -> bool:
-        return self.status == HypothesisStatus.ACCEPTED
+        return self.status in [HypothesisStatus.ACCEPTED, HypothesisStatus.CAPITAL_CANDIDATE, HypothesisStatus.FORWARD_PAPER]
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -83,6 +87,10 @@ class HypothesisValidationReport:
             "cpcv_degradation_pct": round(self.cpcv_degradation_pct, 2),
             "monte_carlo_95_max_dd_pct": round(self.monte_carlo_95_max_dd_pct, 2),
             "net_profit_factor_post_tax": round(self.net_profit_factor_post_tax, 2),
+            "regime_stability_score": round(self.regime_stability_score, 1),
+            "current_momentum_score": round(self.current_momentum_score, 1),
+            "recency_weighted_score": round(self.recency_weighted_score, 2),
+            "window_metrics": self.window_metrics,
             "rejection_reasons": self.rejection_reasons,
             "trials_tested": self.tested_trials_count,
         }

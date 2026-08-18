@@ -32,7 +32,7 @@ from src.research.validator import StatisticalValidator
 from src.analytics.indian_costs import IndianCostModel, Segment
 from src.backtest.engine import BacktestEngine
 from src.analytics.tearsheet import QuantTearsheetGenerator
-from src.research.hypothesis import HypothesisStatus
+from src.research.hypothesis import HypothesisStatus, StrategyHorizon
 
 # Strategy Registry
 from src.strategies.alpha_trend_surfer import AlphaTrendSurfer
@@ -103,16 +103,25 @@ def run_strategy_backtest(
 ) -> List[Dict]:
     results = []
 
-    # Configure Engine Segment based on Strategy Horizon
-    if hasattr(strat_obj, "metadata") and getattr(strat_obj.metadata, "horizon", None) in ["SWING", "POSITIONAL"]:
-        engine.segment = Segment.EQUITY_DELIVERY
-    else:
-        engine.segment = Segment.EQUITY_INTRADAY
+    # Configure Engine Segment & Timeframe based on Strategy Horizon
+    is_swing = False
+    if hasattr(strat_obj, "metadata"):
+        h = getattr(strat_obj.metadata, "horizon", None)
+        if h in [StrategyHorizon.SWING, StrategyHorizon.POSITIONAL] or str(h) in ["SWING", "POSITIONAL", "StrategyHorizon.SWING", "StrategyHorizon.POSITIONAL"]:
+            is_swing = True
+
+    engine.segment = Segment.EQUITY_DELIVERY if is_swing else Segment.EQUITY_INTRADAY
+    target_tf = getattr(strat_obj.metadata, "timeframe", timeframe) if hasattr(strat_obj, "metadata") else timeframe
 
     for sym in symbols:
-        df = lake.load_bars(sym, timeframe)
-        if df.empty or len(df) < 100:
-            continue
+        # Load bars enforcing 540-day research ceiling
+        df = lake.load_bars(sym, target_tf, max_lookback_days=540)
+        if df.empty or len(df) < 50:
+            # Fallback to default timeframe if daily bars not yet ingested
+            if target_tf != timeframe:
+                df = lake.load_bars(sym, timeframe, max_lookback_days=540)
+            if df.empty or len(df) < 50:
+                continue
 
         # Set target instrument dynamically on hypothesis metadata
         if hasattr(strat_obj, "metadata"):
@@ -125,17 +134,26 @@ def run_strategy_backtest(
         # 2. Run Centralized Statistical Validation (Single Source of Truth)
         report = validator.validate_hypothesis(strat_obj, df)
 
+        w60 = report.window_metrics.get("60d", {})
+        w180 = report.window_metrics.get("180d", {})
+        w365 = report.window_metrics.get("365d", {})
+        w540 = report.window_metrics.get("540d", {})
+
         results.append({
             "Strategy": strat_id,
             "Symbol": sym,
             "Net_PnL_INR": round(res.total_net_pnl, 2),
-            "Net_ROI_Pct": round(res.net_roi_pct, 2),
             "Trades": res.total_trades,
-            "Win_Rate_Pct": round(res.win_rate_pct, 1),
-            "Net_Profit_Factor": round(res.net_profit_factor, 2) if res.net_profit_factor < 90 else 99.0,
+            "Win_Rate": f"{res.win_rate_pct:.1f}%",
+            "PF_540d": f"{w540.get('net_pf', res.net_profit_factor):.2f}",
+            "PF_365d": f"{w365.get('net_pf', 0.0):.2f}",
+            "PF_180d": f"{w180.get('net_pf', 0.0):.2f}",
+            "PF_60d": f"{w60.get('net_pf', 0.0):.2f}",
+            "Stability": f"{report.regime_stability_score:.0f}%",
+            "Momentum": f"{report.current_momentum_score:.0f}%",
             "Sharpe": round(res.sharpe_ratio, 2),
-            "Max_DD_Pct": round(res.max_drawdown_pct, 2),
-            "Total_Costs_INR": round(res.total_taxes_paid, 2),
+            "MaxDD": f"{res.max_drawdown_pct:.2f}%",
+            "Costs_INR": round(res.total_taxes_paid, 2),
             "Verdict": f"[{report.status.value}]",
             "_result_obj": res,
             "_report": report,
@@ -192,10 +210,10 @@ def main():
     engine = BacktestEngine(cost_model=cost_model, initial_capital=500000.0)
     ts_gen = QuantTearsheetGenerator()
 
-    print("=" * 115)
-    print("[*] ASHVA QUANTITATIVE RESEARCH LAB: 18-MONTH HISTORICAL VALIDATION CANVAS (PRIMARY STANDARD)")
-    print(f"[*] Timeframe: {args.timeframe.upper()} | Regulatory Cost Engine: STT, Exchange, GST, SEBI + 3.0 bps Slippage")
-    print("=" * 115)
+    print("=" * 135)
+    print("[*] ASHVA QUANTITATIVE RESEARCH LAB: 540-DAY RESEARCH CANVAS | RECENCY-WEIGHTED MULTI-WINDOW VALIDATION")
+    print(f"[*] Framework: 60d (50% Wt), 180d (25% Wt), 365d (15% Wt), 540d (10% Wt) | Regulatory Costs & 3.0 bps Slippage")
+    print("=" * 135)
 
     if args.all or args.strategy == "all":
         # Master Audit across all strategies & symbols
@@ -212,9 +230,9 @@ def main():
 
     for strat_name, strat_cls in strategies_to_run:
         strat_obj = strat_cls()
-        print(f"\n" + "#" * 115)
-        print(f"[+] PRIMARY 18-MONTH HISTORICAL VALIDATION: {strat_name}")
-        print("#" * 115)
+        print(f"\n" + "#" * 135)
+        print(f"[+] MULTI-WINDOW RESEARCH VALIDATION: {strat_name}")
+        print("#" * 135)
 
         results = run_strategy_backtest(strat_name, strat_obj, target_symbols, lake, engine, validator, args.timeframe)
         if not results:
@@ -227,9 +245,9 @@ def main():
         # Portfolio Aggregates
         total_pnl = sum(r["Net_PnL_INR"] for r in results)
         total_trades = sum(r["Trades"] for r in results)
-        total_taxes = sum(r["Total_Costs_INR"] for r in results)
-        print("-" * 115)
-        print(f"[*] {strat_name} 18M PORTFOLIO TOTAL: Net P&L = Rs {total_pnl:+,.2f} | Trades = {total_trades} | Taxes Paid = Rs {total_taxes:,.2f}")
+        total_taxes = sum(r["Costs_INR"] for r in results)
+        print("-" * 135)
+        print(f"[*] {strat_name} 540D PORTFOLIO TOTAL: Net P&L = Rs {total_pnl:+,.2f} | Trades = {total_trades} | Taxes Paid = Rs {total_taxes:,.2f}")
 
         # Automated Tearsheet Generation for All Evaluated Candidates with Trades
         if not args.no_tearsheet:

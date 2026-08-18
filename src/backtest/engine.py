@@ -247,12 +247,18 @@ class BacktestEngine:
                         risk_amt = cash * risk_per_trade_pct
                         risk_qty = int(risk_amt / stop_dist)
                         max_cap_qty = int((cash * capital_per_trade_pct) / entry_price)
-                        entry_qty = max(1, min(risk_qty, max_cap_qty))
+                        entry_qty = min(risk_qty, max_cap_qty)
                     else:
-                        entry_qty = max(1, int((cash * capital_per_trade_pct) / entry_price))
+                        entry_qty = int((cash * capital_per_trade_pct) / entry_price)
                 else:
                     allocated_capital = cash * capital_per_trade_pct
-                    entry_qty = max(1, int(allocated_capital / entry_price))
+                    entry_qty = int(allocated_capital / entry_price)
+
+                # Institutional zero-risk budget policy: If risk size < 1 share -> NO TRADE
+                if entry_qty < 1:
+                    in_position = False
+                    position_side = None
+                    continue
 
             elif in_position and (
                 curr_signal == 0.0
