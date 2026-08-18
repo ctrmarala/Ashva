@@ -62,6 +62,8 @@ class Alpha14GapMomentumDrift(BaseHypothesis):
             "min_rvol": 1.25,                  # 1.25x minimum RVOL
             "target_rr": 1.50,                 # 1.50R target multiple
             "max_gap_atr_ratio": 0.80,         # Gap <= 0.80 * Daily ATR (prevent exhaustion gaps)
+            "min_atr_pct": 0.80,               # Minimum 0.80% normalized ATR (avoid dead/sluggish stocks)
+            "max_atr_pct": 2.80,               # Maximum 2.80% normalized ATR (avoid extreme noise/whipsaw)
         }
         super().__init__(metadata=meta, parameters=params)
 
@@ -131,6 +133,8 @@ class Alpha14GapMomentumDrift(BaseHypothesis):
         min_rvol = float(self.parameters.get("min_rvol", 1.25))
         target_rr = float(self.parameters.get("target_rr", 1.50))
         max_gap_atr = float(self.parameters.get("max_gap_atr_ratio", 0.80))
+        min_atr_pct = float(self.parameters.get("min_atr_pct", 0.80))
+        max_atr_pct = float(self.parameters.get("max_atr_pct", 2.80))
 
         current_day = None
         traded_today = False
@@ -160,6 +164,11 @@ class Alpha14GapMomentumDrift(BaseHypothesis):
                 c_tod = tod_vols[i]
 
                 if pd.isna(p_close) or p_close <= 0 or pd.isna(c_atr) or c_atr <= 0:
+                    continue
+
+                # Volatility regime filter (normalized ATR% = Daily ATR / Prior Close * 100)
+                norm_atr_pct = (c_atr / p_close) * 100.0
+                if norm_atr_pct < min_atr_pct or norm_atr_pct > max_atr_pct:
                     continue
 
                 gap_pct = (c_open - p_close) / p_close
