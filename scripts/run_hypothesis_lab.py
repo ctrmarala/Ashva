@@ -59,6 +59,7 @@ from src.strategies.alpha_21_high_velocity_momentum import Alpha21HighVelocityMo
 from src.strategies.alpha_22_apex_momentum import Alpha22ApexMomentum
 from src.strategies.alpha_23_velocity_50_scanner import Alpha23Velocity50Scanner
 from src.strategies.alpha_24_volatility_vacuum_release import Alpha24VolatilityVacuumRelease
+from src.strategies.alpha_25_cross_sectional_residual_reversion import Alpha25CrossSectionalResidualReversion
 
 STRATEGY_MAP = {
     "alpha_01": ("ALPHA_01_TRENDSURFER", AlphaTrendSurfer),
@@ -85,6 +86,7 @@ STRATEGY_MAP = {
     "alpha_22": ("ALPHA_22_APEX_MOMENTUM", Alpha22ApexMomentum),
     "alpha_23": ("ALPHA_23_VELOCITY_50_SCANNER", Alpha23Velocity50Scanner),
     "alpha_24": ("ALPHA_24_VOLATILITY_VACUUM_RELEASE", Alpha24VolatilityVacuumRelease),
+    "alpha_25": ("ALPHA_25_CROSS_SECTIONAL_RESIDUAL_REVERSION", Alpha25CrossSectionalResidualReversion),
 }
 
 DEFAULT_UNIVERSE = [
