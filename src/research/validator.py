@@ -360,8 +360,11 @@ class StatisticalValidator:
                 f"DSR Test Failed: p-value {dsr_p_val:.4f} > {self.max_dsr_p_value} across {effective_trials} parameter trials (High selection risk)"
             )
 
-        # 6.5. Gate 1.5: Portfolio Independence (Correlation)
-        max_corr = 0.0
+        # 6.5. Gate 1.5: Portfolio Diversification Filter (Question B)
+        # Note: High correlation does not reject the hypothesis; it flags it for portfolio redundancy.
+        corr_daily = 0.0
+        corr_regime = 0.0
+        corr_trade = 0.0
         if baseline_portfolio_returns is not None and not baseline_portfolio_returns.empty:
             strategy_daily_ret = daily_returns_series.rename("strategy")
             aligned_returns = pd.concat([baseline_portfolio_returns, strategy_daily_ret], axis=1).dropna()
@@ -369,12 +372,21 @@ class StatisticalValidator:
                 corr_matrix = aligned_returns.corr(method="pearson")
                 corrs = corr_matrix["strategy"].drop("strategy").abs()
                 if not corrs.empty:
-                    max_corr = float(corrs.max())
+                    corr_daily = float(corrs.max())
                 
-                if max_corr > self.max_portfolio_correlation:
-                    rejection_reasons.append(
-                        f"Portfolio Independence Failed: Max absolute correlation {max_corr:.2f} > {self.max_portfolio_correlation} with baseline portfolio"
-                    )
+                # Regime correlation (60d rolling)
+                if len(aligned_returns) >= 60:
+                    rolling_corr = aligned_returns.rolling(60).corr().unstack()["strategy"].drop("strategy", axis=1)
+                    if not rolling_corr.empty:
+                        corr_regime = float(rolling_corr.max().abs().max())
+
+                # Trade/Swing correlation (approximated via 5d sum of returns for P&L swings)
+                trade_returns = aligned_returns.rolling(5).sum().dropna()
+                if not trade_returns.empty:
+                    trade_corr_mat = trade_returns.corr(method="pearson")
+                    t_corrs = trade_corr_mat["strategy"].drop("strategy").abs()
+                    if not t_corrs.empty:
+                        corr_trade = float(t_corrs.max())
 
         # 7. Gate 2: True Combinatorial Purged Cross-Validation (CPCV) Quality Gate
         cpcv_results = self.run_cpcv(df, hypothesis, n_splits=6, k_test=2)
@@ -438,7 +450,9 @@ class StatisticalValidator:
             regime_stability_score=regime_stability,
             current_regime_score=current_regime_score,
             recency_weighted_score=recency_weighted_score,
-            portfolio_correlation=max_corr,
+            portfolio_correlation_daily=corr_daily,
+            portfolio_correlation_trade=corr_trade,
+            portfolio_correlation_regime=corr_regime,
             window_metrics=window_metrics,
             rejection_reasons=rejection_reasons,
             tested_trials_count=effective_trials,
