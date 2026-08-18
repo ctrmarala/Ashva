@@ -58,6 +58,7 @@ from src.strategies.alpha_20_vwap_trend_continuation import Alpha20VWAPTrendCont
 from src.strategies.alpha_21_high_velocity_momentum import Alpha21HighVelocityMomentum
 from src.strategies.alpha_22_apex_momentum import Alpha22ApexMomentum
 from src.strategies.alpha_23_velocity_50_scanner import Alpha23Velocity50Scanner
+from src.strategies.alpha_24_volatility_vacuum_release import Alpha24VolatilityVacuumRelease
 
 STRATEGY_MAP = {
     "alpha_01": ("ALPHA_01_TRENDSURFER", AlphaTrendSurfer),
@@ -83,6 +84,7 @@ STRATEGY_MAP = {
     "alpha_21": ("ALPHA_21_HIGH_VELOCITY_MOMENTUM", Alpha21HighVelocityMomentum),
     "alpha_22": ("ALPHA_22_APEX_MOMENTUM", Alpha22ApexMomentum),
     "alpha_23": ("ALPHA_23_VELOCITY_50_SCANNER", Alpha23Velocity50Scanner),
+    "alpha_24": ("ALPHA_24_VOLATILITY_VACUUM_RELEASE", Alpha24VolatilityVacuumRelease),
 }
 
 DEFAULT_UNIVERSE = [
