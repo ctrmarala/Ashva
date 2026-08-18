@@ -313,6 +313,18 @@ def run_full_alpha_matrix_audit(
             "_pos_count": pos_count,
         })
 
+        if oos_net_pnl > 0:
+            if oos_trades >= 50:
+                oos_status = "🟢 Strong Candidate (>=50T)"
+            elif oos_trades >= 30:
+                oos_status = "🟢 OOS Candidate (>=30T)"
+            elif oos_trades >= 10:
+                oos_status = "🟡 Promising (10-29T)"
+            else:
+                oos_status = "🟡 Insufficient Sample (<10T)"
+        else:
+            oos_status = "🔴 Negative OOS"
+
         alpha_temporal_oos_results.append({
             "Alpha_ID": strat_key,
             "Strategy": strat_name,
@@ -326,7 +338,7 @@ def run_full_alpha_matrix_audit(
             "OOS_Net_PnL_INR": round(oos_net_pnl, 2),
             "OOS_Basket_ROI_Pct": round(oos_basket_roi, 2),
             "OOS_Sharpe": round(oos_sharpe, 2),
-            "OOS_Status": "🟢 Positive OOS" if oos_net_pnl > 0 else "🔴 Negative OOS",
+            "OOS_Status": oos_status,
         })
 
     summary_df = pd.DataFrame(alpha_summary_results)
