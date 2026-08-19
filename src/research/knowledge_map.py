@@ -323,30 +323,31 @@ class AlphaKnowledgeMap:
         """
         candidate_territory = [
             {
-                "proposed_id": "alpha_32",
-                "category": AlphaCategory.ORDER_FLOW_IMBALANCE,
-                "name": "ALPHA_32_VOLUME_WEIGHTED_CLOSING_IMBALANCE",
-                "mechanism_description": "Institutional MOC (Market-On-Close) & Power Hour Volume Drift (14:15 to 15:15 IST)",
+                "proposed_id": "alpha_34",
+                "category": AlphaCategory.OPENING_AUCTION,
+                "name": "ALPHA_34_OPENING_DRIVE_VWAP_PULLBACK",
+                "mechanism_description": "First pullback to session VWAP after strong opening drive (09:45 to 10:30 IST)",
                 "timeframe": "15m",
-                "entry_window": "14:15-14:30",
-                "holding_concept": "Power Hour Drift into 15:15 close",
+                "entry_window": "09:45-10:30",
+                "holding_concept": "Morning trend continuation into 12:00 IST",
                 "economic_rationale": (
-                    "Passive index funds, institutional rebalancing flows, and structured product hedging execute "
-                    "in the final trading hour (14:15-15:15 IST). When an asset exhibits a sharp volume spike "
-                    "at 14:15 breaking the 14:00 high/low, institutional flow tends to persist into the official close."
+                    "Following an aggressive directional opening drive (09:15-09:45 IST) expanding > 0.50% range, "
+                    "the first shallow retracement to the rising/falling session VWAP offers institutional re-entry liquidity "
+                    "with high risk-reward before midday liquidity compression."
                 ),
             },
             {
-                "proposed_id": "alpha_33",
-                "category": AlphaCategory.STATISTICAL_REVERSION,
-                "name": "ALPHA_33_MIDDAY_VWAP_MEAN_REVERSION",
-                "mechanism_description": "Midday VWAP extension mean reversion (11:00 to 13:30 IST)",
+                "proposed_id": "alpha_35",
+                "category": AlphaCategory.VOLATILITY_EXPANSION,
+                "name": "ALPHA_35_NR4_OPENING_RANGE_EXPANSION",
+                "mechanism_description": "NR4 daily compression opening range expansion breakout (09:30 to 10:00 IST)",
                 "timeframe": "15m",
-                "entry_window": "11:00-13:30",
-                "holding_concept": "Midday reversion to session VWAP before 14:30 IST",
+                "entry_window": "09:30-10:00",
+                "holding_concept": "Intraday trend expansion into 15:15 close",
                 "economic_rationale": (
-                    "Following 3+ days of contracting daily ranges (NR3/NR4), a breakout on 60m bars that closes outside "
-                    "the 3-day high/low initiates a multi-day trend. Holding across 2-5 days amortizes round-trip Indian taxes."
+                    "Following 3 consecutive sessions of contracting daily range (NR4 condition), compressed volatility "
+                    "stores kinetic market energy. When price breaks out of the initial 15m opening bar with above-average volume, "
+                    "a directional volatility expansion trend unfolds through the intraday session."
                 ),
             },
         ]

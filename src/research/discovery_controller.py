@@ -131,6 +131,45 @@ class AutonomousDiscoveryController:
                             fwd_ret = direction * ((closes[i+4] - closes[i+1]) / closes[i+1]) * 10000.0
                             all_event_returns.append(fwd_ret)
 
+            elif category == AlphaCategory.OPENING_AUCTION:
+                # Check Opening Drive VWAP Pullback between 09:30 and 10:30 IST
+                dates = df.index.date
+                typical_p = (df["high"] + df["low"] + df["close"]) / 3.0
+                df_temp = df.copy()
+                df_temp["cum_pv"] = typical_p * df["volume"]
+                df_temp["vol"] = df["volume"]
+                vwap_series = df_temp.groupby(dates)["cum_pv"].cumsum() / df_temp.groupby(dates)["vol"].cumsum().replace(0, np.nan)
+                vwap_vals = vwap_series.values
+                t_0930 = pd.to_datetime("09:30:00").time()
+                t_1030 = pd.to_datetime("10:30:00").time()
+                for i in range(1, n - 6):
+                    if t_0930 <= times[i] <= t_1030 and times[i-1] == pd.to_datetime("09:15:00").time():
+                        op_dir = 1.0 if closes[i-1] > df["open"].values[i-1] else -1.0
+                        op_range = (df["high"].values[i-1] - df["low"].values[i-1]) / df["open"].values[i-1]
+                        if op_range >= 0.005:
+                            if (op_dir == 1.0 and df["low"].values[i] <= vwap_vals[i] <= df["high"].values[i]) or (op_dir == -1.0 and df["low"].values[i] <= vwap_vals[i] <= df["high"].values[i]):
+                                fwd_ret = op_dir * ((closes[min(i+6, n-1)] - closes[i]) / closes[i]) * 10000.0
+                                all_event_returns.append(fwd_ret)
+
+            elif category == AlphaCategory.VOLATILITY_EXPANSION:
+                # Check NR4 Daily Range Compression Breakout on opening bars
+                dates = df.index.date
+                df_daily = df.groupby(dates).agg({"high": "max", "low": "min", "close": "last", "open": "first"})
+                daily_range = df_daily["high"] - df_daily["low"]
+                is_nr4 = (daily_range < daily_range.shift(1)) & (daily_range < daily_range.shift(2)) & (daily_range < daily_range.shift(3))
+                nr4_days = set(df_daily.index[is_nr4.shift(1).fillna(False)])
+                t_0930 = pd.to_datetime("09:30:00").time()
+                for i in range(1, n - 12):
+                    if dates[i] in nr4_days and times[i] == t_0930:
+                        bar1_high = df["high"].values[i-1]
+                        bar1_low = df["low"].values[i-1]
+                        if closes[i] > bar1_high:
+                            fwd_ret = ((closes[min(i+12, n-1)] - closes[i]) / closes[i]) * 10000.0
+                            all_event_returns.append(fwd_ret)
+                        elif closes[i] < bar1_low:
+                            fwd_ret = ((closes[i] - closes[min(i+12, n-1)]) / closes[i]) * 10000.0
+                            all_event_returns.append(fwd_ret)
+
         if len(all_event_returns) < 10:
             return False, f"Stage 0 REJECT: Insufficient historical event occurrences (N={len(all_event_returns)} < 10)", 0.0
 

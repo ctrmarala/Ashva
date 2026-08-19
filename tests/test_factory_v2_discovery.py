@@ -32,10 +32,10 @@ def test_knowledge_map_novel_territory_acceptance():
     km = AlphaKnowledgeMap()
     # Candidate in unexplored territory (60m multi-day)
     is_novel = km.is_novel_hypothesis(
-        category=AlphaCategory.STATISTICAL_REVERSION,
-        mechanism_desc="Midday VWAP extension mean reversion",
+        category=AlphaCategory.OPENING_AUCTION,
+        mechanism_desc="First pullback to session VWAP after strong opening drive",
         timeframe="15m",
-        entry_window="11:00-13:30",
+        entry_window="09:45-10:30",
     )
     assert is_novel is True, "Novel unexplored mechanism should be accepted."
 
