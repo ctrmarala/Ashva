@@ -66,6 +66,22 @@ from src.strategies.alpha_29_trend_exhaustion_climax import Alpha29TrendExhausti
 from src.strategies.alpha_30_midday_squeeze_trend import Alpha30MiddaySqueezeTrend
 from src.strategies.alpha_31_failed_opening_drive_fade import Alpha31FailedOpeningDriveFade
 from src.strategies.alpha_35_nr4_opening_expansion import Alpha35NR4OpeningExpansion
+from src.strategies.alpha_36_inside_day_expansion import Alpha36InsideDayExpansion
+from src.strategies.alpha_37_gap_volume_shock_drift import Alpha37GapVolumeShockDrift
+from src.strategies.alpha_38_three_day_trend_expansion import Alpha38ThreeDayTrendExpansion
+from src.strategies.alpha_39_open_equals_extreme_drive import Alpha39OpenEqualsExtremeDrive
+from src.strategies.alpha_40_double_inside_expansion import Alpha40DoubleInsideExpansion
+from src.strategies.alpha_41_opening_marubozu_expansion import Alpha41OpeningMarubozuExpansion
+from src.strategies.alpha_42_nr2_gap_breakout import Alpha42NR2GapBreakout
+from src.strategies.alpha_43_nr3_gap_breakout import Alpha43NR3GapBreakout
+from src.strategies.alpha_44_contraction_open_drive import Alpha44ContractionOpenDrive
+from src.strategies.alpha_45_inside_day_gap_momentum import Alpha45InsideDayGapMomentum
+from src.strategies.alpha_46_high_conviction_gap_drift import Alpha46HighConvictionGapDrift
+from src.strategies.alpha_47_orb30_gap_expansion import Alpha47ORB30GapExpansion
+from src.strategies.alpha_48_nr7_gap_breakout import Alpha48NR7GapBreakout
+from src.strategies.alpha_49_moderate_gap_volume_shock import Alpha49ModerateGapVolumeShock
+from src.strategies.alpha_50_outlier_volume_opening_drive import Alpha50OutlierVolumeOpeningDrive
+from src.strategies.alpha_51_trend_aligned_gap_shock import Alpha51TrendAlignedGapShock
 
 STRATEGY_MAP = {
     "alpha_01": ("ALPHA_01_TRENDSURFER", AlphaTrendSurfer),
@@ -99,6 +115,22 @@ STRATEGY_MAP = {
     "alpha_30": ("ALPHA_30_MIDDAY_SQUEEZE_TREND", Alpha30MiddaySqueezeTrend),
     "alpha_31": ("ALPHA_31_FAILED_OPENING_DRIVE_FADE", Alpha31FailedOpeningDriveFade),
     "alpha_35": ("ALPHA_35_NR4_OPENING_EXPANSION", Alpha35NR4OpeningExpansion),
+    "alpha_36": ("ALPHA_36_INSIDE_DAY_EXPANSION", Alpha36InsideDayExpansion),
+    "alpha_37": ("ALPHA_37_GAP_VOLUME_SHOCK_DRIFT", Alpha37GapVolumeShockDrift),
+    "alpha_38": ("ALPHA_38_THREE_DAY_TREND_EXPANSION", Alpha38ThreeDayTrendExpansion),
+    "alpha_39": ("ALPHA_39_OPEN_EQUALS_EXTREME_DRIVE", Alpha39OpenEqualsExtremeDrive),
+    "alpha_40": ("ALPHA_40_DOUBLE_INSIDE_EXPANSION", Alpha40DoubleInsideExpansion),
+    "alpha_41": ("ALPHA_41_OPENING_MARUBOZU_EXPANSION", Alpha41OpeningMarubozuExpansion),
+    "alpha_42": ("ALPHA_42_NR2_GAP_BREAKOUT", Alpha42NR2GapBreakout),
+    "alpha_43": ("ALPHA_43_NR3_GAP_BREAKOUT", Alpha43NR3GapBreakout),
+    "alpha_44": ("ALPHA_44_CONTRACTION_OPEN_DRIVE", Alpha44ContractionOpenDrive),
+    "alpha_45": ("ALPHA_45_INSIDE_DAY_GAP_MOMENTUM", Alpha45InsideDayGapMomentum),
+    "alpha_46": ("ALPHA_46_HIGH_CONVICTION_GAP_DRIFT", Alpha46HighConvictionGapDrift),
+    "alpha_47": ("ALPHA_47_ORB30_GAP_EXPANSION", Alpha47ORB30GapExpansion),
+    "alpha_48": ("ALPHA_48_NR7_GAP_BREAKOUT", Alpha48NR7GapBreakout),
+    "alpha_49": ("ALPHA_49_MODERATE_GAP_VOLUME_SHOCK", Alpha49ModerateGapVolumeShock),
+    "alpha_50": ("ALPHA_50_OUTLIER_VOLUME_OPENING_DRIVE", Alpha50OutlierVolumeOpeningDrive),
+    "alpha_51": ("ALPHA_51_TREND_ALIGNED_GAP_SHOCK", Alpha51TrendAlignedGapShock),
 }
 
 DEFAULT_UNIVERSE = [
