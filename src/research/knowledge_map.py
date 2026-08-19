@@ -66,7 +66,7 @@ class AlphaKnowledgeMap:
             AlphaResearchRecord(
                 alpha_id="alpha_01",
                 name="ALPHA_01_TRENDSURFER",
-                category=AlphaCategory.STATISTICAL_REVERSION,
+                category=AlphaCategory.SWING_MOMENTUM,
                 mechanism_description="Multi-timeframe EMA trend continuation",
                 timeframe="15m",
                 entry_window="09:30-14:00",
