@@ -65,6 +65,7 @@ from src.strategies.alpha_28_value_area_expansion import Alpha28ValueAreaExpansi
 from src.strategies.alpha_29_trend_exhaustion_climax import Alpha29TrendExhaustionClimax
 from src.strategies.alpha_30_midday_squeeze_trend import Alpha30MiddaySqueezeTrend
 from src.strategies.alpha_31_failed_opening_drive_fade import Alpha31FailedOpeningDriveFade
+from src.strategies.alpha_35_nr4_opening_expansion import Alpha35NR4OpeningExpansion
 
 STRATEGY_MAP = {
     "alpha_01": ("ALPHA_01_TRENDSURFER", AlphaTrendSurfer),
@@ -97,6 +98,7 @@ STRATEGY_MAP = {
     "alpha_29": ("ALPHA_29_TREND_EXHAUSTION_CLIMAX", Alpha29TrendExhaustionClimax),
     "alpha_30": ("ALPHA_30_MIDDAY_SQUEEZE_TREND", Alpha30MiddaySqueezeTrend),
     "alpha_31": ("ALPHA_31_FAILED_OPENING_DRIVE_FADE", Alpha31FailedOpeningDriveFade),
+    "alpha_35": ("ALPHA_35_NR4_OPENING_EXPANSION", Alpha35NR4OpeningExpansion),
 }
 
 DEFAULT_UNIVERSE = [
