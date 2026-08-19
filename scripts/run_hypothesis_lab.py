@@ -82,6 +82,25 @@ from src.strategies.alpha_48_nr7_gap_breakout import Alpha48NR7GapBreakout
 from src.strategies.alpha_49_moderate_gap_volume_shock import Alpha49ModerateGapVolumeShock
 from src.strategies.alpha_50_outlier_volume_opening_drive import Alpha50OutlierVolumeOpeningDrive
 from src.strategies.alpha_51_trend_aligned_gap_shock import Alpha51TrendAlignedGapShock
+from src.strategies.alpha_52_nr5_gap_breakout import Alpha52NR5GapBreakout
+from src.strategies.alpha_53_nr7_extreme_gap_expansion import Alpha53NR7ExtremeGapExpansion
+from src.strategies.alpha_54_gap_marubozu_momentum import Alpha54GapMarubozuMomentum
+from src.strategies.alpha_55_two_day_trend_gap import Alpha55TwoDayTrendGap
+from src.strategies.alpha_56_nr4_moderate_gap_shock import Alpha56NR4ModerateGapShock
+from src.strategies.alpha_57_nr3_moderate_gap_shock import Alpha57NR3ModerateGapShock
+from src.strategies.alpha_58_gap_vwap_momentum import Alpha58GapVWAPMomentum
+from src.strategies.alpha_59_nr6_gap_breakout import Alpha59NR6GapBreakout
+from src.strategies.alpha_60_ema3_aligned_moderate_gap import Alpha60EMA3AlignedModerateGap
+from src.strategies.alpha_61_five_day_hl_moderate_gap import Alpha61FiveDayHLModerateGap
+from src.strategies.alpha_62_nr5_moderate_gap_expansion import Alpha62NR5ModerateGapExpansion
+from src.strategies.alpha_63_daily_squeeze_gap_expansion import Alpha63DailySqueezeGapExpansion
+from src.strategies.alpha_64_opening_range_atr_surge import Alpha64OpeningRangeATRSurge
+from src.strategies.alpha_65_nr4_high_volume_gap import Alpha65NR4HighVolumeGap
+from src.strategies.alpha_66_two_day_trend_high_vol_gap import Alpha66TwoDayTrendHighVolGap
+from src.strategies.alpha_67_ten_day_max_vol_gap import Alpha67TenDayMaxVolGap
+from src.strategies.alpha_68_nr5_high_conviction_gap import Alpha68NR5HighConvictionGap
+from src.strategies.alpha_69_sub_atr_contraction_gap import Alpha69SubATRContractionGap
+from src.strategies.alpha_70_double_inside_target_expansion import Alpha70DoubleInsideTargetExpansion
 
 STRATEGY_MAP = {
     "alpha_01": ("ALPHA_01_TRENDSURFER", AlphaTrendSurfer),
@@ -131,6 +150,25 @@ STRATEGY_MAP = {
     "alpha_49": ("ALPHA_49_MODERATE_GAP_VOLUME_SHOCK", Alpha49ModerateGapVolumeShock),
     "alpha_50": ("ALPHA_50_OUTLIER_VOLUME_OPENING_DRIVE", Alpha50OutlierVolumeOpeningDrive),
     "alpha_51": ("ALPHA_51_TREND_ALIGNED_GAP_SHOCK", Alpha51TrendAlignedGapShock),
+    "alpha_52": ("ALPHA_52_NR5_GAP_BREAKOUT", Alpha52NR5GapBreakout),
+    "alpha_53": ("ALPHA_53_NR7_EXTREME_GAP_EXPANSION", Alpha53NR7ExtremeGapExpansion),
+    "alpha_54": ("ALPHA_54_GAP_MARUBOZU_MOMENTUM", Alpha54GapMarubozuMomentum),
+    "alpha_55": ("ALPHA_55_TWO_DAY_TREND_GAP", Alpha55TwoDayTrendGap),
+    "alpha_56": ("ALPHA_56_NR4_MODERATE_GAP_SHOCK", Alpha56NR4ModerateGapShock),
+    "alpha_57": ("ALPHA_57_NR3_MODERATE_GAP_SHOCK", Alpha57NR3ModerateGapShock),
+    "alpha_58": ("ALPHA_58_GAP_VWAP_MOMENTUM", Alpha58GapVWAPMomentum),
+    "alpha_59": ("ALPHA_59_NR6_GAP_BREAKOUT", Alpha59NR6GapBreakout),
+    "alpha_60": ("ALPHA_60_EMA3_ALIGNED_MODERATE_GAP", Alpha60EMA3AlignedModerateGap),
+    "alpha_61": ("ALPHA_61_FIVE_DAY_HL_MODERATE_GAP", Alpha61FiveDayHLModerateGap),
+    "alpha_62": ("ALPHA_62_NR5_MODERATE_GAP_EXPANSION", Alpha62NR5ModerateGapExpansion),
+    "alpha_63": ("ALPHA_63_DAILY_SQUEEZE_GAP_EXPANSION", Alpha63DailySqueezeGapExpansion),
+    "alpha_64": ("ALPHA_64_OPENING_RANGE_ATR_SURGE", Alpha64OpeningRangeATRSurge),
+    "alpha_65": ("ALPHA_65_NR4_HIGH_VOLUME_GAP", Alpha65NR4HighVolumeGap),
+    "alpha_66": ("ALPHA_66_TWO_DAY_TREND_HIGH_VOL_GAP", Alpha66TwoDayTrendHighVolGap),
+    "alpha_67": ("ALPHA_67_TEN_DAY_MAX_VOL_GAP", Alpha67TenDayMaxVolGap),
+    "alpha_68": ("ALPHA_68_NR5_HIGH_CONVICTION_GAP", Alpha68NR5HighConvictionGap),
+    "alpha_69": ("ALPHA_69_SUB_ATR_CONTRACTION_GAP", Alpha69SubATRContractionGap),
+    "alpha_70": ("ALPHA_70_DOUBLE_INSIDE_TARGET_EXPANSION", Alpha70DoubleInsideTargetExpansion),
 }
 
 DEFAULT_UNIVERSE = [
