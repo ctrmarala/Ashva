@@ -112,13 +112,24 @@ class AutonomousDiscoveryController:
                             fwd_ret = direction * ((closes[i+4] - closes[i+1]) / closes[i+1]) * 10000.0
                             all_event_returns.append(fwd_ret)
 
-            elif category == AlphaCategory.SWING_MOMENTUM:
-                # Check Multi-Day 60m break forward return across 8 bars (2 days)
-                daily_df = df.resample("D").agg({"high": "max", "low": "min", "close": "last"}).dropna()
-                if len(daily_df) > 5:
-                    atr_df = TechnicalIndicators.add_atr(daily_df, period=5)
-                    # Sample proxy
-                    all_event_returns.extend([12.5, 8.2, -4.1, 15.0, -3.2, 10.4, 9.1])
+            elif category == AlphaCategory.STATISTICAL_REVERSION:
+                # Check Midday 11:00-13:30 VWAP extension (> 2.0 ATR) and 4-bar forward return
+                dates = df.index.date
+                typical_p = (df["high"] + df["low"] + df["close"]) / 3.0
+                cum_pv = (typical_p * df["volume"]).groupby(dates).cumsum()
+                cum_v = df["volume"].groupby(dates).cumsum()
+                vwap = cum_pv / cum_v.replace(0, np.nan)
+                df_atr = TechnicalIndicators.add_atr(df, period=14)
+                atr = df_atr["atr_14"].ffill()
+                t_start = pd.to_datetime("11:00:00").time()
+                t_end = pd.to_datetime("13:30:00").time()
+                for i in range(20, n - 4):
+                    if t_start <= times[i] <= t_end and not np.isnan(vwap.iloc[i]) and not np.isnan(atr.iloc[i]):
+                        dist = (closes[i] - vwap.iloc[i]) / max(0.1, atr.iloc[i])
+                        if abs(dist) > 2.0:
+                            direction = -1.0 if dist > 0 else 1.0
+                            fwd_ret = direction * ((closes[i+4] - closes[i+1]) / closes[i+1]) * 10000.0
+                            all_event_returns.append(fwd_ret)
 
         if len(all_event_returns) < 10:
             return False, f"Stage 0 REJECT: Insufficient historical event occurrences (N={len(all_event_returns)} < 10)", 0.0

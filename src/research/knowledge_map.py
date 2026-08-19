@@ -66,7 +66,7 @@ class AlphaKnowledgeMap:
             AlphaResearchRecord(
                 alpha_id="alpha_01",
                 name="ALPHA_01_TRENDSURFER",
-                category=AlphaCategory.SWING_MOMENTUM,
+                category=AlphaCategory.STATISTICAL_REVERSION,
                 mechanism_description="Multi-timeframe EMA trend continuation",
                 timeframe="15m",
                 entry_window="09:30-14:00",
@@ -338,12 +338,12 @@ class AlphaKnowledgeMap:
             },
             {
                 "proposed_id": "alpha_33",
-                "category": AlphaCategory.SWING_MOMENTUM,
-                "name": "ALPHA_33_MULTI_DAY_CONSOLIDATION_BREAKOUT",
-                "mechanism_description": "Multi-day range contraction with multi-session holding horizon (2 to 5 days)",
-                "timeframe": "60m",
-                "entry_window": "14:00-15:00",
-                "holding_concept": "Multi-Day Overnight Swing",
+                "category": AlphaCategory.STATISTICAL_REVERSION,
+                "name": "ALPHA_33_MIDDAY_VWAP_MEAN_REVERSION",
+                "mechanism_description": "Midday VWAP extension mean reversion (11:00 to 13:30 IST)",
+                "timeframe": "15m",
+                "entry_window": "11:00-13:30",
+                "holding_concept": "Midday reversion to session VWAP before 14:30 IST",
                 "economic_rationale": (
                     "Following 3+ days of contracting daily ranges (NR3/NR4), a breakout on 60m bars that closes outside "
                     "the 3-day high/low initiates a multi-day trend. Holding across 2-5 days amortizes round-trip Indian taxes."
