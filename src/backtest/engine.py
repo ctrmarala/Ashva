@@ -104,11 +104,12 @@ class BacktestEngine:
         strategy_id: str = "STRATEGY",
         capital_per_trade_pct: float = 0.50,
         risk_per_trade_pct: Optional[float] = None,  # e.g., 0.005 for 0.50% account risk per trade
+        trailing_mode: str = "NONE",  # "NONE", "BREAK_EVEN", "STEP_RATCHET"
     ) -> BacktestResult:
         """
         Executes backtest over DataFrame containing 'close', 'signal' (+1, -1, 0),
         and optionally 'open', 'high', 'low', 'stop_loss', 'take_profit', 'rationale'.
-        Supports both Capital-Weighted Sizing and Risk-Budget Sizing (Risk/Stop Distance).
+        Supports Capital Sizing, Risk Budgeting, and Tiered Step-Ratchet Trailing Stops.
         """
         if "signal" not in df_with_signals.columns or "close" not in df_with_signals.columns:
             raise ValueError("DataFrame must contain 'close' and 'signal' columns")
@@ -138,6 +139,7 @@ class BacktestEngine:
         entry_idx = 0
         entry_price = 0.0
         entry_qty = 0
+        initial_sl = 0.0
         current_sl = 0.0
         current_tp = 0.0
         current_entry_rationale = ""
@@ -152,6 +154,35 @@ class BacktestEngine:
 
             # 1. Evaluate Intrabar Stop Loss / Take Profit on active position
             if in_position:
+                # Dynamic Step-Ratchet / Break-Even Trailing update
+                if trailing_mode in ("STEP_RATCHET", "BREAK_EVEN") and initial_sl > 0:
+                    if position_side == "LONG":
+                        unit_risk = max(entry_price * 0.002, entry_price - initial_sl)
+                        peak_high = np.max(highs[entry_idx : i + 2])
+                        if trailing_mode == "STEP_RATCHET":
+                            if peak_high >= entry_price + (2.0 * unit_risk):
+                                current_sl = max(current_sl, entry_price + (1.50 * unit_risk))
+                            elif peak_high >= entry_price + (1.5 * unit_risk):
+                                current_sl = max(current_sl, entry_price + (0.75 * unit_risk))
+                            elif peak_high >= entry_price + (1.0 * unit_risk):
+                                current_sl = max(current_sl, entry_price + (0.05 * unit_risk))
+                        elif trailing_mode == "BREAK_EVEN":
+                            if peak_high >= entry_price + (1.0 * unit_risk):
+                                current_sl = max(current_sl, entry_price + (0.05 * unit_risk))
+                    else:  # SHORT
+                        unit_risk = max(entry_price * 0.002, initial_sl - entry_price)
+                        lowest_low = np.min(lows[entry_idx : i + 2])
+                        if trailing_mode == "STEP_RATCHET":
+                            if lowest_low <= entry_price - (2.0 * unit_risk):
+                                current_sl = min(current_sl, entry_price - (1.50 * unit_risk))
+                            elif lowest_low <= entry_price - (1.5 * unit_risk):
+                                current_sl = min(current_sl, entry_price - (0.75 * unit_risk))
+                            elif lowest_low <= entry_price - (1.0 * unit_risk):
+                                current_sl = min(current_sl, entry_price - (0.05 * unit_risk))
+                        elif trailing_mode == "BREAK_EVEN":
+                            if lowest_low <= entry_price - (1.0 * unit_risk):
+                                current_sl = min(current_sl, entry_price - (0.05 * unit_risk))
+
                 exited_intrabar = False
                 exit_price = 0.0
                 exit_reason = "SIGNAL"
@@ -160,7 +191,7 @@ class BacktestEngine:
                     if current_sl > 0 and next_low <= current_sl:
                         exited_intrabar = True
                         exit_price = min(next_open, current_sl)
-                        exit_reason = "STOP_LOSS"
+                        exit_reason = "TRAILING_STOP_RATCHET" if current_sl > initial_sl else "STOP_LOSS"
                     elif current_tp > 0 and next_high >= current_tp:
                         exited_intrabar = True
                         exit_price = max(next_open, current_tp)
@@ -169,7 +200,7 @@ class BacktestEngine:
                     if current_sl > 0 and next_high >= current_sl:
                         exited_intrabar = True
                         exit_price = max(next_open, current_sl)
-                        exit_reason = "STOP_LOSS"
+                        exit_reason = "TRAILING_STOP_RATCHET" if current_sl < initial_sl else "STOP_LOSS"
                     elif current_tp > 0 and next_low <= current_tp:
                         exited_intrabar = True
                         exit_price = min(next_open, current_tp)
@@ -232,6 +263,7 @@ class BacktestEngine:
                 entry_idx = i + 1
                 entry_price = next_open
                 current_sl = stop_losses[i] if has_stops else 0.0
+                initial_sl = current_sl
                 current_tp = take_profits[i] if has_stops else 0.0
 
                 if has_rationales and rationale_col is not None:

@@ -101,6 +101,16 @@ from src.strategies.alpha_67_ten_day_max_vol_gap import Alpha67TenDayMaxVolGap
 from src.strategies.alpha_68_nr5_high_conviction_gap import Alpha68NR5HighConvictionGap
 from src.strategies.alpha_69_sub_atr_contraction_gap import Alpha69SubATRContractionGap
 from src.strategies.alpha_70_double_inside_target_expansion import Alpha70DoubleInsideTargetExpansion
+from src.strategies.alpha_71_outlier_volume_drive import Alpha71OutlierVolumeDrive
+from src.strategies.alpha_72_nr3_volatility_expansion import Alpha72NR3VolatilityExpansion
+from src.strategies.alpha_73_inside_day_expansion import Alpha73InsideDayExpansion
+from src.strategies.alpha_74_gap_marubozu_momentum import Alpha74GapMarubozuMomentum
+from src.strategies.alpha_75_morning_drive_continuation import Alpha75MorningDriveContinuation
+from src.strategies.alpha_76_two_day_momentum_gap_surge import Alpha76TwoDayMomentumGapSurge
+from src.strategies.alpha_77_nr4_shock_expansion import Alpha77NR4ShockExpansion
+from src.strategies.alpha_78_double_inside_momentum import Alpha78DoubleInsideMomentum
+from src.strategies.alpha_79_high_rr_opening_drive import Alpha79HighRROpeningDrive
+from src.strategies.alpha_80_nr7_volatility_expansion import Alpha80NR7VolatilityExpansion
 
 STRATEGY_MAP = {
     "alpha_01": ("ALPHA_01_TRENDSURFER", AlphaTrendSurfer),
@@ -169,6 +179,16 @@ STRATEGY_MAP = {
     "alpha_68": ("ALPHA_68_NR5_HIGH_CONVICTION_GAP", Alpha68NR5HighConvictionGap),
     "alpha_69": ("ALPHA_69_SUB_ATR_CONTRACTION_GAP", Alpha69SubATRContractionGap),
     "alpha_70": ("ALPHA_70_DOUBLE_INSIDE_TARGET_EXPANSION", Alpha70DoubleInsideTargetExpansion),
+    "alpha_71": ("ALPHA_71_OUTLIER_VOLUME_DRIVE", Alpha71OutlierVolumeDrive),
+    "alpha_72": ("ALPHA_72_NR3_VOLATILITY_EXPANSION", Alpha72NR3VolatilityExpansion),
+    "alpha_73": ("ALPHA_73_INSIDE_DAY_EXPANSION", Alpha73InsideDayExpansion),
+    "alpha_74": ("ALPHA_74_GAP_MARUBOZU_MOMENTUM", Alpha74GapMarubozuMomentum),
+    "alpha_75": ("ALPHA_75_MORNING_DRIVE_CONTINUATION", Alpha75MorningDriveContinuation),
+    "alpha_76": ("ALPHA_76_TWO_DAY_MOMENTUM_GAP_SURGE", Alpha76TwoDayMomentumGapSurge),
+    "alpha_77": ("ALPHA_77_NR4_SHOCK_EXPANSION", Alpha77NR4ShockExpansion),
+    "alpha_78": ("ALPHA_78_DOUBLE_INSIDE_MOMENTUM", Alpha78DoubleInsideMomentum),
+    "alpha_79": ("ALPHA_79_HIGH_RR_OPENING_DRIVE", Alpha79HighRROpeningDrive),
+    "alpha_80": ("ALPHA_80_NR7_VOLATILITY_EXPANSION", Alpha80NR7VolatilityExpansion),
 }
 
 DEFAULT_UNIVERSE = [
