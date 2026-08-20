@@ -87,12 +87,21 @@ class AngelHistoricalFetcher:
         Finds the Angel One instrument token for a given symbol.
         """
         scrips = self.load_scrip_master()
-        match = scrips[(scrips["symbol"] == f"{symbol.upper()}-EQ") & (scrips["exch_seg"] == exchange.upper())]
+        sym_clean = symbol.upper()
+        # Aliases for renamed/demerged corporate actions
+        alias_map = {
+            "TATAMOTORS": "TMPV",
+            "M&M": "M&M",
+            "BAJAJ-AUTO": "BAJAJ-AUTO",
+        }
+        target_sym = alias_map.get(sym_clean, sym_clean)
+
+        match = scrips[(scrips["symbol"] == f"{target_sym}-EQ") & (scrips["exch_seg"] == exchange.upper())]
         if not match.empty:
             return str(match.iloc[0]["token"])
         
         # Fallback: search by name
-        match_name = scrips[(scrips["name"] == symbol.upper()) & (scrips["exch_seg"] == exchange.upper())]
+        match_name = scrips[(scrips["name"] == target_sym) & (scrips["exch_seg"] == exchange.upper())]
         if not match_name.empty:
             return str(match_name.iloc[0]["token"])
         return None
