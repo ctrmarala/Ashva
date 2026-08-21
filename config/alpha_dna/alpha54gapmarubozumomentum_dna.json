@@ -1,0 +1,162 @@
+{
+  "alpha_id": "Alpha54GapMarubozuMomentum",
+  "total_trades": 224,
+  "total_net_pnl": 58693.39,
+  "approved_regimes": [
+    "BEAR_TREND_HIGH_VOLATILITY",
+    "BEAR_TREND_LOW_VOLATILITY",
+    "BEAR_TREND_NORMAL_VOLATILITY",
+    "SIDEWAYS_CHOP_HIGH_VOLATILITY",
+    "SIDEWAYS_CHOP_NORMAL_VOLATILITY"
+  ],
+  "disabled_regimes": [
+    "BULL_TREND_HIGH_VOLATILITY",
+    "BULL_TREND_NORMAL_VOLATILITY"
+  ],
+  "regime_breakdown": {
+    "trend": {
+      "BEAR_TREND": {
+        "trades": 88,
+        "net_pnl": 39362.7,
+        "win_rate": "39.8%",
+        "profit_factor": 1.34,
+        "sharpe": 1.5,
+        "status": "APPROVED"
+      },
+      "BULL_TREND": {
+        "trades": 87,
+        "net_pnl": -25041.45,
+        "win_rate": "36.8%",
+        "profit_factor": 0.79,
+        "sharpe": -1.3,
+        "status": "DISABLED"
+      },
+      "SIDEWAYS_CHOP": {
+        "trades": 49,
+        "net_pnl": 44372.14,
+        "win_rate": "46.9%",
+        "profit_factor": 1.53,
+        "sharpe": 2.09,
+        "status": "APPROVED"
+      }
+    },
+    "volatility": {
+      "HIGH_VOLATILITY": {
+        "trades": 75,
+        "net_pnl": 49725.1,
+        "win_rate": "41.3%",
+        "profit_factor": 1.38,
+        "sharpe": 1.62,
+        "status": "APPROVED"
+      },
+      "LOW_VOLATILITY": {
+        "trades": 82,
+        "net_pnl": 13314.78,
+        "win_rate": "41.5%",
+        "profit_factor": 1.12,
+        "sharpe": 0.63,
+        "status": "APPROVED"
+      },
+      "NORMAL_VOLATILITY": {
+        "trades": 67,
+        "net_pnl": -4346.49,
+        "win_rate": "37.3%",
+        "profit_factor": 0.94,
+        "sharpe": -0.29,
+        "status": "DISABLED"
+      }
+    },
+    "gap_alignment": {
+      "COUNTER_GAP": {
+        "trades": 189,
+        "net_pnl": 38174.79,
+        "win_rate": "38.6%",
+        "profit_factor": 1.15,
+        "sharpe": 0.67,
+        "status": "APPROVED"
+      },
+      "FLAT_OPEN": {
+        "trades": 35,
+        "net_pnl": 20518.6,
+        "win_rate": "48.6%",
+        "profit_factor": 1.37,
+        "sharpe": 1.67,
+        "status": "APPROVED"
+      }
+    },
+    "composite": {
+      "BEAR_TREND_HIGH_VOLATILITY": {
+        "trades": 34,
+        "net_pnl": 17960.93,
+        "win_rate": "35.3%",
+        "profit_factor": 1.3,
+        "sharpe": 1.39,
+        "status": "APPROVED"
+      },
+      "BEAR_TREND_LOW_VOLATILITY": {
+        "trades": 31,
+        "net_pnl": 9196.47,
+        "win_rate": "45.2%",
+        "profit_factor": 1.27,
+        "sharpe": 1.35,
+        "status": "APPROVED"
+      },
+      "BEAR_TREND_NORMAL_VOLATILITY": {
+        "trades": 23,
+        "net_pnl": 12205.3,
+        "win_rate": "39.1%",
+        "profit_factor": 1.54,
+        "sharpe": 2.03,
+        "status": "APPROVED"
+      },
+      "BULL_TREND_HIGH_VOLATILITY": {
+        "trades": 21,
+        "net_pnl": -7577.73,
+        "win_rate": "47.6%",
+        "profit_factor": 0.72,
+        "sharpe": -1.9,
+        "status": "DISABLED"
+      },
+      "BULL_TREND_LOW_VOLATILITY": {
+        "trades": 27,
+        "net_pnl": 3310.84,
+        "win_rate": "37.0%",
+        "profit_factor": 1.1,
+        "sharpe": 0.46,
+        "status": "MARGINAL"
+      },
+      "BULL_TREND_NORMAL_VOLATILITY": {
+        "trades": 39,
+        "net_pnl": -20774.56,
+        "win_rate": "30.8%",
+        "profit_factor": 0.63,
+        "sharpe": -2.58,
+        "status": "DISABLED"
+      },
+      "SIDEWAYS_CHOP_HIGH_VOLATILITY": {
+        "trades": 20,
+        "net_pnl": 39341.91,
+        "win_rate": "45.0%",
+        "profit_factor": 1.93,
+        "sharpe": 3.32,
+        "status": "APPROVED"
+      },
+      "SIDEWAYS_CHOP_LOW_VOLATILITY": {
+        "trades": 24,
+        "net_pnl": 807.46,
+        "win_rate": "41.7%",
+        "profit_factor": 1.02,
+        "sharpe": 0.11,
+        "status": "MARGINAL"
+      },
+      "SIDEWAYS_CHOP_NORMAL_VOLATILITY": {
+        "trades": 5,
+        "net_pnl": 4222.77,
+        "win_rate": "80.0%",
+        "profit_factor": 21.8,
+        "sharpe": 15.56,
+        "status": "APPROVED"
+      }
+    }
+  }
+}

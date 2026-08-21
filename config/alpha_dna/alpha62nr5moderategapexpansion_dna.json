@@ -1,0 +1,141 @@
+{
+  "alpha_id": "Alpha62NR5ModerateGapExpansion",
+  "total_trades": 36,
+  "total_net_pnl": 16311.46,
+  "approved_regimes": [],
+  "disabled_regimes": [
+    "BEAR_TREND_NORMAL_VOLATILITY",
+    "BULL_TREND_NORMAL_VOLATILITY",
+    "SIDEWAYS_CHOP_HIGH_VOLATILITY"
+  ],
+  "regime_breakdown": {
+    "trend": {
+      "BEAR_TREND": {
+        "trades": 11,
+        "net_pnl": 11687.82,
+        "win_rate": "45.5%",
+        "profit_factor": 2.56,
+        "sharpe": 5.21,
+        "status": "APPROVED"
+      },
+      "BULL_TREND": {
+        "trades": 16,
+        "net_pnl": -1669.69,
+        "win_rate": "37.5%",
+        "profit_factor": 0.89,
+        "sharpe": -0.68,
+        "status": "DISABLED"
+      },
+      "SIDEWAYS_CHOP": {
+        "trades": 9,
+        "net_pnl": 6293.33,
+        "win_rate": "55.6%",
+        "profit_factor": 1.57,
+        "sharpe": 2.09,
+        "status": "APPROVED"
+      }
+    },
+    "volatility": {
+      "HIGH_VOLATILITY": {
+        "trades": 8,
+        "net_pnl": 5333.21,
+        "win_rate": "50.0%",
+        "profit_factor": 1.48,
+        "sharpe": 1.86,
+        "status": "APPROVED"
+      },
+      "LOW_VOLATILITY": {
+        "trades": 8,
+        "net_pnl": 21499.0,
+        "win_rate": "75.0%",
+        "profit_factor": 42.37,
+        "sharpe": 15.59,
+        "status": "APPROVED"
+      },
+      "NORMAL_VOLATILITY": {
+        "trades": 20,
+        "net_pnl": -10520.76,
+        "win_rate": "30.0%",
+        "profit_factor": 0.52,
+        "sharpe": -3.82,
+        "status": "DISABLED"
+      }
+    },
+    "gap_alignment": {
+      "COUNTER_GAP": {
+        "trades": 22,
+        "net_pnl": 13679.29,
+        "win_rate": "45.5%",
+        "profit_factor": 1.7,
+        "sharpe": 2.54,
+        "status": "APPROVED"
+      },
+      "FLAT_OPEN": {
+        "trades": 14,
+        "net_pnl": 2632.16,
+        "win_rate": "42.9%",
+        "profit_factor": 1.19,
+        "sharpe": 1.02,
+        "status": "APPROVED"
+      }
+    },
+    "composite": {
+      "BEAR_TREND_HIGH_VOLATILITY": {
+        "trades": 2,
+        "net_pnl": 7035.52,
+        "win_rate": "50.0%",
+        "profit_factor": 118.64,
+        "sharpe": 0.0,
+        "status": "MARGINAL"
+      },
+      "BEAR_TREND_LOW_VOLATILITY": {
+        "trades": 4,
+        "net_pnl": 8751.52,
+        "win_rate": "75.0%",
+        "profit_factor": 24.61,
+        "sharpe": 13.72,
+        "status": "MARGINAL"
+      },
+      "BEAR_TREND_NORMAL_VOLATILITY": {
+        "trades": 5,
+        "net_pnl": -4099.22,
+        "win_rate": "20.0%",
+        "profit_factor": 0.42,
+        "sharpe": -5.2,
+        "status": "DISABLED"
+      },
+      "BULL_TREND_LOW_VOLATILITY": {
+        "trades": 1,
+        "net_pnl": 4751.85,
+        "win_rate": "100.0%",
+        "profit_factor": 99.0,
+        "sharpe": 0.0,
+        "status": "MARGINAL"
+      },
+      "BULL_TREND_NORMAL_VOLATILITY": {
+        "trades": 15,
+        "net_pnl": -6421.54,
+        "win_rate": "33.3%",
+        "profit_factor": 0.57,
+        "sharpe": -3.15,
+        "status": "DISABLED"
+      },
+      "SIDEWAYS_CHOP_HIGH_VOLATILITY": {
+        "trades": 6,
+        "net_pnl": -1702.31,
+        "win_rate": "50.0%",
+        "profit_factor": 0.85,
+        "sharpe": -0.75,
+        "status": "DISABLED"
+      },
+      "SIDEWAYS_CHOP_LOW_VOLATILITY": {
+        "trades": 3,
+        "net_pnl": 7995.64,
+        "win_rate": "66.7%",
+        "profit_factor": 54.65,
+        "sharpe": 0.0,
+        "status": "MARGINAL"
+      }
+    }
+  }
+}

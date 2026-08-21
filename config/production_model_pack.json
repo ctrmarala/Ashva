@@ -1,0 +1,76 @@
+{
+  "generated_at": "2026-08-21 17:53:22",
+  "universe_size": 50,
+  "portfolio_metrics": {
+    "initial_capital": 500000.0,
+    "final_equity": 609035.22,
+    "net_pnl": 109035.22,
+    "roi_pct": 21.81,
+    "total_trades": 294,
+    "win_rate": "43.2%",
+    "profit_factor": 1.27,
+    "portfolio_sharpe": 1.24,
+    "portfolio_sortino": 2.21,
+    "max_drawdown_pct": 10.48
+  },
+  "champion_alphas": [
+    {
+      "strategy_name": "Alpha04GapAndGo",
+      "optimal_timeframe": "15m",
+      "optimal_trailing_mode": "BREAK_EVEN",
+      "standalone_net_pnl": 37281.03,
+      "standalone_sharpe": 3.21,
+      "win_rate": 59.5,
+      "profit_factor": 1.71,
+      "pbo": "6.7%",
+      "mean_oos_sharpe": 3.26,
+      "approved_regimes": [
+        "BEAR_TREND_HIGH_VOLATILITY",
+        "BEAR_TREND_LOW_VOLATILITY"
+      ],
+      "disabled_regimes": [
+        "BULL_TREND_NORMAL_VOLATILITY",
+        "SIDEWAYS_CHOP_LOW_VOLATILITY"
+      ]
+    },
+    {
+      "strategy_name": "Alpha54GapMarubozuMomentum",
+      "optimal_timeframe": "30m",
+      "optimal_trailing_mode": "BREAK_EVEN",
+      "standalone_net_pnl": 58693.39,
+      "standalone_sharpe": 0.85,
+      "win_rate": 40.2,
+      "profit_factor": 1.18,
+      "pbo": "20.0%",
+      "mean_oos_sharpe": 0.78,
+      "approved_regimes": [
+        "BEAR_TREND_HIGH_VOLATILITY",
+        "BEAR_TREND_LOW_VOLATILITY",
+        "BEAR_TREND_NORMAL_VOLATILITY",
+        "SIDEWAYS_CHOP_HIGH_VOLATILITY",
+        "SIDEWAYS_CHOP_NORMAL_VOLATILITY"
+      ],
+      "disabled_regimes": [
+        "BULL_TREND_HIGH_VOLATILITY",
+        "BULL_TREND_NORMAL_VOLATILITY"
+      ]
+    },
+    {
+      "strategy_name": "Alpha62NR5ModerateGapExpansion",
+      "optimal_timeframe": "30m",
+      "optimal_trailing_mode": "BREAK_EVEN",
+      "standalone_net_pnl": 16311.46,
+      "standalone_sharpe": 2.05,
+      "win_rate": 44.4,
+      "profit_factor": 1.49,
+      "pbo": "20.0%",
+      "mean_oos_sharpe": 2.66,
+      "approved_regimes": [],
+      "disabled_regimes": [
+        "BEAR_TREND_NORMAL_VOLATILITY",
+        "BULL_TREND_NORMAL_VOLATILITY",
+        "SIDEWAYS_CHOP_HIGH_VOLATILITY"
+      ]
+    }
+  ]
+}
