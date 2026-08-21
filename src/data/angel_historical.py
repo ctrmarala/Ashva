@@ -4,6 +4,7 @@ Handles automated TOTP session generation, token lookup, and historical bar retr
 """
 
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, Dict, Any, List
 import pandas as pd
 import pyotp
@@ -72,14 +73,38 @@ class AngelHistoricalFetcher:
 
     def load_scrip_master(self) -> pd.DataFrame:
         """
-        Downloads and caches the official Angel One Instrument Scrip Master.
+        Downloads and caches the official Angel One Instrument Scrip Master to disk and memory.
         """
-        if self._scrip_master is None:
-            response = requests.get(self.SCRIP_MASTER_URL, timeout=30)
-            if response.status_code == 200:
-                self._scrip_master = pd.DataFrame(response.json())
-            else:
-                raise ConnectionError(f"Failed to fetch Scrip Master: HTTP {response.status_code}")
+        if self._scrip_master is not None:
+            return self._scrip_master
+
+        cache_file = Path("data_lake/scrip_master.parquet")
+        if cache_file.exists() and cache_file.stat().st_size > 100000:
+            try:
+                self._scrip_master = pd.read_parquet(cache_file)
+                return self._scrip_master
+            except Exception:
+                pass
+
+        import json
+        for attempt in range(4):
+            try:
+                with requests.get(self.SCRIP_MASTER_URL, stream=True, timeout=90) as r:
+                    r.raise_for_status()
+                    data = r.json()
+                    self._scrip_master = pd.DataFrame(data)
+                    cache_file.parent.mkdir(parents=True, exist_ok=True)
+                    self._scrip_master.to_parquet(cache_file, index=False)
+                    return self._scrip_master
+            except Exception as e:
+                import time as _t
+                _t.sleep(2.0 * (attempt + 1))
+                if attempt == 3:
+                    if cache_file.exists():
+                        self._scrip_master = pd.read_parquet(cache_file)
+                        return self._scrip_master
+                    raise ConnectionError(f"Could not load Scrip Master from Angel One: {e}")
+
         return self._scrip_master
 
     def get_token_for_symbol(self, symbol: str, exchange: str = "NSE") -> Optional[str]:
