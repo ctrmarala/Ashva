@@ -91,6 +91,13 @@ class IndianCostModel:
         Segment.OPTIONS: 0.00003,           # 0.003% on buy
     }
 
+    # Centralized Stage-0 Hurdle & Friction Constants (Single Source of Truth)
+    STAGE_0_MIN_EDGE_BPS = 6.0              # Minimum net edge required after full friction
+    STAGE_0_EXPECTED_FRICTION_BPS = 4.5    # Realistic statutory + slippage friction on liquid equities
+    STAGE_0_MIN_GROSS_EDGE_BPS = STAGE_0_MIN_EDGE_BPS + STAGE_0_EXPECTED_FRICTION_BPS  # 10.5 bps gross hurdle
+
+    DEFAULT_SLIPPAGE_GRID_BPS = [3.0, 5.0, 8.0, 10.0, 15.0]
+
     def __init__(
         self,
         brokerage_per_order: float = 20.0,
@@ -197,3 +204,28 @@ class IndianCostModel:
             net_pnl=net_pnl,
             net_return_pct=net_return_pct,
         )
+
+    def evaluate_slippage_sensitivity(
+        self,
+        buy_price: float,
+        sell_price: float,
+        quantity: int,
+        segment: Segment = Segment.EQUITY_INTRADAY,
+        slippage_levels: Optional[list] = None,
+    ) -> Dict[str, float]:
+        """
+        Evaluates trade net PnL across a spectrum of slippage assumptions (e.g. 3, 5, 8, 10, 15 bps).
+        """
+        levels = slippage_levels or self.DEFAULT_SLIPPAGE_GRID_BPS
+        results = {}
+        for s_bps in levels:
+            res = self.calculate_trade_costs(
+                buy_price=buy_price,
+                sell_price=sell_price,
+                quantity=quantity,
+                segment=segment,
+                slippage_bps=s_bps,
+            )
+            results[f"net_pnl_{int(s_bps)}bps"] = round(res.net_pnl, 2)
+            results[f"roi_{int(s_bps)}bps_pct"] = round(res.net_return_pct, 4)
+        return results

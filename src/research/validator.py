@@ -154,62 +154,39 @@ class StatisticalValidator:
     ) -> Dict[str, Any]:
         """
         True Combinatorial Purged & Embargoed Cross-Validation (CPCV).
-        1. Partitions series into N non-overlapping temporal blocks.
-        2. Generates all (N choose k) out-of-sample path combinations.
-        3. Preserves full historical point-in-time feature context while evaluating strictly on OOS slices.
+        Delegates to canonical CPCVEngine with zero synthetic temporal adjacency.
         """
-        n_bars = len(df)
-        if n_bars < 100:
-            return {"mean_oos_sharpe": 0.0, "std_oos_sharpe": 0.0, "path_results": [], "total_paths": 0}
+        from src.research.cpcv_engine import CPCVEngine, CPCVMode
 
-        block_size = n_bars // n_splits
-        blocks = []
-        for i in range(n_splits):
-            start = i * block_size
-            end = (i + 1) * block_size if i < n_splits - 1 else n_bars
-            blocks.append((start, end))
-
-        test_combinations = list(combinations(range(n_splits), k_test))
         seg = Segment.EQUITY_DELIVERY if getattr(hypothesis.metadata, "horizon", None) in [StrategyHorizon.SWING, StrategyHorizon.POSITIONAL] else Segment.EQUITY_INTRADAY
         engine = BacktestEngine(cost_model=self.cost_model, initial_capital=500000.0, segment=seg)
         
-        # Generate full continuous signals with point-in-time history preserved
         full_signals_df = hypothesis.generate_signals(df)
+        sym = getattr(hypothesis.metadata, "target_instruments", ["ASSET"])[0] if hasattr(hypothesis, "metadata") and hypothesis.metadata.target_instruments else "ASSET"
+        res = engine.run(full_signals_df, symbol=sym, capital_per_trade_pct=0.50)
 
-        path_sharpes = []
-        path_pfs = []
-        path_drawdowns = []
+        if not res.trade_list:
+            return {"mean_oos_sharpe": 0.0, "std_oos_sharpe": 0.0, "path_results": [], "total_paths": 0, "pbo": 1.0}
 
-        for combo in test_combinations:
-            test_set_indices = set(combo)
-            test_indices_list = []
-            for te_idx in sorted(test_set_indices):
-                te_start, te_end = blocks[te_idx]
-                test_indices_list.extend(range(te_start, te_end))
+        trade_df = pd.DataFrame([{
+            "entry_time": t.entry_time,
+            "exit_time": t.exit_time,
+            "net_pnl": t.net_pnl,
+        } for t in res.trade_list])
 
-            if not test_indices_list:
-                continue
-
-            # Sliced signal evaluation strictly on OOS test bars
-            sig_test = full_signals_df.iloc[test_indices_list].copy()
-            res = engine.run(sig_test, symbol=getattr(hypothesis.metadata, "target_instruments", ["ASSET"])[0], capital_per_trade_pct=0.50)
-            
-            path_sharpes.append(res.sharpe_ratio)
-            path_pfs.append(res.net_profit_factor if res.net_profit_factor < 90 else 1.0)
-            path_drawdowns.append(res.max_drawdown_pct)
-
-        mean_sharpe = float(np.mean(path_sharpes)) if path_sharpes else 0.0
-        std_sharpe = float(np.std(path_sharpes)) if path_sharpes else 0.0
-        mean_pf = float(np.mean(path_pfs)) if path_pfs else 0.0
-        mean_dd = float(np.mean(path_drawdowns)) if path_drawdowns else 0.0
+        cpcv = CPCVEngine(n_partitions=n_splits, k_test_partitions=k_test, embargo_pct=0.01)
+        cpcv_res = cpcv.evaluate_trades(trade_df, initial_capital=500000.0)
 
         return {
-            "total_paths": len(test_combinations),
-            "mean_oos_sharpe": mean_sharpe,
-            "std_oos_sharpe": std_sharpe,
-            "mean_oos_net_profit_factor": mean_pf,
-            "mean_oos_max_drawdown_pct": mean_dd,
-            "path_sharpes": path_sharpes,
+            "total_paths": cpcv_res.get("combinatorial_paths", 0),
+            "mean_oos_sharpe": cpcv_res.get("mean_oos_sharpe", 0.0),
+            "std_oos_sharpe": 0.0,
+            "median_oos_sharpe": cpcv_res.get("median_oos_sharpe", 0.0),
+            "pbo": cpcv_res.get("pbo", 1.0),
+            "pbo_pct": cpcv_res.get("pbo_pct", "100.0%"),
+            "degradation_ratio": cpcv_res.get("degradation_ratio", 0.0),
+            "is_overfitted": cpcv_res.get("is_overfitted", True),
+            "path_results": cpcv_res.get("path_results", []),
         }
 
     def validate_hypothesis(

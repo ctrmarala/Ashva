@@ -282,18 +282,14 @@ class ContinuousAlphaEngine:
                 qty = int(capital_per_trade / entry_p)
                 if qty <= 0: continue
 
-                gross = (exit_p - entry_p) * qty
-                turnover = (entry_p + exit_p) * qty
-                brokerage = min(20.0, 0.0003 * entry_p * qty) + min(20.0, 0.0003 * exit_p * qty)
-                stt = 0.000125 * exit_p * qty
-                etc = 0.0000325 * turnover
-                gst = 0.18 * (brokerage + etc)
-                sebi = 0.000001 * turnover
-                stamp = 0.00003 * entry_p * qty
-                slippage = 0.0003 * turnover
-
-                tot_cost = brokerage + stt + etc + gst + sebi + stamp + slippage
-                net = gross - tot_cost
+                costs = self.cost_model.calculate_trade_costs(
+                    buy_price=entry_p,
+                    sell_price=exit_p,
+                    quantity=qty,
+                    segment=Segment.EQUITY_INTRADAY,
+                    is_stop_loss=(exit_p <= sl_p),
+                )
+                net = costs.net_pnl
 
                 all_net_pnls.append(net)
                 sym_trades += 1
@@ -328,18 +324,14 @@ class ContinuousAlphaEngine:
                 qty = int(capital_per_trade / entry_p)
                 if qty <= 0: continue
 
-                gross = (entry_p - exit_p) * qty
-                turnover = (entry_p + exit_p) * qty
-                brokerage = min(20.0, 0.0003 * entry_p * qty) + min(20.0, 0.0003 * exit_p * qty)
-                stt = 0.000125 * entry_p * qty
-                etc = 0.0000325 * turnover
-                gst = 0.18 * (brokerage + etc)
-                sebi = 0.000001 * turnover
-                stamp = 0.00003 * exit_p * qty
-                slippage = 0.0003 * turnover
-
-                tot_cost = brokerage + stt + etc + gst + sebi + stamp + slippage
-                net = gross - tot_cost
+                costs = self.cost_model.calculate_trade_costs(
+                    buy_price=exit_p,
+                    sell_price=entry_p,
+                    quantity=qty,
+                    segment=Segment.EQUITY_INTRADAY,
+                    is_stop_loss=(exit_p >= sl_p),
+                )
+                net = costs.net_pnl
 
                 all_net_pnls.append(net)
                 sym_trades += 1

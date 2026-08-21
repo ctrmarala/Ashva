@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from src.analytics.indian_costs import IndianCostModel, Segment, TradeCostBreakdown
+from src.analytics.metrics import calculate_daily_mtm_sharpe, calculate_daily_mtm_sortino, calculate_bar_level_sharpe, calculate_max_drawdown_pct
 from src.backtest.intrabar_simulator import IntrabarSimulator
 
 
@@ -31,12 +32,16 @@ class BacktestTrade:
     net_pnl: float
     cost_breakdown: TradeCostBreakdown
     duration_bars: int
-    exit_reason: str = "SIGNAL"  # "SIGNAL", "STOP_LOSS", "TAKE_PROFIT", "EOD"
+    exit_reason: str = "SIGNAL"  # "SIGNAL", "STOP_LOSS", "TAKE_PROFIT", "EOD", "INTRABAR_DATA_UNAVAILABLE"
     entry_rationale: str = ""
     sizing_rationale: str = ""
     mfe_pct: float = 0.0         # Maximum Favorable Excursion (%)
     mae_pct: float = 0.0         # Maximum Adverse Excursion (%)
     slippage_bps: float = 3.0
+    initial_sl: float = 0.0
+    initial_tp: float = 0.0
+    stop_dist: float = 0.0
+    is_intrabar_qualified: bool = True
 
 
 @dataclass
@@ -53,8 +58,8 @@ class BacktestResult:
     win_rate_pct: float
     gross_profit_factor: float
     net_profit_factor: float
-    sharpe_ratio: float
-    sortino_ratio: float
+    sharpe_ratio: float          # Standardized Daily MTM Sharpe Ratio
+    sortino_ratio: float         # Standardized Daily MTM Sortino Ratio
     max_drawdown_pct: float
     max_drawdown_duration_bars: int
     total_brokerage_paid: float
@@ -62,6 +67,7 @@ class BacktestResult:
     total_taxes_paid: float
     equity_curve: pd.Series
     trade_list: List[BacktestTrade]
+    bar_sharpe_ratio: float = 0.0  # Frequency-aware diagnostic bar Sharpe
 
     def summary(self) -> Dict[str, Any]:
         return {
@@ -197,6 +203,7 @@ class BacktestEngine:
 
                 # 1. High-Resolution 1-Minute Historical Intrabar Execution
                 if self.intrabar_sim is not None and symbol != "ASSET":
+                    max_eod_time = indices[entry_idx].replace(hour=15, minute=15, second=0) if self.segment == Segment.EQUITY_INTRADAY else None
                     sim_res = self.intrabar_sim.simulate_trade(
                         symbol=symbol,
                         entry_time=indices[entry_idx],
@@ -205,8 +212,9 @@ class BacktestEngine:
                         stop_loss=initial_sl,
                         take_profit=current_tp,
                         trailing_mode=trailing_mode,
+                        max_exit_time=max_eod_time,
                     )
-                    if sim_res.exit_time <= next_time or i == (n_bars - 2):
+                    if sim_res.is_intrabar_qualified and (sim_res.exit_time <= next_time or i == (n_bars - 2) or (self.segment == Segment.EQUITY_INTRADAY and sim_res.exit_time.date() == indices[entry_idx].date())):
                         exited_intrabar = True
                         exit_price = sim_res.exit_price
                         exit_reason = sim_res.exit_reason
@@ -278,10 +286,14 @@ class BacktestEngine:
                             duration_bars=(i + 1 - entry_idx),
                             exit_reason=exit_reason,
                             entry_rationale=f"{strategy_id} {position_side} Trigger @ {indices[entry_idx]}",
-                            sizing_rationale=f"Qty {entry_qty} (Stop Dist: Rs {abs(entry_price - current_sl):.2f})",
+                            sizing_rationale=f"Qty {entry_qty} (Stop Dist: Rs {abs(entry_price - initial_sl):.2f})",
                             mfe_pct=round(mfe, 2),
                             mae_pct=round(mae, 2),
                             slippage_bps=self.cost_model.default_slippage_bps,
+                            initial_sl=initial_sl,
+                            initial_tp=current_tp,
+                            stop_dist=round(abs(entry_price - initial_sl), 2) if initial_sl > 0 else 0.0,
+                            is_intrabar_qualified=(exit_reason != "INTRABAR_DATA_UNAVAILABLE"),
                         )
                     )
                     trade_id += 1
@@ -336,9 +348,13 @@ class BacktestEngine:
                 or (curr_signal > 0 and position_side == "SHORT")
                 or (curr_signal < 0 and position_side == "LONG")
             ):
-                exit_price = next_open
-                if position_side == "SHORT" and indices[entry_idx].date() != next_time.date():
-                    raise ValueError(f"CRITICAL SEBI VIOLATION: Cash equity short position in {symbol} spanned across multiple dates ({indices[entry_idx].date()} to {next_time.date()}).")
+                if self.segment == Segment.EQUITY_INTRADAY and indices[entry_idx].date() != next_time.date():
+                    exit_price = closes[i]
+                    next_time = indices[i]
+                    exit_reason_str = "EOD_SQUARE_OFF"
+                else:
+                    exit_price = next_open
+                    exit_reason_str = "SIGNAL"
 
                 cost_breakdown = self.cost_model.calculate_trade_costs(
                     buy_price=entry_price if position_side == "LONG" else exit_price,
@@ -377,12 +393,16 @@ class BacktestEngine:
                         net_pnl=cost_breakdown.net_pnl,
                         cost_breakdown=cost_breakdown,
                         duration_bars=(i + 1 - entry_idx),
-                        exit_reason="SIGNAL",
+                        exit_reason=exit_reason_str,
                         entry_rationale=current_entry_rationale or f"{strategy_id} {position_side} Trigger @ {indices[entry_idx]}",
-                        sizing_rationale=f"Qty {entry_qty} (Stop Dist: Rs {abs(entry_price - current_sl):.2f})",
+                        sizing_rationale=f"Qty {entry_qty} (Stop Dist: Rs {abs(entry_price - initial_sl):.2f})",
                         mfe_pct=round(mfe, 2),
                         mae_pct=round(mae, 2),
                         slippage_bps=self.cost_model.default_slippage_bps,
+                        initial_sl=initial_sl,
+                        initial_tp=current_tp,
+                        stop_dist=round(abs(entry_price - initial_sl), 2) if initial_sl > 0 else 0.0,
+                        is_intrabar_qualified=True,
                     )
                 )
                 trade_id += 1
@@ -392,6 +412,7 @@ class BacktestEngine:
                     entry_idx = i + 1
                     entry_price = next_open
                     current_sl = stop_losses[i] if has_stops else 0.0
+                    initial_sl = current_sl
                     current_tp = take_profits[i] if has_stops else 0.0
 
                     if has_rationales and rationale_col is not None:
@@ -412,6 +433,17 @@ class BacktestEngine:
                     else:
                         allocated_capital = cash * capital_per_trade_pct
                         entry_qty = max(1, int(allocated_capital / entry_price))
+
+                    # Liquidity Capacity Participation Cap (Max 10% of execution bar volume)
+                    if "volume" in df.columns:
+                        bar_vol = float(df["volume"].iloc[entry_idx])
+                        max_liq_qty = max(1, int(bar_vol * self.max_volume_participation_pct))
+                        entry_qty = min(entry_qty, max_liq_qty)
+
+                    if entry_qty < 1:
+                        in_position = False
+                        position_side = None
+                        continue
                 else:
                     in_position = False
                     position_side = None
@@ -469,6 +501,10 @@ class BacktestEngine:
                     mfe_pct=round(mfe, 2),
                     mae_pct=round(mae, 2),
                     slippage_bps=self.cost_model.default_slippage_bps,
+                    initial_sl=initial_sl,
+                    initial_tp=current_tp,
+                    stop_dist=round(abs(entry_price - initial_sl), 2) if initial_sl > 0 else 0.0,
+                    is_intrabar_qualified=True,
                 )
             )
 
@@ -491,19 +527,13 @@ class BacktestEngine:
         net_losses = abs(sum(t.net_pnl for t in trades if t.net_pnl < 0))
         net_profit_factor = (net_wins / net_losses) if net_losses > 0 else (99.0 if net_wins > 0 else 0.0)
 
-        # Continuous Mark-to-Market Drawdown & Returns
-        cum_max = equity_df.cummax()
-        drawdowns = (equity_df - cum_max) / cum_max
-        max_drawdown = abs(drawdowns.min()) * 100.0 if not drawdowns.empty else 0.0
+        # Standardized Daily MTM Sharpe and Sortino Ratios
+        daily_sharpe = calculate_daily_mtm_sharpe(equity_df)
+        daily_sortino = calculate_daily_mtm_sortino(equity_df)
+        max_drawdown = calculate_max_drawdown_pct(equity_df)
 
         returns = equity_df.pct_change().dropna()
-        if len(returns) > 1 and returns.std() > 0:
-            sharpe = float((returns.mean() / returns.std()) * np.sqrt(252 * 25))
-            downside = returns[returns < 0]
-            sortino = float((returns.mean() / downside.std()) * np.sqrt(252 * 25)) if len(downside) > 0 and downside.std() > 0 else sharpe
-        else:
-            sharpe = 0.0
-            sortino = 0.0
+        bar_sharpe = calculate_bar_level_sharpe(returns.values, bars_per_day=25.0)
 
         total_brokerage = sum(t.cost_breakdown.brokerage for t in trades)
         total_stt = sum(t.cost_breakdown.stt for t in trades)
@@ -522,15 +552,16 @@ class BacktestEngine:
             win_rate_pct=win_rate,
             gross_profit_factor=gross_profit_factor,
             net_profit_factor=net_profit_factor,
-            sharpe_ratio=sharpe,
-            sortino_ratio=sortino,
-            max_drawdown_pct=max_drawdown,
+            sharpe_ratio=round(daily_sharpe, 3),
+            sortino_ratio=round(daily_sortino, 3),
+            max_drawdown_pct=round(max_drawdown, 2),
             max_drawdown_duration_bars=0,
             total_brokerage_paid=total_brokerage,
             total_stt_paid=total_stt,
             total_taxes_paid=total_taxes,
             equity_curve=equity_df,
             trade_list=trades,
+            bar_sharpe_ratio=round(bar_sharpe, 3),
         )
 
     def run_slippage_stress_matrix(

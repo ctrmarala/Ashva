@@ -26,7 +26,7 @@ def test_backtest_engine_execution():
     }, index=dates)
 
     engine = BacktestEngine(initial_capital=500000.0, segment=Segment.EQUITY_INTRADAY)
-    res = engine.run(df, symbol="RELIANCE", strategy_id="TEST_STRAT")
+    res = engine.run(df, symbol="TEST_STRAT_SYM", strategy_id="TEST_STRAT")
 
     assert res.total_trades == 1
     assert res.winning_trades == 1

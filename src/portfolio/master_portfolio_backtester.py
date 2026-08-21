@@ -1,18 +1,22 @@
 """
 Ashva Master Multi-Alpha Event-Driven Portfolio Backtester
-Executes an institutional event-driven simulation (ENTRY_EVENT & EXIT_EVENT)
-to eliminate PnL realization lookahead bias and enforce dynamic compounding,
-sector caps, single-symbol collision locks, and regime gating.
+Executes an institutional deterministic priority event queue simulation:
+1. Strict deterministic priority: Timestamp -> EXIT before ENTRY -> Alpha Score -> Strategy ID -> Symbol.
+2. Dynamic Mark-to-Market (MTM) Equity Sizing (Cash + Unrealized Open Position PnL).
+3. Alpha Stop Preservation: Sizes positions strictly using the strategy's original stop distance.
+4. Standardized Daily MTM Annualized Sharpe & Sortino ratios.
 """
 
 from typing import Dict, List, Any, Optional, Tuple, Type
 from dataclasses import dataclass
 from enum import Enum
+import heapq
 import pandas as pd
 import numpy as np
 
 from src.data.data_lake import DataLake
 from src.analytics.indian_costs import IndianCostModel, Segment
+from src.analytics.metrics import calculate_daily_mtm_sharpe, calculate_daily_mtm_sortino, calculate_max_drawdown_pct
 from src.backtest.engine import BacktestEngine, BacktestTrade
 from src.research.regime_profiler import MarketRegimeProfiler
 
@@ -37,8 +41,8 @@ SECTOR_MAP = {
 
 
 class EventType(str, Enum):
-    ENTRY = "ENTRY"
     EXIT = "EXIT"
+    ENTRY = "ENTRY"
 
 
 @dataclass
@@ -59,12 +63,13 @@ class PortfolioTrade:
     exit_reason: str
     mfe_pct: float
     mae_pct: float
+    initial_sl: float
+    stop_dist: float
 
 
 class MasterPortfolioBacktester:
     """
-    Simulates multi-alpha portfolio execution using a strict Event-Driven architecture.
-    Guarantees PnL is realized ONLY upon position exit (zero capital lookahead).
+    Simulates multi-alpha portfolio execution using a strict Deterministic Priority Queue.
     """
 
     def __init__(
@@ -92,10 +97,12 @@ class MasterPortfolioBacktester:
         default_timeframe: str = "15m",
         strategy_timeframe_map: Optional[Dict[str, str]] = None,
         strategy_trailing_map: Optional[Dict[str, str]] = None,
+        strategy_priority_map: Optional[Dict[str, float]] = None,
         use_regime_filter: bool = True,
     ) -> Dict[str, Any]:
         tf_map = strategy_timeframe_map or {}
         trail_map = strategy_trailing_map or {}
+        priority_map = strategy_priority_map or {}
 
         all_candidate_trades = []
 
@@ -104,6 +111,7 @@ class MasterPortfolioBacktester:
             alpha_id = getattr(strat, "name", strat.__class__.__name__)
             tf = tf_map.get(alpha_id, default_timeframe)
             trailing_mode = trail_map.get(alpha_id, "BREAK_EVEN")
+            strat_score = priority_map.get(alpha_id, 1.0)
 
             for sym in symbols:
                 df = self.lake.load_bars(sym.upper(), tf)
@@ -124,6 +132,7 @@ class MasterPortfolioBacktester:
                 for t in res.trade_list:
                     all_candidate_trades.append({
                         "strategy_id": alpha_id,
+                        "strategy_score": strat_score,
                         "symbol": sym.upper(),
                         "sector": SECTOR_MAP.get(sym.upper(), "OTHER"),
                         "entry_time": t.entry_time,
@@ -134,20 +143,37 @@ class MasterPortfolioBacktester:
                         "exit_reason": t.exit_reason,
                         "mfe_pct": t.mfe_pct,
                         "mae_pct": t.mae_pct,
-                        "initial_sl": t.entry_price * 0.99 if t.side == "LONG" else t.entry_price * 1.01,
+                        "initial_sl": t.initial_sl if t.initial_sl > 0 else (t.entry_price * 0.99 if t.side == "LONG" else t.entry_price * 1.01),
+                        "initial_tp": t.initial_tp,
+                        "stop_dist": t.stop_dist if t.stop_dist > 0 else max(1e-2, abs(t.entry_price * 0.01)),
                     })
 
         if not all_candidate_trades:
             return self._empty_result()
 
         # -------------------------------------------------------------
-        # 2. EVENT-DRIVEN QUEUE SIMULATION (Zero Future PnL Leakage)
+        # 2. DETERMINISTIC HEAP PRIORITY QUEUE SIMULATION
         # -------------------------------------------------------------
-        events = []
-        for tr in all_candidate_trades:
-            events.append((tr["entry_time"], EventType.ENTRY, tr))
+        # Priority order: (timestamp, 0 if EXIT else 1, -strategy_score, strategy_id, symbol, trade_id)
+        event_heap: List[Tuple[pd.Timestamp, int, float, str, str, int, str, Dict[str, Any]]] = []
+        trade_id_counter = 1
 
-        events.sort(key=lambda x: (x[0], 0 if x[1] == EventType.EXIT else 1))
+        for tr in all_candidate_trades:
+            t_id = trade_id_counter
+            trade_id_counter += 1
+            tr["trade_id"] = t_id
+
+            # Push ENTRY event
+            heapq.heappush(event_heap, (
+                tr["entry_time"],
+                1,  # ENTRY = 1
+                -float(tr.get("strategy_score", 1.0)),
+                tr["strategy_id"],
+                tr["symbol"],
+                t_id,
+                EventType.ENTRY.value,
+                tr,
+            ))
 
         realized_equity = self.initial_capital
         open_positions: Dict[int, Dict[str, Any]] = {}
@@ -155,18 +181,12 @@ class MasterPortfolioBacktester:
         active_sectors: Dict[str, int] = {}
         executed_trades: List[PortfolioTrade] = []
         equity_curve: List[Dict[str, Any]] = []
-        trade_id_counter = 1
 
-        event_queue = events
-        i = 0
-        while i < len(event_queue):
-            event_queue.sort(key=lambda x: (x[0], 0 if x[1] == EventType.EXIT else 1))
-            event_time, event_type, data = event_queue[i]
-            i += 1
+        while event_heap:
+            event_time, priority_type, neg_score, strat_id, sym, t_id, event_type_str, data = heapq.heappop(event_heap)
 
             # EXIT EVENT: Realize PnL strictly at EXIT TIME
-            if event_type == EventType.EXIT:
-                t_id = data["trade_id"]
+            if event_type_str == EventType.EXIT.value:
                 if t_id not in open_positions:
                     continue
 
@@ -198,11 +218,13 @@ class MasterPortfolioBacktester:
                     exit_reason=pos["exit_reason"],
                     mfe_pct=pos["mfe_pct"],
                     mae_pct=pos["mae_pct"],
+                    initial_sl=pos["initial_sl"],
+                    stop_dist=pos["stop_dist"],
                 ))
                 continue
 
-            # ENTRY EVENT: Size strictly with CURRENT Realized Equity
-            if event_type == EventType.ENTRY:
+            # ENTRY EVENT: Size strictly with CURRENT Mark-to-Market Equity
+            if event_type_str == EventType.ENTRY.value:
                 tr = data
                 sym = tr["symbol"]
                 sector = tr["sector"]
@@ -219,10 +241,15 @@ class MasterPortfolioBacktester:
                     if regime_state.get("composite") == "SIDEWAYS_CHOP_LOW_VOLATILITY" and "BREAKOUT" in tr["strategy_id"].upper():
                         continue
 
-                stop_dist = max(1e-2, abs(tr["entry_price"] - tr["initial_sl"]))
-                risk_budget = max(500.0, realized_equity * self.risk_per_trade_pct)
+                # Calculate Current MTM Equity = Realized Equity + Open Positions Net MTM
+                unrealized_pnl = sum(pos.get("net_pnl", 0.0) for pos in open_positions.values())
+                current_mtm_equity = max(1000.0, realized_equity + unrealized_pnl)
+
+                # Use actual strategy stop distance for risk sizing
+                stop_dist = max(0.05, tr["stop_dist"])
+                risk_budget = max(500.0, current_mtm_equity * self.risk_per_trade_pct)
                 qty_from_risk = int(risk_budget / stop_dist)
-                max_cap_qty = int((realized_equity * 0.20) / tr["entry_price"])
+                max_cap_qty = int((current_mtm_equity * 0.20) / tr["entry_price"])
                 qty = max(1, min(qty_from_risk, max_cap_qty))
 
                 is_long = (tr["side"] == "LONG")
@@ -233,11 +260,15 @@ class MasterPortfolioBacktester:
                 if buy_p <= 0 or sell_p <= 0:
                     continue
 
-                costs = self.cost_model.calculate_trade_costs(buy_price=buy_p, sell_price=sell_p, quantity=qty, segment=Segment.EQUITY_INTRADAY)
+                is_sl = ("STOP_LOSS" in tr["exit_reason"] or "TRAILING" in tr["exit_reason"])
+                costs = self.cost_model.calculate_trade_costs(
+                    buy_price=buy_p,
+                    sell_price=sell_p,
+                    quantity=qty,
+                    segment=Segment.EQUITY_INTRADAY,
+                    is_stop_loss=is_sl,
+                )
                 net_pnl = gross_pnl - costs.total_tax_and_charges
-
-                t_id = trade_id_counter
-                trade_id_counter += 1
 
                 open_positions[t_id] = {
                     "trade_id": t_id,
@@ -256,29 +287,38 @@ class MasterPortfolioBacktester:
                     "exit_reason": tr["exit_reason"],
                     "mfe_pct": tr["mfe_pct"],
                     "mae_pct": tr["mae_pct"],
+                    "initial_sl": tr["initial_sl"],
+                    "stop_dist": stop_dist,
                 }
 
                 active_symbols.add(sym)
                 active_sectors[sector] = active_sectors.get(sector, 0) + 1
 
-                # Schedule EXIT event
-                event_queue.append((tr["exit_time"], EventType.EXIT, {"trade_id": t_id}))
+                # Push scheduled EXIT event into heap (EXIT = 0 priority so it precedes ENTRY at same time)
+                heapq.heappush(event_heap, (
+                    tr["exit_time"],
+                    0,  # EXIT = 0
+                    neg_score,
+                    strat_id,
+                    sym,
+                    t_id,
+                    EventType.EXIT.value,
+                    {"trade_id": t_id},
+                ))
 
-        # 3. Metrics Computation
+        # 3. Standardized Daily MTM Sharpe Computation
         df_eq = pd.DataFrame(equity_curve)
         if not df_eq.empty:
-            df_eq["peak"] = df_eq["equity"].cummax()
-            df_eq["drawdown"] = (df_eq["equity"] - df_eq["peak"]) / df_eq["peak"] * 100.0
-            max_drawdown_pct = float(abs(df_eq["drawdown"].min()))
+            df_eq["timestamp"] = pd.to_datetime(df_eq["timestamp"])
+            eq_series = df_eq.set_index("timestamp")["equity"]
 
-            pnl_series = df_eq["pnl"]
-            sharpe = float((pnl_series.mean() / (pnl_series.std() + 1e-6)) * np.sqrt(252)) if len(pnl_series) > 5 else 0.0
-            neg_pnl = pnl_series[pnl_series < 0]
-            sortino = float((pnl_series.mean() / (neg_pnl.std() + 1e-6)) * np.sqrt(252)) if len(neg_pnl) > 3 else sharpe
+            daily_sharpe = calculate_daily_mtm_sharpe(eq_series)
+            daily_sortino = calculate_daily_mtm_sortino(eq_series)
+            max_drawdown_pct = calculate_max_drawdown_pct(eq_series)
         else:
+            daily_sharpe = 0.0
+            daily_sortino = 0.0
             max_drawdown_pct = 0.0
-            sharpe = 0.0
-            sortino = 0.0
 
         total_net_pnl = realized_equity - self.initial_capital
         win_count = sum(1 for t in executed_trades if t.net_pnl > 0)
@@ -301,8 +341,8 @@ class MasterPortfolioBacktester:
             "winning_trades": win_count,
             "win_rate": f"{round(win_rate, 1)}%",
             "profit_factor": round(profit_factor, 2),
-            "portfolio_sharpe": round(sharpe, 2),
-            "portfolio_sortino": round(sortino, 2),
+            "portfolio_sharpe": round(daily_sharpe, 2),
+            "portfolio_sortino": round(daily_sortino, 2),
             "max_drawdown_pct": round(max_drawdown_pct, 2),
             "alpha_contribution": {k: round(v, 2) for k, v in sorted(alpha_pnl.items(), key=lambda x: x[1], reverse=True)},
             "trade_list": executed_trades,

@@ -211,7 +211,7 @@ def test_custom_strategy_rationale_explainability():
         ]
     }, index=dates)
 
-    res = engine.run(df, symbol="RELIANCE", strategy_id="ORB_15M")
+    res = engine.run(df, symbol="TEST_EXP", strategy_id="ORB_15M")
     assert len(res.trade_list) == 1
     t = res.trade_list[0]
     assert t.entry_rationale == "ORB_15M: Breakout above Day High 100.0 | VWAP +0.5% | Volume 3x Avg"

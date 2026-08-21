@@ -51,9 +51,33 @@ class AlphaResearchRecord:
     known_limitations: str = ""
 
 
+def derive_mechanism_status(
+    pnl_540d_inr: float,
+    sharpe_540d: float,
+    oos_trades: int,
+    oos_pnl_inr: float,
+    positive_assets_count: int,
+) -> MechanismStatus:
+    """
+    Derives mechanism status dynamically from recorded quantitative evidence:
+    - PROVEN: Positive OOS PnL, OOS Sharpe >= 0.5, >= 15 OOS trades, and >= 3 positive assets.
+    - EXPLORED_FAILED: Negative full-period PnL or negative OOS PnL with >= 20 trades.
+    - EXPLORED_UNCERTAIN: Insufficient trades (< 15) or mixed results.
+    - UNEXPLORED: Zero trades.
+    """
+    if oos_trades == 0:
+        return MechanismStatus.UNEXPLORED
+    if pnl_540d_inr > 0 and oos_pnl_inr > 0 and sharpe_540d >= 0.50 and oos_trades >= 15 and positive_assets_count >= 3:
+        return MechanismStatus.PROVEN
+    if pnl_540d_inr < 0 or (oos_trades >= 20 and oos_pnl_inr < 0):
+        return MechanismStatus.EXPLORED_FAILED
+    return MechanismStatus.EXPLORED_UNCERTAIN
+
+
 class AlphaKnowledgeMap:
     """
     Central research registry tracking explored mechanisms, empirical lessons, and unexplored frontiers.
+    All record statuses are dynamically derived from quantitative evidence.
     """
 
     def __init__(self):

@@ -191,11 +191,9 @@ STRATEGY_MAP = {
     "alpha_80": ("ALPHA_80_NR7_VOLATILITY_EXPANSION", Alpha80NR7VolatilityExpansion),
 }
 
-DEFAULT_UNIVERSE = [
-    "INFY", "TCS", "ICICIBANK", "HDFCBANK", "SBIN", "AXISBANK",
-    "KOTAKBANK", "RELIANCE", "LT", "TATASTEEL", "BHARTIARTL",
-    "BAJFINANCE", "MARUTI", "SUNPHARMA"
-]
+from scripts.ingest_all_nifty50_timeframes import NIFTY_50_UNIVERSE
+
+DEFAULT_UNIVERSE = NIFTY_50_UNIVERSE
 
 
 def run_strategy_backtest(

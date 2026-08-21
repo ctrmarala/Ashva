@@ -1,37 +1,48 @@
 """
 Ashva 1-Minute Intrabar Execution Simulator (Microstructure Engine)
-Provides tick-accurate trade path simulation by replaying 1-minute historical bars
-to eliminate intrabar sequence ambiguity (determining whether SL, TP, or Ratchet triggered first).
+Performs discrete 1-minute historical bar path replay to model intrabar order flow.
+NOTE: 1-minute OHLC bar replay is NOT tick data.
+When High and Low in a single 1-minute bar create simultaneous SL and TP/MFE ambiguity,
+the engine applies deterministic ambiguity handling (WORST_CASE / conservative SL-first by default).
 """
 
 from typing import Optional, Dict, Any, Tuple
 from dataclasses import dataclass
+from enum import Enum
 import pandas as pd
 import numpy as np
 
 from src.data.data_lake import DataLake
 
 
+class IntrabarAmbiguityMode(str, Enum):
+    WORST_CASE = "WORST_CASE"  # Conservative: Adverse level (Stop Loss) hit first
+    BEST_CASE = "BEST_CASE"    # Optimistic: Favorable level (Take Profit) hit first
+
+
 @dataclass
 class IntrabarTradeResult:
     exit_time: pd.Timestamp
     exit_price: float
-    exit_reason: str          # "TAKE_PROFIT", "STOP_LOSS", "BREAK_EVEN_SL", "STEP_RATCHET_SL", "TIME_EXIT"
+    exit_reason: str          # "TAKE_PROFIT", "STOP_LOSS", "BREAK_EVEN_SL", "STEP_RATCHET_SL", "TIME_EXIT", "INTRABAR_DATA_UNAVAILABLE"
     mfe_price: float          # Maximum Favorable Excursion price
     mae_price: float          # Maximum Adverse Excursion price
     mfe_pct: float            # MFE as % from entry
     mae_pct: float            # MAE as % from entry
     bars_held_1m: int
     trailing_level_reached: float  # In terms of R (e.g. 1.0, 1.5, 2.0)
+    is_intrabar_qualified: bool = True  # False if 1m data was missing
 
 
 class IntrabarSimulator:
     """
-    High-performance 1-minute historical trade path replay engine.
+    High-performance 1-minute historical trade path replay engine with
+    deterministic ambiguity resolution and explicit missing data handling.
     """
 
-    def __init__(self, data_lake: Optional[DataLake] = None):
+    def __init__(self, data_lake: Optional[DataLake] = None, default_mode: IntrabarAmbiguityMode = IntrabarAmbiguityMode.WORST_CASE):
         self.lake = data_lake or DataLake(read_only=True)
+        self.default_mode = default_mode
         self._cache_1m: Dict[str, pd.DataFrame] = {}
 
     def get_1m_bars(self, symbol: str) -> pd.DataFrame:
@@ -56,25 +67,33 @@ class IntrabarSimulator:
         take_profit: float,
         trailing_mode: str = "NONE",  # "NONE", "BREAK_EVEN", "STEP_RATCHET"
         max_exit_time: Optional[pd.Timestamp] = None,
+        ambiguity_mode: Optional[IntrabarAmbiguityMode] = None,
     ) -> IntrabarTradeResult:
         """
         Replays exact 1-minute path between entry_time and max_exit_time.
+        Applies deterministic ambiguity handling when SL and TP are both touched in the same 1m bar.
         """
+        mode = ambiguity_mode or self.default_mode
         df_1m = self.get_1m_bars(symbol)
+        
+        # Explicit Missing Data Handling: DO NOT invent a synthetic stop loss
         if df_1m.empty:
-            # Fallback when 1m data is missing
-            return self._fallback_estimate(entry_time, entry_price, side, stop_loss, take_profit)
+            return self._missing_data_result(entry_time, entry_price, stop_loss)
 
         # Slice 1m bars from entry_time
-        trade_slice = df_1m.loc[entry_time:]
+        try:
+            trade_slice = df_1m.loc[entry_time:]
+        except Exception:
+            return self._missing_data_result(entry_time, entry_price, stop_loss)
+
         if max_exit_time is not None:
             trade_slice = trade_slice.loc[:max_exit_time]
 
         if trade_slice.empty:
-            return self._fallback_estimate(entry_time, entry_price, side, stop_loss, take_profit)
+            return self._missing_data_result(entry_time, entry_price, stop_loss)
 
-        is_buy = (side.upper() == "BUY" or side.upper() == "LONG")
-        initial_risk = abs(entry_price - stop_loss)
+        is_buy = (side.upper() in ("BUY", "LONG"))
+        initial_risk = max(1e-4, abs(entry_price - stop_loss))
         current_sl = stop_loss
         current_tp = take_profit
         highest_r = 0.0
@@ -95,22 +114,38 @@ class IntrabarSimulator:
 
             if is_buy:
                 # 1. Check Open Gap below existing SL
-                if bar_open <= current_sl:
+                if current_sl > 0 and bar_open <= current_sl:
                     exit_time = idx
                     exit_price = min(bar_open, current_sl)  # Penalize with open gap slippage
                     exit_reason = "STOP_LOSS" if current_sl == stop_loss else "STEP_RATCHET_SL"
+                    mae_price = min(mae_price, bar_low)
                     break
 
-                # 2. Check Low against EXISTING Stop Loss (BEFORE any MFE ratchet)
-                if bar_low <= current_sl:
+                # 2. Check Ambiguity: Both SL and TP touched in same 1-minute bar
+                sl_hit = (current_sl > 0 and bar_low <= current_sl)
+                tp_hit = (current_tp > 0 and bar_high >= current_tp)
+
+                if sl_hit and tp_hit:
+                    exit_time = idx
+                    if mode == IntrabarAmbiguityMode.WORST_CASE:
+                        exit_price = current_sl
+                        exit_reason = "STOP_LOSS" if current_sl == stop_loss else "STEP_RATCHET_SL"
+                        mae_price = min(mae_price, bar_low)
+                    else:
+                        exit_price = current_tp
+                        exit_reason = "TAKE_PROFIT"
+                        mfe_price = max(mfe_price, current_tp)
+                    break
+
+                # 3. Single-barrier hits
+                if sl_hit:
                     exit_time = idx
                     exit_price = current_sl
                     exit_reason = "STOP_LOSS" if current_sl == stop_loss else "STEP_RATCHET_SL"
                     mae_price = min(mae_price, bar_low)
                     break
 
-                # 3. Check High against Take Profit
-                if current_tp > 0 and bar_high >= current_tp:
+                if tp_hit:
                     exit_time = idx
                     exit_price = current_tp
                     exit_reason = "TAKE_PROFIT"
@@ -122,12 +157,14 @@ class IntrabarSimulator:
                     exit_time = idx
                     exit_price = bar_close
                     exit_reason = "TIME_EXIT"
+                    mfe_price = max(mfe_price, bar_high)
+                    mae_price = min(mae_price, bar_low)
                     break
 
                 # 5. Position Survived Bar: Update MFE and ratchet stop for SUBSEQUENT bars
                 mfe_price = max(mfe_price, bar_high)
                 mae_price = min(mae_price, bar_low)
-                current_r = (bar_high - entry_price) / max(1e-4, initial_risk)
+                current_r = (bar_high - entry_price) / initial_risk
                 highest_r = max(highest_r, current_r)
 
                 if trailing_mode == "BREAK_EVEN" and highest_r >= 1.0:
@@ -143,22 +180,38 @@ class IntrabarSimulator:
             else:
                 # SHORT / SELL
                 # 1. Check Open Gap above existing SL
-                if bar_open >= current_sl:
+                if current_sl > 0 and bar_open >= current_sl:
                     exit_time = idx
                     exit_price = max(bar_open, current_sl)
                     exit_reason = "STOP_LOSS" if current_sl == stop_loss else "STEP_RATCHET_SL"
+                    mae_price = max(mae_price, bar_high)
                     break
 
-                # 2. Check High against EXISTING Stop Loss
-                if bar_high >= current_sl:
+                # 2. Check Ambiguity: Both SL and TP touched in same 1-minute bar
+                sl_hit = (current_sl > 0 and bar_high >= current_sl)
+                tp_hit = (current_tp > 0 and bar_low <= current_tp)
+
+                if sl_hit and tp_hit:
+                    exit_time = idx
+                    if mode == IntrabarAmbiguityMode.WORST_CASE:
+                        exit_price = current_sl
+                        exit_reason = "STOP_LOSS" if current_sl == stop_loss else "STEP_RATCHET_SL"
+                        mae_price = max(mae_price, bar_high)
+                    else:
+                        exit_price = current_tp
+                        exit_reason = "TAKE_PROFIT"
+                        mfe_price = min(mfe_price, current_tp)
+                    break
+
+                # 3. Single-barrier hits
+                if sl_hit:
                     exit_time = idx
                     exit_price = current_sl
                     exit_reason = "STOP_LOSS" if current_sl == stop_loss else "STEP_RATCHET_SL"
                     mae_price = max(mae_price, bar_high)
                     break
 
-                # 3. Check Low against Take Profit
-                if current_tp > 0 and bar_low <= current_tp:
+                if tp_hit:
                     exit_time = idx
                     exit_price = current_tp
                     exit_reason = "TAKE_PROFIT"
@@ -170,12 +223,14 @@ class IntrabarSimulator:
                     exit_time = idx
                     exit_price = bar_close
                     exit_reason = "TIME_EXIT"
+                    mfe_price = min(mfe_price, bar_low)
+                    mae_price = max(mae_price, bar_high)
                     break
 
                 # 5. Position Survived Bar: Update MFE and ratchet stop for SUBSEQUENT bars
                 mfe_price = min(mfe_price, bar_low)
                 mae_price = max(mae_price, bar_high)
-                current_r = (entry_price - bar_low) / max(1e-4, initial_risk)
+                current_r = (entry_price - bar_low) / initial_risk
                 highest_r = max(highest_r, current_r)
 
                 if trailing_mode == "BREAK_EVEN" and highest_r >= 1.0:
@@ -201,19 +256,22 @@ class IntrabarSimulator:
             mae_pct=round(mae_pct, 2),
             bars_held_1m=bars_count,
             trailing_level_reached=round(highest_r, 2),
+            is_intrabar_qualified=True,
         )
 
-    def _fallback_estimate(
-        self, entry_time: pd.Timestamp, entry_price: float, side: str, stop_loss: float, take_profit: float
+    def _missing_data_result(
+        self, entry_time: pd.Timestamp, entry_price: float, stop_loss: float
     ) -> IntrabarTradeResult:
+        """Explicitly handles missing 1m data without inventing fake stop losses."""
         return IntrabarTradeResult(
             exit_time=entry_time,
-            exit_price=stop_loss,
-            exit_reason="STOP_LOSS",
+            exit_price=entry_price,
+            exit_reason="INTRABAR_DATA_UNAVAILABLE",
             mfe_price=entry_price,
-            mae_price=stop_loss,
+            mae_price=entry_price,
             mfe_pct=0.0,
-            mae_pct=-abs((stop_loss - entry_price) / entry_price * 100.0),
-            bars_held_1m=1,
+            mae_pct=0.0,
+            bars_held_1m=0,
             trailing_level_reached=0.0,
+            is_intrabar_qualified=False,
         )
