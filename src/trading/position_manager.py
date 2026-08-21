@@ -147,6 +147,9 @@ class PositionManager:
                 signal_id=fill.signal_id,
                 decision_id=fill.decision_id,
                 order_id=fill.order_id,
+                stop_loss=fill.stop_loss,
+                take_profit=fill.take_profit,
+                stop_dist=fill.stop_dist,
             )
             return None
 

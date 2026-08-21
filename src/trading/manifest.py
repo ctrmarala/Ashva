@@ -62,32 +62,10 @@ class TradingManifest:
 
     def set_contract_status(self, alpha_id: str, status: str):
         """Allows enabling/disabling an alpha via manual controls ('ACTIVE', 'PAUSED', 'RETIRED')."""
+        import dataclasses
         if alpha_id in self._contracts:
             old_c = self._contracts[alpha_id]
-            # Replace frozen dataclass with updated status
-            updated_c = QualifiedAlphaContract(
-                alpha_id=old_c.alpha_id,
-                strategy_class=old_c.strategy_class,
-                alpha_version=old_c.alpha_version,
-                category=old_c.category,
-                economic_rationale=old_c.economic_rationale,
-                parameters=old_c.parameters,
-                universe=old_c.universe,
-                timeframe=old_c.timeframe,
-                entry_start_time=old_c.entry_start_time,
-                entry_end_time=old_c.entry_end_time,
-                square_off_time=old_c.square_off_time,
-                risk_per_trade_pct=old_c.risk_per_trade_pct,
-                max_capital_allocation_pct=old_c.max_capital_allocation_pct,
-                trailing_mode=old_c.trailing_mode,
-                stop_type=old_c.stop_type,
-                stop_loss_pct=old_c.stop_loss_pct,
-                target_type=old_c.target_type,
-                take_profit_pct=old_c.take_profit_pct,
-                priority_score=old_c.priority_score,
-                git_commit_sha=old_c.git_commit_sha,
-                status=status,
-            )
+            updated_c = dataclasses.replace(old_c, status=status)
             self._contracts[alpha_id] = updated_c
             logger.info(f"Alpha {alpha_id} status updated to {status}")
 

@@ -2,6 +2,7 @@
 Ashva Multi-Alpha Capital Allocator
 Deterministically allocates capital across competing alpha signals on identical or different symbols.
 Preserves all candidate signals, evaluates priority and risk capacity, and records complete decision rationale.
+Enforces strict stop-loss requirements without silent arbitrary fallbacks.
 """
 
 from datetime import datetime
@@ -24,8 +25,9 @@ class MultiAlphaAllocator:
     Evaluates competing signals across active alphas and computes deterministic capital allocations.
     """
 
-    def __init__(self, default_min_risk_budget: float = 500.0):
+    def __init__(self, default_min_risk_budget: float = 500.0, max_portfolio_risk_pct: float = 0.05):
         self.default_min_risk_budget = default_min_risk_budget
+        self.max_portfolio_risk_pct = max_portfolio_risk_pct
         self.decision_history: List[DecisionEvent] = []
 
     def allocate(
@@ -46,6 +48,15 @@ class MultiAlphaAllocator:
         if not candidate_signals:
             return intents, decisions
 
+        current_equity = portfolio_state.current_equity
+        max_total_risk = current_equity * self.max_portfolio_risk_pct
+
+        # Calculate current deployed risk from open positions
+        current_deployed_risk = sum(
+            pos.quantity * pos.stop_dist for pos in position_manager.get_all_positions()
+        )
+        remaining_portfolio_risk = max(0.0, max_total_risk - current_deployed_risk)
+
         # Group candidate signals by symbol
         signals_by_sym: Dict[str, List[SignalEvent]] = {}
         for sig in candidate_signals:
@@ -54,7 +65,8 @@ class MultiAlphaAllocator:
                 signals_by_sym[sym] = []
             signals_by_sym[sym].append(sig)
 
-        current_equity = portfolio_state.current_equity
+        # Stage 1: Determine symbol-level winners
+        symbol_winners: List[Tuple[float, float, SignalEvent, QualifiedAlphaContract, List[SignalEvent]]] = []
 
         for sym, sym_signals in signals_by_sym.items():
             current_price = current_prices.get(sym)
@@ -76,7 +88,6 @@ class MultiAlphaAllocator:
 
             existing_pos = position_manager.get_position(sym)
             if existing_pos is not None:
-                # Already have an open position in this symbol
                 for sig in sym_signals:
                     dec = DecisionEvent(
                         decision_id=f"DEC_{datetime.now().strftime('%Y%m%d%H%M%S%f')[:17]}",
@@ -92,13 +103,6 @@ class MultiAlphaAllocator:
                     decisions.append(dec)
                 continue
 
-            # Check for opposing signals on same symbol (e.g. A31 Short vs A67 Long)
-            long_signals = [s for s in sym_signals if s.signal_type == SignalType.LONG]
-            short_signals = [s for s in sym_signals if s.signal_type == SignalType.SHORT]
-
-            if long_signals and short_signals:
-                logger.warning(f"Conflicting signals on {sym}: {len(long_signals)} LONG vs {len(short_signals)} SHORT")
-
             # Rank signals by contract priority score descending, then by signal confidence descending
             ranked_signals = []
             for s in sym_signals:
@@ -108,7 +112,6 @@ class MultiAlphaAllocator:
 
             ranked_signals.sort(key=lambda x: (x[0], x[1]), reverse=True)
 
-            # Winner is the highest ranked candidate
             winning_priority, winning_conf, winning_signal = ranked_signals[0]
             winning_contract = contracts_map.get(winning_signal.strategy_id)
 
@@ -128,42 +131,7 @@ class MultiAlphaAllocator:
                     decisions.append(dec)
                 continue
 
-            # Compute Sizing for the Winning Signal
-            side = OrderSide.BUY if winning_signal.signal_type == SignalType.LONG else OrderSide.SELL
-            sl_val = winning_signal.suggested_stop_loss
-            tp_val = winning_signal.suggested_take_profit
-
-            # Stop loss fallback if strategy didn't provide one
-            if sl_val is None or sl_val <= 0:
-                if winning_contract.stop_loss_pct is not None:
-                    sl_val = current_price * (1.0 - winning_contract.stop_loss_pct) if side == OrderSide.BUY else current_price * (1.0 + winning_contract.stop_loss_pct)
-                else:
-                    sl_val = current_price * 0.99 if side == OrderSide.BUY else current_price * 1.01
-
-            stop_dist = max(0.05, abs(current_price - sl_val))
-            risk_budget = max(self.default_min_risk_budget, current_equity * winning_contract.risk_per_trade_pct)
-            qty_from_risk = int(risk_budget / stop_dist)
-            max_cap_qty = int((current_equity * winning_contract.max_capital_allocation_pct) / current_price)
-            allocated_qty = max(1, min(qty_from_risk, max_cap_qty))
-
-            decision_id = f"DEC_{datetime.now().strftime('%Y%m%d%H%M%S%f')[:17]}"
-
-            # Accepted decision for the winner
-            winning_dec = DecisionEvent(
-                decision_id=decision_id,
-                signal_id=winning_signal.signal_id,
-                timestamp=winning_signal.timestamp,
-                alpha_id=winning_signal.strategy_id,
-                alpha_version=winning_signal.alpha_version,
-                symbol=sym,
-                is_accepted=True,
-                allocated_quantity=allocated_qty,
-                risk_budget=risk_budget,
-                competing_alphas=[s.strategy_id for s in sym_signals],
-            )
-            decisions.append(winning_dec)
-
-            # Rejected decisions for remaining candidates on this symbol
+            # Reject non-winning candidates on this symbol
             for prio, conf, rejected_sig in ranked_signals[1:]:
                 rej_dec = DecisionEvent(
                     decision_id=f"DEC_{datetime.now().strftime('%Y%m%d%H%M%S%f')[:17]}",
@@ -178,7 +146,79 @@ class MultiAlphaAllocator:
                 )
                 decisions.append(rej_dec)
 
-            # Generate OrderIntent for the approved winner
+            symbol_winners.append((winning_priority, winning_conf, winning_signal, winning_contract, sym_signals))
+
+        # Stage 2: Cross-symbol portfolio-level risk rationing
+        # Sort winners across all symbols by priority descending
+        symbol_winners.sort(key=lambda x: (x[0], x[1]), reverse=True)
+
+        for winning_priority, winning_conf, winning_signal, winning_contract, sym_signals in symbol_winners:
+            sym = winning_signal.symbol.upper()
+            current_price = current_prices[sym]
+            side = OrderSide.BUY if winning_signal.signal_type == SignalType.LONG else OrderSide.SELL
+            sl_val = winning_signal.suggested_stop_loss
+            tp_val = winning_signal.suggested_take_profit
+
+            # Strict Stop Loss Validation (NO silent arbitrary 1% guessing)
+            if sl_val is None or sl_val <= 0:
+                if winning_contract.stop_loss_pct is not None and winning_contract.stop_loss_pct > 0:
+                    sl_val = current_price * (1.0 - winning_contract.stop_loss_pct) if side == OrderSide.BUY else current_price * (1.0 + winning_contract.stop_loss_pct)
+                else:
+                    dec = DecisionEvent(
+                        decision_id=f"DEC_{datetime.now().strftime('%Y%m%d%H%M%S%f')[:17]}",
+                        signal_id=winning_signal.signal_id,
+                        timestamp=winning_signal.timestamp,
+                        alpha_id=winning_signal.strategy_id,
+                        alpha_version=winning_signal.alpha_version,
+                        symbol=sym,
+                        is_accepted=False,
+                        rejection_reason="MISSING_STOP_LOSS_DEFINITION (Strategy did not provide stop and contract has no stop_loss_pct)",
+                        competing_alphas=[s.strategy_id for s in sym_signals],
+                    )
+                    decisions.append(dec)
+                    continue
+
+            stop_dist = max(0.05, abs(current_price - sl_val))
+            trade_risk_budget = max(self.default_min_risk_budget, current_equity * winning_contract.risk_per_trade_pct)
+
+            # Check if remaining portfolio risk capacity is exhausted
+            if trade_risk_budget > remaining_portfolio_risk and remaining_portfolio_risk <= self.default_min_risk_budget:
+                dec = DecisionEvent(
+                    decision_id=f"DEC_{datetime.now().strftime('%Y%m%d%H%M%S%f')[:17]}",
+                    signal_id=winning_signal.signal_id,
+                    timestamp=winning_signal.timestamp,
+                    alpha_id=winning_signal.strategy_id,
+                    alpha_version=winning_signal.alpha_version,
+                    symbol=sym,
+                    is_accepted=False,
+                    rejection_reason=f"PORTFOLIO_RISK_CAPACITY_EXHAUSTED (Remaining: Rs {remaining_portfolio_risk:,.2f} < Needed: Rs {trade_risk_budget:,.2f})",
+                    competing_alphas=[s.strategy_id for s in sym_signals],
+                )
+                decisions.append(dec)
+                continue
+
+            qty_from_risk = int(trade_risk_budget / stop_dist)
+            max_cap_qty = int((current_equity * winning_contract.max_capital_allocation_pct) / current_price)
+            allocated_qty = max(1, min(qty_from_risk, max_cap_qty))
+            actual_risk_taken = allocated_qty * stop_dist
+
+            remaining_portfolio_risk -= actual_risk_taken
+            decision_id = f"DEC_{datetime.now().strftime('%Y%m%d%H%M%S%f')[:17]}"
+
+            winning_dec = DecisionEvent(
+                decision_id=decision_id,
+                signal_id=winning_signal.signal_id,
+                timestamp=winning_signal.timestamp,
+                alpha_id=winning_signal.strategy_id,
+                alpha_version=winning_signal.alpha_version,
+                symbol=sym,
+                is_accepted=True,
+                allocated_quantity=allocated_qty,
+                risk_budget=trade_risk_budget,
+                competing_alphas=[s.strategy_id for s in sym_signals],
+            )
+            decisions.append(winning_dec)
+
             intent = OrderIntent(
                 strategy_id=winning_signal.strategy_id,
                 symbol=sym,

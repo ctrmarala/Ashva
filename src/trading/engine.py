@@ -3,6 +3,7 @@ Ashva Master Unified Production Trading Engine
 A single, mode-agnostic, event-driven trading engine supporting REPLAY, PAPER, and LIVE execution.
 Eliminates all mode-specific branching in core logic. Integrates with MultiAlphaAllocator,
 LiveRiskManager, ExecutionAdapter, and non-blocking Async TradingLedger.
+Enforces per-alpha entry windows, actual-fill barrier registration, and strict risk decision logging.
 """
 
 from datetime import datetime, time
@@ -14,7 +15,7 @@ import numpy as np
 from src.core.events import (
     MarketEvent, SignalEvent, SignalType, OrderIntent,
     OrderEvent, FillEvent, OrderSide, OrderType, ProductType,
-    PortfolioUpdateEvent, TradingMode,
+    PortfolioUpdateEvent, TradingMode, DecisionEvent,
 )
 from src.market_data.provider import MarketDataProvider
 from src.execution.adapter import ExecutionAdapter
@@ -103,6 +104,7 @@ class TradingEngine:
         sym = market_event.symbol.upper()
         current_price = market_event.close
         event_time = market_event.timestamp
+        event_tod = event_time.time()
 
         # 1. Update Historical Bar Buffer for Symbol
         if sym not in self._history_buffers:
@@ -118,7 +120,9 @@ class TradingEngine:
         })
 
         # 2. Process Adapter Fills (Next-Bar Open Fills & Intrabar Barriers)
+        pos_before = self.position_manager.get_position(sym)
         fills = self.execution_adapter.process_market_event(market_event)
+        
         for fill in fills:
             self.order_manager.on_fill(fill)
             self.ledger.log_fill(fill)
@@ -128,6 +132,21 @@ class TradingEngine:
                 closed_trade["mode"] = self.mode.value if hasattr(self.mode, "value") else str(self.mode)
                 self.portfolio_state.on_trade_closed(closed_trade["net_pnl"], fill.timestamp)
                 self.ledger.log_closed_trade(closed_trade)
+            elif pos_before is None:
+                # Newly opened position -> Register barrier with adapter using actual fill price!
+                self.execution_adapter.register_barriers(
+                    symbol=sym,
+                    side=fill.side,
+                    quantity=fill.quantity,
+                    entry_price=fill.fill_price,
+                    strategy_id=fill.strategy_id,
+                    alpha_version=fill.alpha_version,
+                    signal_id=fill.signal_id,
+                    decision_id=fill.decision_id,
+                    order_id=fill.order_id,
+                    stop_loss=fill.stop_loss,
+                    take_profit=fill.take_profit,
+                )
 
         # 3. Update Position & Portfolio MTM Valuations
         self.position_manager.on_market_event(market_event)
@@ -148,50 +167,52 @@ class TradingEngine:
         )
         self.ledger.log_portfolio_snapshot(p_snapshot)
 
-        # 4. Check Intraday Mandatory EOD Square-Off (15:15 MIS)
+        # 4. Check Intraday Mandatory EOD Square-Off based on Contract Configuration
         pos = self.position_manager.get_position(sym)
-        is_eod = (event_time.hour >= 15 and event_time.minute >= 15)
+        if pos is not None:
+            contract = self.manifest.get_contract(pos.strategy_id)
+            sq_time = contract.square_off_time if contract else time(15, 15)
+            is_eod = (event_tod >= sq_time)
 
-        if pos is not None and is_eod:
-            exit_side = OrderSide.SELL if pos.side == OrderSide.BUY else OrderSide.BUY
-            # Polymorphic barrier clear on execution adapter
-            self.execution_adapter.clear_barriers(sym)
-            
-            cost_bd = self.cost_model.calculate_trade_costs(
-                buy_price=pos.entry_price if pos.side == OrderSide.BUY else current_price,
-                sell_price=current_price if pos.side == OrderSide.BUY else pos.entry_price,
-                quantity=pos.quantity,
-                segment=Segment.EQUITY_INTRADAY,
-                is_stop_loss=False,
-            )
-            fill = FillEvent(
-                order_id=f"EOD_SQOFF_{len(self.order_manager.fills)+1:06d}",
-                decision_id=pos.decision_id,
-                signal_id=pos.signal_id,
-                strategy_id=pos.strategy_id,
-                alpha_version=pos.alpha_version,
-                symbol=sym,
-                timestamp=event_time,
-                side=exit_side,
-                fill_price=round(current_price, 2),
-                quantity=pos.quantity,
-                commission=cost_bd.brokerage,
-                slippage=0.0,
-                cost_breakdown=cost_bd.to_dict(),
-                is_stop_loss=False,
-            )
-            self.order_manager.on_fill(fill)
-            self.ledger.log_fill(fill)
-            
-            closed_trade = self.position_manager.on_fill(fill)
-            if closed_trade is not None:
-                closed_trade["mode"] = self.mode.value if hasattr(self.mode, "value") else str(self.mode)
-                self.portfolio_state.on_trade_closed(closed_trade["net_pnl"], event_time)
-                self.ledger.log_closed_trade(closed_trade)
-            return
+            if is_eod:
+                exit_side = OrderSide.SELL if pos.side == OrderSide.BUY else OrderSide.BUY
+                self.execution_adapter.clear_barriers(sym)
+                
+                cost_bd = self.cost_model.calculate_trade_costs(
+                    buy_price=pos.entry_price if pos.side == OrderSide.BUY else current_price,
+                    sell_price=current_price if pos.side == OrderSide.BUY else pos.entry_price,
+                    quantity=pos.quantity,
+                    segment=Segment.EQUITY_INTRADAY,
+                    is_stop_loss=False,
+                )
+                fill = FillEvent(
+                    order_id=f"EOD_SQOFF_{len(self.order_manager.fills)+1:06d}",
+                    decision_id=pos.decision_id,
+                    signal_id=pos.signal_id,
+                    strategy_id=pos.strategy_id,
+                    alpha_version=pos.alpha_version,
+                    symbol=sym,
+                    timestamp=event_time,
+                    side=exit_side,
+                    fill_price=round(current_price, 2),
+                    quantity=pos.quantity,
+                    commission=cost_bd.brokerage,
+                    slippage=0.0,
+                    cost_breakdown=cost_bd.to_dict(),
+                    is_stop_loss=False,
+                )
+                self.order_manager.on_fill(fill)
+                self.ledger.log_fill(fill)
+                
+                closed_trade = self.position_manager.on_fill(fill)
+                if closed_trade is not None:
+                    closed_trade["mode"] = self.mode.value if hasattr(self.mode, "value") else str(self.mode)
+                    self.portfolio_state.on_trade_closed(closed_trade["net_pnl"], event_time)
+                    self.ledger.log_closed_trade(closed_trade)
+                return
 
-        # 5. Evaluate Alpha Contracts & Generate Signals
-        if pos is None and not is_eod:
+        # 5. Evaluate Alpha Contracts & Generate Signals (Only if Not in Position)
+        if pos is None:
             active_contracts = self.manifest.get_contracts_for_symbol(sym)
             if not active_contracts:
                 return
@@ -201,9 +222,13 @@ class TradingEngine:
             if len(df_hist) < 15:
                 return
 
-            contracts_map = {c.alpha_id: c for c in active_contracts}
+            contracts_map = {}
 
             for contract in active_contracts:
+                # ENFORCE ENTRY WINDOW: Skip if current bar time is outside contract's qualified entry window
+                if not (contract.entry_start_time <= event_tod <= contract.entry_end_time):
+                    continue
+
                 strat = self._strategy_instances.get(contract.alpha_id)
                 if strat is None:
                     continue
@@ -220,7 +245,6 @@ class TradingEngine:
                     sig_type = SignalType.LONG if latest_sig > 0 else SignalType.SHORT
                     sl_val = float(df_sig["stop_loss"].iloc[-1]) if "stop_loss" in df_sig.columns and pd.notna(df_sig["stop_loss"].iloc[-1]) else None
                     tp_val = float(df_sig["take_profit"].iloc[-1]) if "take_profit" in df_sig.columns and pd.notna(df_sig["take_profit"].iloc[-1]) else None
-
                     conf_val = float(df_sig["confidence"].iloc[-1]) if "confidence" in df_sig.columns and pd.notna(df_sig["confidence"].iloc[-1]) else 1.0
 
                     sig = SignalEvent(
@@ -234,11 +258,15 @@ class TradingEngine:
                         suggested_take_profit=tp_val,
                     )
                     candidate_signals.append(sig)
+                    contracts_map[contract.alpha_id] = contract
                     self.ledger.log_signal(sig)
 
                 except Exception as e:
                     logger.error(f"Alpha {contract.alpha_id} signal generation error: {e}")
                     continue
+
+            if not candidate_signals:
+                return
 
             # 6. Multi-Alpha Allocation & Sizing
             intents, decisions = self.allocator.allocate(
@@ -265,22 +293,19 @@ class TradingEngine:
                     order_event = self.execution_adapter.submit_order(intent)
                     self.order_manager.on_order_submitted(intent, order_event)
                     self.ledger.log_order(order_event)
-
-                    # Polymorphic barrier registration
-                    self.execution_adapter.register_barriers(
-                        symbol=sym,
-                        side=intent.side,
-                        quantity=intent.quantity,
-                        entry_price=current_price,
-                        strategy_id=intent.strategy_id,
-                        alpha_version=intent.alpha_version,
-                        signal_id=intent.signal_id,
-                        decision_id=intent.decision_id,
-                        order_id=order_event.order_id,
-                        stop_loss=intent.stop_loss,
-                        take_profit=intent.take_profit,
-                    )
                 else:
+                    # Log explicit RMS rejection in the decision ledger for full transparency
+                    rms_dec = DecisionEvent(
+                        decision_id=f"DEC_RMS_{datetime.now().strftime('%Y%m%d%H%M%S%f')[:17]}",
+                        signal_id=intent.signal_id,
+                        timestamp=event_time,
+                        alpha_id=intent.strategy_id,
+                        alpha_version=intent.alpha_version,
+                        symbol=sym,
+                        is_accepted=False,
+                        rejection_reason=f"RMS_REJECTED: {reject_reason or 'Risk Rule Breach'}",
+                    )
+                    self.ledger.log_decision(rms_dec)
                     self.order_manager.on_order_rejected(intent.intent_id, reject_reason or "RMS Rejection")
 
     def get_summary(self) -> Dict[str, Any]:

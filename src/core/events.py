@@ -187,6 +187,9 @@ class OrderEvent:
     status: OrderStatus = OrderStatus.SUBMITTED
     limit_price: Optional[float] = None
     stop_price: Optional[float] = None
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
+    stop_dist: Optional[float] = None
     product_type: ProductType = ProductType.INTRADAY
     is_reduce_only: bool = False
     reject_reason: Optional[str] = None
@@ -215,6 +218,9 @@ class FillEvent:
     alpha_version: str = "1.0.0"
     signal_id: str = ""
     decision_id: str = ""
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
+    stop_dist: Optional[float] = None
     is_stop_loss: bool = False
     fill_id: str = field(default_factory=lambda: f"FILL_{datetime.now().strftime('%Y%m%d%H%M%S%f')[:17]}")
     event_type: EventType = EventType.FILL
