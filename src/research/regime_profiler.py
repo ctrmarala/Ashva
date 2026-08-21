@@ -40,8 +40,29 @@ class MarketRegimeProfiler:
 
     def _build_benchmark_timeline(self) -> pd.DataFrame:
         """
-        Builds an equal-weighted daily benchmark timeline from NIFTY heavyweights.
+        Builds a daily benchmark timeline using direct NIFTY 50 index data if present,
+        or an equal-weighted composite from top market leaders.
         """
+        # 1. Try direct NIFTY Index
+        for idx_sym in ["NIFTY", "NIFTY50", "NIFTY 50", "^NSEI"]:
+            df_idx = self.lake.load_bars(idx_sym, "1d")
+            if not df_idx.empty and len(df_idx) > 50:
+                if not isinstance(df_idx.index, pd.DatetimeIndex) and "timestamp" in df_idx.columns:
+                    df_idx["timestamp"] = pd.to_datetime(df_idx["timestamp"])
+                    df_idx = df_idx.set_index("timestamp").sort_index()
+                
+                bm = df_idx[["open", "high", "low", "close"]].copy()
+                bm["ema20"] = bm["close"].ewm(span=20, adjust=False).mean()
+                bm["ema50"] = bm["close"].ewm(span=50, adjust=False).mean()
+                tr1 = bm["high"] - bm["low"]
+                tr2 = (bm["high"] - bm["close"].shift(1)).abs()
+                tr3 = (bm["low"] - bm["close"].shift(1)).abs()
+                bm["tr"] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+                bm["atr14"] = bm["tr"].rolling(14, min_periods=5).mean()
+                bm["atr_pct"] = bm["atr14"] / bm["close"] * 100.0
+                return bm.dropna()
+
+        # 2. Equal-weight composite from heavyweight leaders
         daily_closes = []
         daily_highs = []
         daily_lows = []

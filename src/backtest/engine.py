@@ -93,10 +93,14 @@ class BacktestEngine:
         cost_model: Optional[IndianCostModel] = None,
         initial_capital: float = 500000.0,  # ₹5,00,000 INR
         segment: Segment = Segment.EQUITY_INTRADAY,
+        use_1m_intrabar: bool = True,
+        data_lake: Optional[Any] = None,
     ):
         self.cost_model = cost_model or IndianCostModel()
         self.initial_capital = initial_capital
         self.segment = segment
+        self.use_1m_intrabar = use_1m_intrabar
+        self.intrabar_sim = IntrabarSimulator(data_lake=data_lake) if use_1m_intrabar else None
 
     def run(
         self,
