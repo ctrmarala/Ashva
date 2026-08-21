@@ -29,7 +29,10 @@ NIFTY_50_UNIVERSE = [
 ]
 
 INTERVAL_SETTINGS = {
+    "1m": {"interval": "ONE_MINUTE", "chunk_days": 25, "min_bars": 50000},
     "5m": {"interval": "FIVE_MINUTE", "chunk_days": 60, "min_bars": 15000},
+    "10m": {"interval": "TEN_MINUTE", "chunk_days": 90, "min_bars": 7000},
+    "15m": {"interval": "FIFTEEN_MINUTE", "chunk_days": 60, "min_bars": 5000},
     "30m": {"interval": "THIRTY_MINUTE", "chunk_days": 120, "min_bars": 3000},
     "1d": {"interval": "ONE_DAY", "chunk_days": 540, "min_bars": 300},
 }
