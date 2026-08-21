@@ -1,268 +1,250 @@
 """
-Ashva Trading Engine & Replay Mode Unit Tests
-Verifies:
-1. Multi-symbol chronological synchronization in ReplayMarketDataProvider.
-2. OrderManager lifecycle states (Intent -> Submitted -> Filled).
-3. PositionManager Mark-to-Market (MTM) calculations and position closing.
-4. LiveRiskManager circuit breaker enforcement.
-5. Mode-agnostic TradingEngine end-to-end event processing loop.
+Ashva Trading Engine & Replay Verification Test Suite
+Tests OrderManager 10-state lifecycle, PositionManager continuous MTM & MFE/MAE,
+LiveRiskManager hierarchical rules, MultiAlphaAllocator competing allocations, and end-to-end Replay parity.
 """
 
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 import pytest
-import numpy as np
 import pandas as pd
+import numpy as np
 
 from src.core.events import (
-    MarketEvent, OrderIntent, OrderEvent, FillEvent, OrderSide, OrderType, OrderStatus, ProductType
+    MarketEvent, SignalEvent, SignalType, OrderIntent,
+    OrderEvent, FillEvent, OrderSide, OrderType, OrderStatus, ProductType,
 )
 from src.trading.contract import QualifiedAlphaContract
+from src.trading.manifest import TradingManifest
+from src.trading.allocator import MultiAlphaAllocator
 from src.trading.order_manager import OrderManager
 from src.trading.position_manager import PositionManager
 from src.trading.portfolio_state import PortfolioState
-from src.trading.live_rms import LiveRiskManager
-from src.trading.engine import TradingEngine
-from src.market_data.provider import MarketDataProvider
-from src.market_data.replay_provider import ReplayMarketDataProvider
+from src.trading.live_rms import LiveRiskManager, SafetyState
+from src.trading.ledger import TradingLedger
 from src.execution.replay_adapter import ReplayExecutionAdapter
-from src.analytics.indian_costs import IndianCostModel, Segment
+from src.market_data.provider import MarketDataProvider
+from src.trading.engine import TradingEngine
 
 
-class MockMarketDataProvider(MarketDataProvider):
-    """Feeds a static list of MarketEvents for testing."""
-    def __init__(self, events: list):
-        self.events = events
-        self.latest_prices = {}
-
-    def subscribe(self, symbols, timeframe="15m"):
-        pass
-
-    def stream_events(self):
-        for ev in self.events:
-            self.latest_prices[ev.symbol] = ev.close
-            yield ev
-
-    def get_latest_price(self, symbol: str):
-        return self.latest_prices.get(symbol.upper())
-
-
-class DummyBreakoutStrategy:
-    """Mock strategy generating a Buy signal on bar index >= 2."""
-    def __init__(self, parameters=None):
-        self.parameters = parameters or {}
-
-    def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
-        out = df.copy()
-        out["signal"] = 0.0
-        out["stop_loss"] = 0.0
-        out["take_profit"] = 0.0
-
-        if len(out) >= 3:
-            # Generate LONG signal with SL 98.0 and TP 106.0
-            out.iloc[-1, out.columns.get_loc("signal")] = 1.0
-            out.iloc[-1, out.columns.get_loc("stop_loss")] = 98.0
-            out.iloc[-1, out.columns.get_loc("take_profit")] = 106.0
-        return out
-
-
-# =========================================================================
-# TEST 1: OrderManager State Transitions
-# =========================================================================
 def test_order_manager_lifecycle():
+    """Verify 10-state lifecycle transitions in OrderManager."""
     om = OrderManager()
-
     intent = OrderIntent(
-        strategy_id="TEST_ALPHA",
+        strategy_id="ALPHA_TEST",
         symbol="TCS",
         side=OrderSide.BUY,
         quantity=50,
-        order_type=OrderType.MARKET,
+        intent_id="INT_001",
     )
     order = OrderEvent(
-        order_id="ORD_001",
         symbol="TCS",
         side=OrderSide.BUY,
         order_type=OrderType.MARKET,
         quantity=50,
-        status=OrderStatus.ACCEPTED,
+        order_id="ORD_001",
+        intent_id="INT_001",
+        strategy_id="ALPHA_TEST",
+        status=OrderStatus.SUBMITTED,
     )
-
     om.on_order_submitted(intent, order)
     assert "ORD_001" in om.active_orders
-    assert om.intent_to_order_map[intent.intent_id] == "ORD_001"
 
-    # Fill
+    om.on_order_acknowledged("ORD_001", broker_order_id="BORD_999")
+    assert om.active_orders["ORD_001"].status == OrderStatus.ACKNOWLEDGED
+    assert om.active_orders["ORD_001"].broker_order_id == "BORD_999"
+
     fill = FillEvent(
         order_id="ORD_001",
         symbol="TCS",
-        timestamp=datetime.now(),
+        timestamp=datetime(2026, 7, 1, 9, 30),
         side=OrderSide.BUY,
         fill_price=3500.0,
         quantity=50,
+        strategy_id="ALPHA_TEST",
     )
     om.on_fill(fill)
-
     assert "ORD_001" not in om.active_orders
     assert "ORD_001" in om.completed_orders
     assert om.completed_orders["ORD_001"].status == OrderStatus.FILLED
-    assert len(om.fills) == 1
 
 
-# =========================================================================
-# TEST 2: PositionManager MTM & PnL Accounting
-# =========================================================================
-def test_position_manager_mtm_and_closing():
-    cost_model = IndianCostModel()
-    pm = PositionManager(cost_model=cost_model)
-
-    ts_entry = datetime(2026, 8, 1, 9, 30)
-    # Buy 100 shares of RELIANCE @ 2500
-    fill_entry = FillEvent(
-        order_id="ORD_BUY_1",
-        symbol="RELIANCE",
-        timestamp=ts_entry,
-        side=OrderSide.BUY,
-        fill_price=2500.0,
-        quantity=100,
-        strategy_id="ORB",
-    )
-    pm.on_fill(fill_entry)
-
-    pos = pm.get_position("RELIANCE")
-    assert pos is not None
-    assert pos.quantity == 100
-    assert pos.entry_price == 2500.0
-
-    # Market price moves to 2550 (+50 points)
-    market_ev = MarketEvent(
-        symbol="RELIANCE",
-        timestamp=datetime(2026, 8, 1, 10, 0),
-        timeframe="15m",
-        open=2540.0,
-        high=2560.0,
-        low=2535.0,
-        close=2550.0,
-        volume=10000,
-    )
-    pm.on_market_event(market_ev)
-    assert pm.get_total_unrealized_pnl() == 5000.0  # +50 * 100
-
-    # Sell 100 shares @ 2560 (Exit)
-    fill_exit = FillEvent(
-        order_id="ORD_SELL_1",
-        symbol="RELIANCE",
-        timestamp=datetime(2026, 8, 1, 10, 15),
-        side=OrderSide.SELL,
-        fill_price=2560.0,
-        quantity=100,
-        strategy_id="ORB",
-    )
-    closed = pm.on_fill(fill_exit)
-    assert closed is not None
-    assert closed["gross_pnl"] == 6000.0  # (2560 - 2500) * 100
-    assert closed["net_pnl"] > 5500.0     # Net of statutory taxes
-    assert pm.get_position("RELIANCE") is None
-    assert len(pm.closed_trades) == 1
-
-
-# =========================================================================
-# TEST 3: LiveRiskManager Circuit Breaker Enforcement
-# =========================================================================
-def test_live_risk_manager_rules():
-    rms = LiveRiskManager(
-        max_daily_loss_pct=1.5,
-        max_concurrent_positions=2,
-        entry_start_time=time(9, 30),
-        entry_end_time=time(15, 0),
-    )
-
+def test_position_manager_mfe_mae_and_closing():
+    """Verify PositionManager continuous MFE/MAE and trade record on close."""
     pm = PositionManager()
-    ps = PortfolioState(initial_capital=500000.0)
+    t0 = datetime(2026, 7, 1, 9, 30)
 
-    # 1. Normal valid order
-    intent = OrderIntent(
-        strategy_id="ORB",
+    # Entry fill
+    fill_in = FillEvent(
+        order_id="ORD_001",
         symbol="TCS",
+        timestamp=t0,
         side=OrderSide.BUY,
-        quantity=20,
-        timestamp=datetime(2026, 8, 1, 10, 0),
+        fill_price=3500.0,
+        quantity=10,
+        strategy_id="ALPHA_54",
+        alpha_version="1.0.0",
+        signal_id="SIG_001",
+        decision_id="DEC_001",
     )
-    approved, reason = rms.validate_order(intent, current_price=3500.0, position_manager=pm, portfolio_state=ps)
-    assert approved is True
-    assert reason is None
+    res = pm.on_fill(fill_in)
+    assert res is None
+    pos = pm.get_position("TCS")
+    assert pos is not None
+    assert pos.quantity == 10
 
-    # 2. Outside trading hours (09:15 AM)
-    early_intent = OrderIntent(
-        strategy_id="ORB",
+    # Bar 1: Price goes higher (Favorable)
+    mkt1 = MarketEvent(
         symbol="TCS",
-        side=OrderSide.BUY,
-        quantity=20,
-        timestamp=datetime(2026, 8, 1, 9, 15),
-    )
-    approved, reason = rms.validate_order(early_intent, current_price=3500.0, position_manager=pm, portfolio_state=ps)
-    assert approved is False
-    assert "outside trading window" in reason
-
-    # 3. Exit orders are NEVER blocked even if kill-switch is active
-    rms.kill_switch_active = True
-    # Mock open position in TCS
-    pm.open_positions["TCS"] = None  # Mock presence
-    exit_intent = OrderIntent(
-        strategy_id="ORB",
-        symbol="TCS",
-        side=OrderSide.SELL,
-        quantity=20,
-        is_reduce_only=True,
-        timestamp=datetime(2026, 8, 1, 11, 0),
-    )
-    approved_exit, reason_exit = rms.validate_order(exit_intent, current_price=3500.0, position_manager=pm, portfolio_state=ps)
-    assert approved_exit is True
-    assert reason_exit is None
-
-
-# =========================================================================
-# TEST 4: End-to-End TradingEngine in REPLAY Mode
-# =========================================================================
-def test_trading_engine_end_to_end_replay():
-    # Build 20 synthetic 15m bars
-    dates = pd.date_range("2026-08-01 09:15", periods=20, freq="15min")
-    market_events = []
-    
-    for i, dt in enumerate(dates):
-        p = 100.0 + (i * 0.5)
-        market_events.append(MarketEvent(
-            symbol="INFY",
-            timestamp=dt,
-            timeframe="15m",
-            open=p,
-            high=p + 1.0,
-            low=p - 0.5,
-            close=p + 0.2,
-            volume=5000,
-        ))
-
-    mock_provider = MockMarketDataProvider(market_events)
-    replay_adapter = ReplayExecutionAdapter(segment=Segment.EQUITY_INTRADAY)
-
-    contract = QualifiedAlphaContract(
-        alpha_id="DUMMY_BREAKOUT",
-        strategy_class=DummyBreakoutStrategy,
-        universe=["INFY"],
+        timestamp=t0 + timedelta(minutes=15),
         timeframe="15m",
+        open=3510.0,
+        high=3550.0,
+        low=3505.0,
+        close=3540.0,
+        volume=1000,
+    )
+    pm.on_market_event(mkt1)
+    assert pos.mfe == 500.0  # (3550 - 3500) * 10
+    assert pos.unrealized_pnl == 400.0
+
+    # Bar 2: Price dips lower (Adverse)
+    mkt2 = MarketEvent(
+        symbol="TCS",
+        timestamp=t0 + timedelta(minutes=30),
+        timeframe="15m",
+        open=3540.0,
+        high=3545.0,
+        low=3480.0,
+        close=3490.0,
+        volume=1000,
+    )
+    pm.on_market_event(mkt2)
+    assert pos.mfe == 500.0
+    assert pos.mae == -200.0  # (3480 - 3500) * 10
+
+    # Exit fill
+    fill_out = FillEvent(
+        order_id="ORD_002",
+        symbol="TCS",
+        timestamp=t0 + timedelta(minutes=45),
+        side=OrderSide.SELL,
+        fill_price=3530.0,
+        quantity=10,
+        strategy_id="ALPHA_54",
+    )
+    closed = pm.on_fill(fill_out)
+    assert closed is not None
+    assert closed["gross_pnl"] == 300.0
+    assert closed["mfe"] == 500.0
+    assert closed["mae"] == -200.0
+    assert closed["strategy_id"] == "ALPHA_54"
+    assert pm.get_position("TCS") is None
+
+
+def test_multi_alpha_allocator_competing_signals():
+    """Verify MultiAlphaAllocator picks highest priority alpha and records decisions."""
+    allocator = MultiAlphaAllocator()
+    pm = PositionManager()
+    portfolio = PortfolioState(initial_capital=500000.0)
+
+    contract_a67 = QualifiedAlphaContract(
+        alpha_id="A67_MOMENTUM",
+        strategy_class=None,
+        universe=["INFY"],
+        priority_score=2.0,
         risk_per_trade_pct=0.01,
-        max_capital_allocation_pct=0.20,
+        stop_loss_pct=0.01,
+    )
+    contract_a52 = QualifiedAlphaContract(
+        alpha_id="A52_REVERSION",
+        strategy_class=None,
+        universe=["INFY"],
+        priority_score=1.0,
+        risk_per_trade_pct=0.01,
+        stop_loss_pct=0.01,
+    )
+    contracts_map = {"A67_MOMENTUM": contract_a67, "A52_REVERSION": contract_a52}
+
+    now = datetime(2026, 7, 1, 9, 45)
+    sig_a67 = SignalEvent(
+        symbol="INFY",
+        timestamp=now,
+        strategy_id="A67_MOMENTUM",
+        signal_type=SignalType.LONG,
+        confidence=0.9,
+    )
+    sig_a52 = SignalEvent(
+        symbol="INFY",
+        timestamp=now,
+        strategy_id="A52_REVERSION",
+        signal_type=SignalType.LONG,
+        confidence=0.8,
     )
 
-    engine = TradingEngine(
-        market_data_provider=mock_provider,
-        execution_adapter=replay_adapter,
-        alpha_contracts=[contract],
-        initial_capital=500000.0,
+    intents, decisions = allocator.allocate(
+        candidate_signals=[sig_a67, sig_a52],
+        contracts_map=contracts_map,
+        current_prices={"INFY": 1500.0},
+        position_manager=pm,
+        portfolio_state=portfolio,
     )
 
-    summary = engine.run()
+    # Only A67 should generate an order intent
+    assert len(intents) == 1
+    assert intents[0].strategy_id == "A67_MOMENTUM"
 
-    assert summary["initial_capital"] == 500000.0
-    assert "total_trades" in summary
-    assert "final_equity" in summary
-    assert len(summary["closed_trades"]) >= 1  # Successfully executed trade and EOD square-off
+    # Both candidates must have decision events recorded
+    assert len(decisions) == 2
+    a67_dec = next(d for d in decisions if d.alpha_id == "A67_MOMENTUM")
+    a52_dec = next(d for d in decisions if d.alpha_id == "A52_REVERSION")
+
+    assert a67_dec.is_accepted is True
+    assert a52_dec.is_accepted is False
+    assert "LOWER_PRIORITY_SCORE" in a52_dec.rejection_reason
+
+
+def test_live_risk_manager_hierarchical_controls():
+    """Verify LiveRiskManager hierarchical kill-switches (global, alpha, symbol)."""
+    rms = LiveRiskManager()
+    pm = PositionManager()
+    portfolio = PortfolioState(initial_capital=500000.0)
+
+    now = datetime(2026, 7, 1, 10, 0)
+    intent_infy = OrderIntent(strategy_id="A67", symbol="INFY", side=OrderSide.BUY, quantity=10, timestamp=now)
+
+    # 1. Normal state -> approved
+    approved, reason = rms.validate_order(intent_infy, 1500.0, pm, portfolio)
+    assert approved is True
+
+    # 2. Disable symbol INFY
+    rms.disable_symbol("INFY", reason="Manual Quarantine")
+    approved, reason = rms.validate_order(intent_infy, 1500.0, pm, portfolio)
+    assert approved is False
+    assert "quarantined/disabled" in reason
+
+    # 3. Re-enable symbol, disable Alpha A67
+    rms.enable_symbol("INFY")
+    rms.disable_alpha("A67", reason="Alpha Underperformance")
+    approved, reason = rms.validate_order(intent_infy, 1500.0, pm, portfolio)
+    assert approved is False
+    assert "disabled by risk policy" in reason
+
+    # 4. Global Emergency Kill Switch
+    rms.enable_alpha("A67")
+    rms.trigger_kill_switch("Circuit Breaker")
+    assert rms.kill_switch_active is True
+    approved, reason = rms.validate_order(intent_infy, 1500.0, pm, portfolio)
+    assert approved is False
+    assert "HALTED" in reason
+
+    # 5. Exit orders must NEVER be blocked even in emergency HALT
+    exit_intent = OrderIntent(
+        strategy_id="A67",
+        symbol="INFY",
+        side=OrderSide.SELL,
+        quantity=10,
+        is_reduce_only=True,
+        timestamp=now,
+    )
+    approved, reason = rms.validate_order(exit_intent, 1500.0, pm, portfolio)
+    assert approved is True

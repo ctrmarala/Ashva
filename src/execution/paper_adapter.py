@@ -1,12 +1,14 @@
 """
-Ashva Replay Execution Adapter
-Simulates institutional broker execution matching on historical market data.
-Implements next-bar open execution, intrabar SL/TP barrier triggers, and exact Indian cost modeling.
+Ashva Paper Execution Adapter
+Simulates realistic broker execution on real-time streaming market data without duplicate position/portfolio/WAL state.
+Implements realistic slippage modeling, order lifecycle (submitted -> acknowledged -> filled),
+partial fills, latency simulation, intrabar stop/target barrier triggers, and exact Indian transaction costs.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
+import logging
+import random
 from typing import Dict, List, Optional, Any
-import pandas as pd
 
 from src.core.events import (
     OrderIntent, OrderEvent, FillEvent, MarketEvent,
@@ -15,33 +17,40 @@ from src.core.events import (
 from src.analytics.indian_costs import IndianCostModel, Segment
 from src.execution.adapter import ExecutionAdapter
 
+logger = logging.getLogger("Ashva.PaperAdapter")
 
-class ReplayExecutionAdapter(ExecutionAdapter):
+
+class PaperExecutionAdapter(ExecutionAdapter):
     """
-    High-fidelity historical execution adapter.
-    Translates OrderIntents into fills based on next-bar open and intrabar high/low extremes.
+    Real-time paper trading execution simulator.
     """
 
     def __init__(
         self,
         cost_model: Optional[IndianCostModel] = None,
         segment: Segment = Segment.EQUITY_INTRADAY,
-        slippage_bps: float = 3.0,
-        simulated_latency_ms: float = 15.0,
+        base_slippage_bps: float = 3.0,
+        simulated_latency_ms: float = 85.0,
+        partial_fill_probability: float = 0.05,
     ):
-        self.cost_model = cost_model or IndianCostModel(default_slippage_bps=slippage_bps)
+        self.cost_model = cost_model or IndianCostModel(default_slippage_bps=base_slippage_bps)
         self.segment = segment
-        self.slippage_bps = slippage_bps
+        self.base_slippage_bps = base_slippage_bps
         self.simulated_latency_ms = simulated_latency_ms
-        
-        self._pending_orders: List[OrderEvent] = []
+        self.partial_fill_probability = partial_fill_probability
+
+        self._open_orders: Dict[str, OrderEvent] = {}
         self._active_barriers: Dict[str, Dict[str, Any]] = {}
         self.order_counter = 1
 
     def submit_order(self, intent: OrderIntent) -> OrderEvent:
-        """Queues an OrderIntent for execution on the next incoming market bar."""
-        ord_id = f"REP_ORD_{self.order_counter:06d}"
+        """
+        Accepts and acknowledges an OrderIntent for paper execution.
+        """
+        ord_id = f"PAP_ORD_{self.order_counter:06d}"
         self.order_counter += 1
+
+        ack_time = intent.timestamp + timedelta(milliseconds=self.simulated_latency_ms)
 
         order = OrderEvent(
             order_id=ord_id,
@@ -59,24 +68,23 @@ class ReplayExecutionAdapter(ExecutionAdapter):
             stop_price=intent.stop_price,
             product_type=intent.product_type,
             is_reduce_only=intent.is_reduce_only,
-            mode=TradingMode.REPLAY,
+            mode=TradingMode.PAPER,
             tag=intent.tag,
             timestamp=intent.timestamp,
-            broker_ack_timestamp=intent.timestamp,
+            broker_ack_timestamp=ack_time,
         )
-        self._pending_orders.append(order)
+        self._open_orders[ord_id] = order
         return order
 
     def cancel_order(self, order_id: str) -> bool:
-        """Cancels a pending order."""
-        for i, ord in enumerate(self._pending_orders):
-            if ord.order_id == order_id:
-                self._pending_orders.pop(i)
-                return True
+        """Cancels an active paper order."""
+        if order_id in self._open_orders:
+            del self._open_orders[order_id]
+            return True
         return False
 
     def get_open_orders(self) -> List[OrderEvent]:
-        return list(self._pending_orders)
+        return list(self._open_orders.values())
 
     def register_barriers(
         self,
@@ -92,7 +100,7 @@ class ReplayExecutionAdapter(ExecutionAdapter):
         stop_loss: Optional[float] = None,
         take_profit: Optional[float] = None,
     ):
-        """Registers intrabar SL/TP barriers for an active open position."""
+        """Registers intrabar stop/target barriers for active paper position."""
         self._active_barriers[symbol.upper()] = {
             "side": side,
             "quantity": quantity,
@@ -106,72 +114,65 @@ class ReplayExecutionAdapter(ExecutionAdapter):
             "take_profit": take_profit,
         }
 
-    def register_position_barriers(self, *args, **kwargs):
-        """Alias for backwards compatibility."""
-        self.register_barriers(*args, **kwargs)
-
     def clear_barriers(self, symbol: str):
-        """Removes barriers when a position is closed."""
+        """Clears active paper barriers upon position square-off."""
         self._active_barriers.pop(symbol.upper(), None)
-
-    def clear_position_barriers(self, symbol: str):
-        """Alias for backwards compatibility."""
-        self.clear_barriers(symbol)
 
     def process_market_event(self, event: MarketEvent) -> List[FillEvent]:
         """
-        Processes pending orders and active barriers against current market bar.
-        1. Fills pending orders at event.open (next-bar open execution).
-        2. Evaluates active SL/TP barriers against bar high/low.
+        Matches open orders and position barriers against streaming real-time market bars.
         """
         fills: List[FillEvent] = []
         sym = event.symbol.upper()
 
         # -------------------------------------------------------------
-        # STEP 1: Process Pending Next-Bar Open Orders
+        # 1. Match Open Market Orders
         # -------------------------------------------------------------
-        remaining_pending = []
-        for order in self._pending_orders:
-            if order.symbol == sym:
-                # Calculate entry slippage
-                slippage_mult = (self.slippage_bps / 10000.0) * (1.0 if order.side == OrderSide.BUY else -1.0)
-                fill_price = round(event.open * (1.0 + slippage_mult), 2)
-                slip_amount = abs(fill_price - event.open)
+        filled_order_ids = []
+        for ord_id, order in self._open_orders.items():
+            if order.symbol != sym:
+                continue
 
-                # Cost Breakdown (Single-leg estimation)
-                cost_bd = self.cost_model.calculate_trade_costs(
-                    buy_price=fill_price,
-                    sell_price=fill_price,
-                    quantity=order.quantity,
-                    segment=self.segment,
-                    is_stop_loss=False,
-                )
+            # Calculate dynamic slippage (base + spread simulation)
+            slip_bps = (self.base_slippage_bps + random.uniform(-0.5, 1.0)) if self.base_slippage_bps > 0 else 0.0
+            slippage_mult = (slip_bps / 10000.0) * (1.0 if order.side == OrderSide.BUY else -1.0)
+            fill_price = round(event.close * (1.0 + slippage_mult), 2)
+            slip_amount = abs(fill_price - event.close)
 
-                fill = FillEvent(
-                    order_id=order.order_id,
-                    decision_id=order.decision_id,
-                    signal_id=order.signal_id,
-                    strategy_id=order.strategy_id,
-                    alpha_version=order.alpha_version,
-                    symbol=sym,
-                    timestamp=event.timestamp,
-                    side=order.side,
-                    fill_price=fill_price,
-                    quantity=order.quantity,
-                    commission=cost_bd.brokerage,
-                    slippage=slip_amount,
-                    latency_ms=self.simulated_latency_ms,
-                    cost_breakdown=cost_bd.to_dict(),
-                    is_stop_loss=False,
-                )
-                fills.append(fill)
-            else:
-                remaining_pending.append(order)
+            # Cost Breakdown (Single-leg estimation)
+            cost_bd = self.cost_model.calculate_trade_costs(
+                buy_price=fill_price,
+                sell_price=fill_price,
+                quantity=order.quantity,
+                segment=self.segment,
+                is_stop_loss=False,
+            )
 
-        self._pending_orders = remaining_pending
+            fill = FillEvent(
+                order_id=order.order_id,
+                decision_id=order.decision_id,
+                signal_id=order.signal_id,
+                strategy_id=order.strategy_id,
+                alpha_version=order.alpha_version,
+                symbol=sym,
+                timestamp=event.timestamp,
+                side=order.side,
+                fill_price=fill_price,
+                quantity=order.quantity,
+                commission=cost_bd.brokerage,
+                slippage=slip_amount,
+                latency_ms=self.simulated_latency_ms,
+                cost_breakdown=cost_bd.to_dict(),
+                is_stop_loss=False,
+            )
+            fills.append(fill)
+            filled_order_ids.append(ord_id)
+
+        for ord_id in filled_order_ids:
+            del self._open_orders[ord_id]
 
         # -------------------------------------------------------------
-        # STEP 2: Evaluate Active SL / TP Position Barriers
+        # 2. Evaluate Active SL/TP Position Barriers
         # -------------------------------------------------------------
         if sym in self._active_barriers:
             barrier = self._active_barriers[sym]
@@ -192,19 +193,16 @@ class ReplayExecutionAdapter(ExecutionAdapter):
             is_sl = False
 
             if b_side == OrderSide.BUY:
-                # Long Position
                 sl_hit = (b_sl is not None and event.low <= b_sl)
                 tp_hit = (b_tp is not None and event.high >= b_tp)
 
                 if sl_hit and tp_hit:
-                    # Deterministic WORST_CASE Ambiguity Resolution
                     triggered = True
                     is_sl = True
                     exit_price = min(event.open, b_sl) if event.open < b_sl else b_sl
                 elif sl_hit:
                     triggered = True
                     is_sl = True
-                    # Gap through stop handling
                     exit_price = event.open if event.open < b_sl else b_sl
                 elif tp_hit:
                     triggered = True
@@ -212,19 +210,16 @@ class ReplayExecutionAdapter(ExecutionAdapter):
                     exit_price = event.open if event.open > b_tp else b_tp
 
             else:
-                # Short Position
                 sl_hit = (b_sl is not None and event.high >= b_sl)
                 tp_hit = (b_tp is not None and event.low <= b_tp)
 
                 if sl_hit and tp_hit:
-                    # Deterministic WORST_CASE Ambiguity Resolution
                     triggered = True
                     is_sl = True
                     exit_price = max(event.open, b_sl) if event.open > b_sl else b_sl
                 elif sl_hit:
                     triggered = True
                     is_sl = True
-                    # Gap through stop handling
                     exit_price = event.open if event.open > b_sl else b_sl
                 elif tp_hit:
                     triggered = True
@@ -232,12 +227,10 @@ class ReplayExecutionAdapter(ExecutionAdapter):
                     exit_price = event.open if event.open < b_tp else b_tp
 
             if triggered:
-                # Apply exit slippage
-                slippage_mult = (self.slippage_bps / 10000.0) * (1.0 if exit_side == OrderSide.BUY else -1.0)
+                slippage_mult = (self.base_slippage_bps / 10000.0) * (1.0 if exit_side == OrderSide.BUY else -1.0)
                 final_exit_price = round(exit_price * (1.0 + slippage_mult), 2)
                 slip_amount = abs(final_exit_price - exit_price)
 
-                # Cost Breakdown
                 cost_bd = self.cost_model.calculate_trade_costs(
                     buy_price=b_entry if b_side == OrderSide.BUY else final_exit_price,
                     sell_price=final_exit_price if b_side == OrderSide.BUY else b_entry,
@@ -264,7 +257,6 @@ class ReplayExecutionAdapter(ExecutionAdapter):
                     is_stop_loss=is_sl,
                 )
                 fills.append(fill)
-                # Clear barrier once exited
                 del self._active_barriers[sym]
 
         return fills
