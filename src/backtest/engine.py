@@ -198,10 +198,10 @@ class BacktestEngine:
                     sim_res = self.intrabar_sim.simulate_trade(
                         symbol=symbol,
                         entry_time=indices[entry_idx],
-                        side=position_side,
                         entry_price=entry_price,
-                        initial_sl=initial_sl,
-                        initial_tp=current_tp,
+                        side=position_side,
+                        stop_loss=initial_sl,
+                        take_profit=current_tp,
                         trailing_mode=trailing_mode,
                     )
                     if sim_res.exit_time <= next_time or i == (n_bars - 2):
