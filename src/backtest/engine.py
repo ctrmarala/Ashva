@@ -191,25 +191,46 @@ class BacktestEngine:
                 exited_intrabar = False
                 exit_price = 0.0
                 exit_reason = "SIGNAL"
+                mfe, mae = 0.0, 0.0
 
-                if position_side == "LONG":
-                    if current_sl > 0 and next_low <= current_sl:
+                # 1. High-Resolution 1-Minute Historical Intrabar Execution
+                if self.intrabar_sim is not None and symbol != "ASSET":
+                    sim_res = self.intrabar_sim.simulate_trade(
+                        symbol=symbol,
+                        entry_time=indices[entry_idx],
+                        side=position_side,
+                        entry_price=entry_price,
+                        initial_sl=initial_sl,
+                        initial_tp=current_tp,
+                        trailing_mode=trailing_mode,
+                    )
+                    if sim_res.exit_time <= next_time or i == (n_bars - 2):
                         exited_intrabar = True
-                        exit_price = min(next_open, current_sl)
-                        exit_reason = "TRAILING_STOP_RATCHET" if current_sl > initial_sl else "STOP_LOSS"
-                    elif current_tp > 0 and next_high >= current_tp:
-                        exited_intrabar = True
-                        exit_price = max(next_open, current_tp)
-                        exit_reason = "TAKE_PROFIT"
-                else:  # SHORT
-                    if current_sl > 0 and next_high >= current_sl:
-                        exited_intrabar = True
-                        exit_price = max(next_open, current_sl)
-                        exit_reason = "TRAILING_STOP_RATCHET" if current_sl < initial_sl else "STOP_LOSS"
-                    elif current_tp > 0 and next_low <= current_tp:
-                        exited_intrabar = True
-                        exit_price = min(next_open, current_tp)
-                        exit_reason = "TAKE_PROFIT"
+                        exit_price = sim_res.exit_price
+                        exit_reason = sim_res.exit_reason
+                        next_time = sim_res.exit_time
+                        mfe, mae = sim_res.mfe_pct, sim_res.mae_pct
+
+                # 2. Native Multi-Timeframe Intrabar Fallback
+                if not exited_intrabar:
+                    if position_side == "LONG":
+                        if current_sl > 0 and next_low <= current_sl:
+                            exited_intrabar = True
+                            exit_price = min(next_open, current_sl)
+                            exit_reason = "TRAILING_STOP_RATCHET" if current_sl > initial_sl else "STOP_LOSS"
+                        elif current_tp > 0 and next_high >= current_tp:
+                            exited_intrabar = True
+                            exit_price = max(next_open, current_tp)
+                            exit_reason = "TAKE_PROFIT"
+                    else:  # SHORT
+                        if current_sl > 0 and next_high >= current_sl:
+                            exited_intrabar = True
+                            exit_price = max(next_open, current_sl)
+                            exit_reason = "TRAILING_STOP_RATCHET" if current_sl < initial_sl else "STOP_LOSS"
+                        elif current_tp > 0 and next_low <= current_tp:
+                            exited_intrabar = True
+                            exit_price = min(next_open, current_tp)
+                            exit_reason = "TAKE_PROFIT"
 
                 if exited_intrabar:
                     cost_breakdown = self.cost_model.calculate_trade_costs(
@@ -221,18 +242,17 @@ class BacktestEngine:
                     cash += cost_breakdown.net_pnl
                     bar_equity[i + 1] = cash
 
-                    # Compute MFE and MAE
-                    trade_highs = highs[entry_idx : i + 2]
-                    trade_lows = lows[entry_idx : i + 2]
-                    if len(trade_highs) > 0 and entry_price > 0:
-                        if position_side == "LONG":
-                            mfe = ((np.max(trade_highs) - entry_price) / entry_price) * 100.0
-                            mae = ((np.min(trade_lows) - entry_price) / entry_price) * 100.0
-                        else:
-                            mfe = ((entry_price - np.min(trade_lows)) / entry_price) * 100.0
-                            mae = ((entry_price - np.max(trade_highs)) / entry_price) * 100.0
-                    else:
-                        mfe, mae = 0.0, 0.0
+                    # Compute MFE and MAE if not populated by simulator
+                    if mfe == 0.0 and mae == 0.0:
+                        trade_highs = highs[entry_idx : i + 2]
+                        trade_lows = lows[entry_idx : i + 2]
+                        if len(trade_highs) > 0 and entry_price > 0:
+                            if position_side == "LONG":
+                                mfe = ((np.max(trade_highs) - entry_price) / entry_price) * 100.0
+                                mae = ((np.min(trade_lows) - entry_price) / entry_price) * 100.0
+                            else:
+                                mfe = ((entry_price - np.min(trade_lows)) / entry_price) * 100.0
+                                mae = ((entry_price - np.max(trade_highs)) / entry_price) * 100.0
 
                     trades.append(
                         BacktestTrade(

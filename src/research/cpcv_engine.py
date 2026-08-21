@@ -58,14 +58,21 @@ class CPCVEngine:
         for test_parts in all_combos:
             train_parts = [i for i in range(self.n_partitions) if i not in test_parts]
 
-            # Collect test indices and test time intervals
+            # Collect test indices, test time intervals, and embargo index sets
             test_idx = np.concatenate([partition_indices[i] for i in test_parts])
             test_trades = df.iloc[test_idx]
 
             test_intervals = []
+            embargo_indices = set()
             for i in test_parts:
-                part_df = df.iloc[partition_indices[i]]
+                part_indices = partition_indices[i]
+                part_df = df.iloc[part_indices]
                 test_intervals.append((part_df["entry_time"].min(), part_df["exit_time"].max()))
+                
+                # Embargo window: the next embargo_bars trades following the end of this test partition
+                max_test_idx = part_indices[-1]
+                for emb_i in range(max_test_idx + 1, min(n_trades, max_test_idx + 1 + embargo_bars)):
+                    embargo_indices.add(emb_i)
 
             # -------------------------------------------------------------
             # PURGING & EMBARGOING TRAINING SET
@@ -75,25 +82,19 @@ class CPCVEngine:
 
             purged_train_indices = []
             for t_idx, tr_row in train_candidates.iterrows():
+                # 1. Embargo Check: Drop if index is within post-test embargo window
+                if t_idx in embargo_indices:
+                    continue
+
+                # 2. Purge Check: Drop if training holding period overlaps with ANY test interval
                 tr_entry = tr_row["entry_time"]
                 tr_exit = tr_row["exit_time"]
-
-                # 1. Purge: Drop if training holding period overlaps with ANY test interval
                 overlaps = False
                 for test_start, test_end in test_intervals:
                     if not (tr_exit < test_start or tr_entry > test_end):
                         overlaps = True
                         break
                 if overlaps:
-                    continue
-
-                # 2. Embargo: Drop if entry falls in embargo window immediately following test period
-                in_embargo = False
-                for _, test_end in test_intervals:
-                    if pd.Timedelta(0) <= (tr_entry - test_end) <= pd.Timedelta(days=2):
-                        in_embargo = True
-                        break
-                if in_embargo:
                     continue
 
                 purged_train_indices.append(t_idx)
