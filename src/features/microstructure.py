@@ -113,6 +113,12 @@ class MicrostructureFeatureExtractor:
         df_out["orb_low"] = df_out["date_col"].map(orb_lows)
         df_out["orb_volume"] = df_out["date_col"].map(orb_vols)
 
+        # Zero-Lookahead Protection: Nullify ORB features before the opening range window concludes
+        is_before_orb_end = df_out["time_str"] < orb_end
+        df_out.loc[is_before_orb_end, "orb_high"] = np.nan
+        df_out.loc[is_before_orb_end, "orb_low"] = np.nan
+        df_out.loc[is_before_orb_end, "orb_volume"] = np.nan
+
         df_out.drop(columns=["time_str", "date_col"], inplace=True)
         return df_out
 
