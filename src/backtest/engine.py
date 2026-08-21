@@ -95,11 +95,13 @@ class BacktestEngine:
         segment: Segment = Segment.EQUITY_INTRADAY,
         use_1m_intrabar: bool = True,
         data_lake: Optional[Any] = None,
+        max_volume_participation_pct: float = 0.10,  # Max 10% of execution candle volume
     ):
         self.cost_model = cost_model or IndianCostModel()
         self.initial_capital = initial_capital
         self.segment = segment
         self.use_1m_intrabar = use_1m_intrabar
+        self.max_volume_participation_pct = max_volume_participation_pct
         self.intrabar_sim = IntrabarSimulator(data_lake=data_lake) if use_1m_intrabar else None
 
     def run(
@@ -233,11 +235,17 @@ class BacktestEngine:
                             exit_reason = "TAKE_PROFIT"
 
                 if exited_intrabar:
+                    # Strict SEBI Overnight Short Prohibition Guard
+                    if position_side == "SHORT" and indices[entry_idx].date() != next_time.date():
+                        raise ValueError(f"CRITICAL SEBI VIOLATION: Cash equity short position in {symbol} spanned across multiple dates ({indices[entry_idx].date()} to {next_time.date()}).")
+
+                    is_sl = ("STOP_LOSS" in exit_reason or "TRAILING" in exit_reason)
                     cost_breakdown = self.cost_model.calculate_trade_costs(
                         buy_price=entry_price if position_side == "LONG" else exit_price,
                         sell_price=exit_price if position_side == "LONG" else entry_price,
                         quantity=entry_qty,
                         segment=self.segment,
+                        is_stop_loss=is_sl,
                     )
                     cash += cost_breakdown.net_pnl
                     bar_equity[i + 1] = cash
@@ -311,6 +319,12 @@ class BacktestEngine:
                     allocated_capital = cash * capital_per_trade_pct
                     entry_qty = int(allocated_capital / entry_price)
 
+                # Liquidity Capacity Participation Cap (Max 10% of execution bar volume)
+                if "volume" in df.columns:
+                    bar_vol = float(df["volume"].iloc[entry_idx])
+                    max_liq_qty = max(1, int(bar_vol * self.max_volume_participation_pct))
+                    entry_qty = min(entry_qty, max_liq_qty)
+
                 # Institutional zero-risk budget policy: If risk size < 1 share -> NO TRADE
                 if entry_qty < 1:
                     in_position = False
@@ -323,11 +337,15 @@ class BacktestEngine:
                 or (curr_signal < 0 and position_side == "LONG")
             ):
                 exit_price = next_open
+                if position_side == "SHORT" and indices[entry_idx].date() != next_time.date():
+                    raise ValueError(f"CRITICAL SEBI VIOLATION: Cash equity short position in {symbol} spanned across multiple dates ({indices[entry_idx].date()} to {next_time.date()}).")
+
                 cost_breakdown = self.cost_model.calculate_trade_costs(
                     buy_price=entry_price if position_side == "LONG" else exit_price,
                     sell_price=exit_price if position_side == "LONG" else entry_price,
                     quantity=entry_qty,
                     segment=self.segment,
+                    is_stop_loss=False,
                 )
                 cash += cost_breakdown.net_pnl
                 bar_equity[i + 1] = cash

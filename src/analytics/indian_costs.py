@@ -118,9 +118,11 @@ class IndianCostModel:
         quantity: int,
         segment: Segment = Segment.EQUITY_INTRADAY,
         slippage_bps: float = None,
+        is_stop_loss: bool = False,
     ) -> TradeCostBreakdown:
         """
         Calculates exact net PnL and fee breakdown for a complete roundtrip trade.
+        Applies asymmetric slippage penalty (8 bps) for Stop-Loss market orders.
         """
         if quantity <= 0:
             raise ValueError(f"Quantity must be positive, got {quantity}")
@@ -128,7 +130,9 @@ class IndianCostModel:
             raise ValueError("Prices must be positive numbers")
 
         if slippage_bps is None:
-            slippage_bps = self.default_slippage_bps
+            slippage_bps = 8.0 if is_stop_loss else self.default_slippage_bps
+        elif is_stop_loss:
+            slippage_bps = max(slippage_bps, 8.0)
 
         buy_turnover = buy_price * quantity
         sell_turnover = sell_price * quantity
