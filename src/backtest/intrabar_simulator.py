@@ -94,21 +94,44 @@ class IntrabarSimulator:
             bar_open = bar["open"]
 
             if is_buy:
-                # Update MFE / MAE
-                if bar_high > mfe_price:
-                    mfe_price = bar_high
-                if bar_low < mae_price:
-                    mae_price = bar_low
+                # 1. Check Open Gap below existing SL
+                if bar_open <= current_sl:
+                    exit_time = idx
+                    exit_price = min(bar_open, current_sl)  # Penalize with open gap slippage
+                    exit_reason = "STOP_LOSS" if current_sl == stop_loss else "STEP_RATCHET_SL"
+                    break
 
-                gain = bar_high - entry_price
-                current_r = gain / max(1e-4, initial_risk)
-                if current_r > highest_r:
-                    highest_r = current_r
+                # 2. Check Low against EXISTING Stop Loss (BEFORE any MFE ratchet)
+                if bar_low <= current_sl:
+                    exit_time = idx
+                    exit_price = current_sl
+                    exit_reason = "STOP_LOSS" if current_sl == stop_loss else "STEP_RATCHET_SL"
+                    mae_price = min(mae_price, bar_low)
+                    break
 
-                # Trailing Ratchet Updates
-                if trailing_mode == "BREAK_EVEN":
-                    if highest_r >= 1.0 and current_sl < entry_price:
-                        current_sl = entry_price
+                # 3. Check High against Take Profit
+                if current_tp > 0 and bar_high >= current_tp:
+                    exit_time = idx
+                    exit_price = current_tp
+                    exit_reason = "TAKE_PROFIT"
+                    mfe_price = max(mfe_price, current_tp)
+                    break
+
+                # 4. Mandatory 15:15 EOD Square-Off
+                if idx.hour >= 15 and idx.minute >= 15:
+                    exit_time = idx
+                    exit_price = bar_close
+                    exit_reason = "TIME_EXIT"
+                    break
+
+                # 5. Position Survived Bar: Update MFE and ratchet stop for SUBSEQUENT bars
+                mfe_price = max(mfe_price, bar_high)
+                mae_price = min(mae_price, bar_low)
+                current_r = (bar_high - entry_price) / max(1e-4, initial_risk)
+                highest_r = max(highest_r, current_r)
+
+                if trailing_mode == "BREAK_EVEN" and highest_r >= 1.0:
+                    current_sl = max(current_sl, entry_price)
                 elif trailing_mode == "STEP_RATCHET":
                     if highest_r >= 2.0:
                         current_sl = max(current_sl, entry_price + 1.0 * initial_risk)
@@ -117,43 +140,46 @@ class IntrabarSimulator:
                     elif highest_r >= 1.0:
                         current_sl = max(current_sl, entry_price)
 
-                # Order Execution Check (Check both Open, Low, High)
-                # Did Open gap past Stop Loss?
-                if bar_open <= current_sl:
+            else:
+                # SHORT / SELL
+                # 1. Check Open Gap above existing SL
+                if bar_open >= current_sl:
                     exit_time = idx
-                    exit_price = min(bar_open, current_sl)
+                    exit_price = max(bar_open, current_sl)
                     exit_reason = "STOP_LOSS" if current_sl == stop_loss else "STEP_RATCHET_SL"
                     break
 
-                # Did Low breach Stop Loss?
-                if bar_low <= current_sl:
+                # 2. Check High against EXISTING Stop Loss
+                if bar_high >= current_sl:
                     exit_time = idx
                     exit_price = current_sl
                     exit_reason = "STOP_LOSS" if current_sl == stop_loss else "STEP_RATCHET_SL"
+                    mae_price = max(mae_price, bar_high)
                     break
 
-                # Did High hit Take Profit?
-                if bar_high >= current_tp:
+                # 3. Check Low against Take Profit
+                if current_tp > 0 and bar_low <= current_tp:
                     exit_time = idx
                     exit_price = current_tp
                     exit_reason = "TAKE_PROFIT"
+                    mfe_price = min(mfe_price, current_tp)
                     break
 
-            else:
-                # SHORT / SELL
-                if bar_low < mfe_price:
-                    mfe_price = bar_low
-                if bar_high > mae_price:
-                    mae_price = bar_high
+                # 4. Mandatory 15:15 EOD Square-Off
+                if idx.hour >= 15 and idx.minute >= 15:
+                    exit_time = idx
+                    exit_price = bar_close
+                    exit_reason = "TIME_EXIT"
+                    break
 
-                gain = entry_price - bar_low
-                current_r = gain / max(1e-4, initial_risk)
-                if current_r > highest_r:
-                    highest_r = current_r
+                # 5. Position Survived Bar: Update MFE and ratchet stop for SUBSEQUENT bars
+                mfe_price = min(mfe_price, bar_low)
+                mae_price = max(mae_price, bar_high)
+                current_r = (entry_price - bar_low) / max(1e-4, initial_risk)
+                highest_r = max(highest_r, current_r)
 
-                if trailing_mode == "BREAK_EVEN":
-                    if highest_r >= 1.0 and current_sl > entry_price:
-                        current_sl = entry_price
+                if trailing_mode == "BREAK_EVEN" and highest_r >= 1.0:
+                    current_sl = min(current_sl, entry_price)
                 elif trailing_mode == "STEP_RATCHET":
                     if highest_r >= 2.0:
                         current_sl = min(current_sl, entry_price - 1.0 * initial_risk)
@@ -161,24 +187,6 @@ class IntrabarSimulator:
                         current_sl = min(current_sl, entry_price - 0.5 * initial_risk)
                     elif highest_r >= 1.0:
                         current_sl = min(current_sl, entry_price)
-
-                if bar_open >= current_sl:
-                    exit_time = idx
-                    exit_price = max(bar_open, current_sl)
-                    exit_reason = "STOP_LOSS" if current_sl == stop_loss else "STEP_RATCHET_SL"
-                    break
-
-                if bar_high >= current_sl:
-                    exit_time = idx
-                    exit_price = current_sl
-                    exit_reason = "STOP_LOSS" if current_sl == stop_loss else "STEP_RATCHET_SL"
-                    break
-
-                if bar_low <= current_tp:
-                    exit_time = idx
-                    exit_price = current_tp
-                    exit_reason = "TAKE_PROFIT"
-                    break
 
         mfe_pct = ((mfe_price - entry_price) / entry_price * 100.0) if is_buy else ((entry_price - mfe_price) / entry_price * 100.0)
         mae_pct = ((mae_price - entry_price) / entry_price * 100.0) if is_buy else ((entry_price - mae_price) / entry_price * 100.0)

@@ -72,7 +72,8 @@ class MasterPortfolioBacktester:
         self,
         data_lake: Optional[DataLake] = None,
         initial_capital: float = 500000.0,   # ₹5,00,000 INR
-        risk_per_trade_inr: float = 2500.0,  # ₹2,500 (0.50% account risk per trade)
+        risk_per_trade_inr: float = 2500.0,  # Legacy static fallback
+        risk_per_trade_pct: float = 0.005,   # 0.50% account risk per trade
         max_concurrent_positions: int = 5,
         max_positions_per_sector: int = 2,
         cost_model: Optional[IndianCostModel] = None,
@@ -80,6 +81,7 @@ class MasterPortfolioBacktester:
         self.lake = data_lake or DataLake(read_only=True)
         self.initial_capital = initial_capital
         self.risk_per_trade_inr = risk_per_trade_inr
+        self.risk_per_trade_pct = risk_per_trade_pct
         self.max_concurrent_positions = max_concurrent_positions
         self.max_positions_per_sector = max_positions_per_sector
         self.cost_model = cost_model or IndianCostModel()
@@ -164,6 +166,10 @@ class MasterPortfolioBacktester:
             if len(open_positions) >= self.max_concurrent_positions:
                 continue
 
+            # NEW GATE: Symbol Collision Lock (No duplicate/contradictory positions on same symbol)
+            if any(pos["symbol"] == tr["symbol"] for pos in open_positions):
+                continue
+
             # Risk Gate 2: Max Positions Per Sector
             sector = tr["sector"]
             sector_positions = [pos for pos in open_positions if pos["sector"] == sector]
@@ -177,9 +183,11 @@ class MasterPortfolioBacktester:
                 if regime_state.get("composite") == "SIDEWAYS_CHOP_LOW_VOLATILITY" and "BREAKOUT" in tr["strategy_id"].upper():
                     continue
 
-            # Position Sizing (Fixed Risk Parity: ₹2,500 risk)
+            # 4. REFACTORED GATE: Dynamic Compounding Fractional Sizing
+            # Size based on dynamically compounding running equity, not static initial capital
             stop_dist = max(1e-2, abs(tr["entry_price"] - tr["initial_sl"]))
-            qty = max(1, int(self.risk_per_trade_inr / stop_dist))
+            risk_budget_inr = max(500.0, equity * self.risk_per_trade_pct)
+            qty = max(1, int(risk_budget_inr / stop_dist))
 
             # Statutory Costs & Net PnL Calculation
             is_long = (tr["side"] == "LONG")

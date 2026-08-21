@@ -1,94 +1,138 @@
 """
-Ashva Combinatorial Purged Cross-Validation (CPCV) & PBO Engine
-Implements Marcos López de Prado's institutional methodology to test multiple Out-of-Sample paths
-and calculate the Probability of Backtest Overfitting (PBO).
+Ashva Combinatorial Purged Cross-Validation (CPCV) Engine
+Strictly implements Marcos López de Prado's Purging and Embargoing methodology
+for financial time series with overlapping holding periods.
 """
 
-import itertools
-from typing import Dict, List, Any, Tuple, Optional
+from itertools import combinations
+from typing import Dict, List, Any, Optional, Tuple
 import numpy as np
 import pandas as pd
 
 
 class CPCVEngine:
     """
-    Evaluates strategy robustness across combinatorial purged train/test slices.
+    CPCV Engine with temporal purging and post-test embargoing to eliminate
+    serial correlation and label overlap leakage.
     """
 
-    def __init__(self, n_partitions: int = 6, k_test_partitions: int = 2):
-        self.n = n_partitions
-        self.k = k_test_partitions
+    def __init__(
+        self,
+        n_partitions: int = 6,
+        k_test_partitions: int = 2,
+        embargo_pct: float = 0.01,  # 1% post-test embargo window
+    ):
+        self.n_partitions = n_partitions
+        self.k_test_partitions = k_test_partitions
+        self.embargo_pct = embargo_pct
 
-    def evaluate_trades(self, trade_returns: List[float], annualization_factor: float = np.sqrt(252)) -> Dict[str, Any]:
+    def evaluate_trades(
+        self,
+        trades_df: pd.DataFrame,  # Must contain 'entry_time', 'exit_time', 'net_pnl'
+    ) -> Dict[str, Any]:
         """
-        Evaluates PBO and CPCV distributions from a list of chronological trade PnLs.
+        Executes CPCV with rigorous Purging & Embargoing across all C(N, k) paths.
         """
-        if len(trade_returns) < 20:
+        if trades_df.empty or len(trades_df) < (self.n_partitions * 3):
             return {
-                "status": "INSUFFICIENT_TRADES",
-                "pbo": 1.0,
-                "mean_oos_sharpe": 0.0,
+                "total_trades": len(trades_df),
                 "is_overfitted": True,
+                "pbo": 1.0,
+                "pbo_pct": "100.0%",
+                "mean_oos_sharpe": 0.0,
+                "median_oos_sharpe": 0.0,
+                "degradation_ratio": 0.0,
             }
 
-        returns = np.array(trade_returns, dtype=np.float64)
-        n_trades = len(returns)
-        block_size = n_trades // self.n
+        df = trades_df.sort_values("entry_time").reset_index(drop=True)
+        n_trades = len(df)
+        embargo_bars = max(1, int(n_trades * self.embargo_pct))
 
-        # Create partitions
-        partitions = []
-        for i in range(self.n):
-            start_idx = i * block_size
-            end_idx = (i + 1) * block_size if i < self.n - 1 else n_trades
-            partitions.append(returns[start_idx:end_idx])
+        # Partition index boundaries
+        partition_indices = np.array_split(np.arange(n_trades), self.n_partitions)
+        all_combos = list(combinations(range(self.n_partitions), self.k_test_partitions))
 
-        # Generate all combinations of k test partitions
-        combos = list(itertools.combinations(range(self.n), self.k))
         is_sharpes = []
         oos_sharpes = []
 
-        for test_indices in combos:
-            train_indices = [idx for idx in range(self.n) if idx not in test_indices]
+        for test_parts in all_combos:
+            train_parts = [i for i in range(self.n_partitions) if i not in test_parts]
 
-            # Purged test & train sets
-            test_data = np.concatenate([partitions[idx] for idx in test_indices])
-            train_data = np.concatenate([partitions[idx] for idx in train_indices])
+            # Collect test indices and test time intervals
+            test_idx = np.concatenate([partition_indices[i] for i in test_parts])
+            test_trades = df.iloc[test_idx]
 
-            # In-Sample Sharpe
-            is_std = np.std(train_data)
-            is_sharpe = (np.mean(train_data) / (is_std + 1e-6)) * annualization_factor if is_std > 0 else 0.0
-            is_sharpes.append(is_sharpe)
+            test_intervals = []
+            for i in test_parts:
+                part_df = df.iloc[partition_indices[i]]
+                test_intervals.append((part_df["entry_time"].min(), part_df["exit_time"].max()))
 
-            # Out-of-Sample Sharpe
-            oos_std = np.std(test_data)
-            oos_sharpe = (np.mean(test_data) / (oos_std + 1e-6)) * annualization_factor if oos_std > 0 else 0.0
-            oos_sharpes.append(oos_sharpe)
+            # -------------------------------------------------------------
+            # PURGING & EMBARGOING TRAINING SET
+            # -------------------------------------------------------------
+            raw_train_idx = np.concatenate([partition_indices[i] for i in train_parts])
+            train_candidates = df.iloc[raw_train_idx]
 
-        is_sharpes = np.array(is_sharpes)
-        oos_sharpes = np.array(oos_sharpes)
+            purged_train_indices = []
+            for t_idx, tr_row in train_candidates.iterrows():
+                tr_entry = tr_row["entry_time"]
+                tr_exit = tr_row["exit_time"]
 
-        # Probability of Backtest Overfitting (PBO): Fraction of OOS paths with negative Sharpe
-        pbo = float(np.mean(oos_sharpes <= 0.0))
-        mean_is_sharpe = float(np.mean(is_sharpes))
-        mean_oos_sharpe = float(np.mean(oos_sharpes))
-        median_oos_sharpe = float(np.median(oos_sharpes))
-        oos_sharpe_std = float(np.std(oos_sharpes))
+                # 1. Purge: Drop if training holding period overlaps with ANY test interval
+                overlaps = False
+                for test_start, test_end in test_intervals:
+                    if not (tr_exit < test_start or tr_entry > test_end):
+                        overlaps = True
+                        break
+                if overlaps:
+                    continue
 
-        # Degradation Ratio (OOS Sharpe / IS Sharpe)
-        degradation_ratio = (mean_oos_sharpe / max(1e-4, mean_is_sharpe)) if mean_is_sharpe > 0 else 0.0
+                # 2. Embargo: Drop if entry falls in embargo window immediately following test period
+                in_embargo = False
+                for _, test_end in test_intervals:
+                    if pd.Timedelta(0) <= (tr_entry - test_end) <= pd.Timedelta(days=2):
+                        in_embargo = True
+                        break
+                if in_embargo:
+                    continue
 
-        is_overfitted = (pbo > 0.30 or mean_oos_sharpe < 0.5)
+                purged_train_indices.append(t_idx)
+
+            if len(purged_train_indices) < 10 or len(test_trades) < 5:
+                continue
+
+            purged_train_trades = df.loc[purged_train_indices]
+
+            # Compute Annualized Sharpe for IS (purged) and OOS
+            is_pnl = purged_train_trades["net_pnl"]
+            oos_pnl = test_trades["net_pnl"]
+
+            is_s = float((is_pnl.mean() / (is_pnl.std() + 1e-6)) * np.sqrt(252))
+            oos_s = float((oos_pnl.mean() / (oos_pnl.std() + 1e-6)) * np.sqrt(252))
+
+            is_sharpes.append(is_s)
+            oos_sharpes.append(oos_s)
+
+        if not is_sharpes:
+            return {"is_overfitted": True, "pbo": 1.0, "pbo_pct": "100.0%"}
+
+        is_arr = np.array(is_sharpes)
+        oos_arr = np.array(oos_sharpes)
+
+        # Probability of Backtest Overfitting (PBO): P(OOS Sharpe <= 0)
+        pbo = float(np.mean(oos_arr <= 0.0))
+        mean_is = float(np.mean(is_arr))
+        mean_oos = float(np.mean(oos_arr))
+        degradation = float(mean_oos / (mean_is + 1e-6)) if mean_is > 0 else 0.0
 
         return {
-            "status": "VALIDATED",
-            "n_paths": len(combos),
+            "total_trades": n_trades,
+            "combinatorial_paths": len(all_combos),
+            "mean_in_sample_sharpe": round(mean_is, 2),
+            "mean_oos_sharpe": round(mean_oos, 2),
+            "median_oos_sharpe": round(float(np.median(oos_arr)), 2),
             "pbo": round(pbo, 3),
-            "pbo_pct": f"{round(pbo * 100, 1)}%",
-            "mean_is_sharpe": round(mean_is_sharpe, 2),
-            "mean_oos_sharpe": round(mean_oos_sharpe, 2),
-            "median_oos_sharpe": round(median_oos_sharpe, 2),
-            "oos_sharpe_std": round(oos_sharpe_std, 2),
-            "degradation_ratio": round(degradation_ratio, 2),
-            "is_overfitted": is_overfitted,
-            "distribution_oos_sharpe": [round(float(s), 2) for s in oos_sharpes],
+            "pbo_pct": f"{round(pbo * 100.0, 1)}%",
+            "degradation_ratio": round(degradation, 2),
+            "is_overfitted": (pbo > 0.30 or mean_oos < 0.50),
         }
