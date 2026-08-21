@@ -12,6 +12,11 @@ import requests
 from src.data.data_lake import DataLake
 
 
+class DataIntegrityError(RuntimeError):
+    """Raised when historical market data cannot be retrieved or verified."""
+    pass
+
+
 class AngelHistoricalFetcher:
     """
     Client to fetch historical candles directly from Angel One SmartAPI and cache in DataLake.
@@ -172,20 +177,27 @@ class AngelHistoricalFetcher:
         _t.sleep(0.8)
 
         candle_response = None
+        last_err = None
         for attempt in range(3):
             try:
                 candle_response = self.smart_api.getCandleData(params)
                 if isinstance(candle_response, dict) and candle_response.get("status"):
                     break
-            except Exception:
+                else:
+                    last_err = candle_response.get("message", "Unknown API error") if isinstance(candle_response, dict) else "Non-dict response"
+            except Exception as e:
+                last_err = str(e)
                 _t.sleep(1.5 * (attempt + 1))
 
         if not isinstance(candle_response, dict) or not candle_response.get("status"):
-            return self.data_lake.load_bars(symbol.upper(), timeframe.lower())
+            raise DataIntegrityError(
+                f"CRITICAL: Failed to fetch {symbol} ({timeframe}) from {f_str} to {t_str} from Angel One SmartAPI. "
+                f"Last error: {last_err}"
+            )
 
         raw_data = candle_response.get("data", [])
         if not raw_data:
-            return pd.DataFrame()
+            raise DataIntegrityError(f"CRITICAL: Empty candle payload returned for {symbol} ({timeframe}) from {f_str} to {t_str}")
 
         df = pd.DataFrame(raw_data, columns=["timestamp", "open", "high", "low", "close", "volume"])
         df["timestamp"] = pd.to_datetime(df["timestamp"])
