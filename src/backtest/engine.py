@@ -171,7 +171,7 @@ class BacktestEngine:
                 if trailing_mode in ("STEP_RATCHET", "BREAK_EVEN") and initial_sl > 0:
                     if position_side == "LONG":
                         unit_risk = max(entry_price * 0.002, entry_price - initial_sl)
-                        peak_high = np.max(highs[entry_idx : i + 2])
+                        peak_high = np.max(highs[entry_idx : i + 1])
                         if trailing_mode == "STEP_RATCHET":
                             if peak_high >= entry_price + (2.0 * unit_risk):
                                 current_sl = max(current_sl, entry_price + (1.50 * unit_risk))
@@ -184,7 +184,7 @@ class BacktestEngine:
                                 current_sl = max(current_sl, entry_price + (0.05 * unit_risk))
                     else:  # SHORT
                         unit_risk = max(entry_price * 0.002, initial_sl - entry_price)
-                        lowest_low = np.min(lows[entry_idx : i + 2])
+                        lowest_low = np.min(lows[entry_idx : i + 1])
                         if trailing_mode == "STEP_RATCHET":
                             if lowest_low <= entry_price - (2.0 * unit_risk):
                                 current_sl = min(current_sl, entry_price - (1.50 * unit_risk))
@@ -222,7 +222,7 @@ class BacktestEngine:
                         mfe, mae = sim_res.mfe_pct, sim_res.mae_pct
 
                 # 2. Native Multi-Timeframe Intrabar Fallback
-                if not exited_intrabar:
+                if not exited_intrabar and not (self.segment == Segment.EQUITY_INTRADAY and indices[i].date() != next_time.date()):
                     if position_side == "LONG":
                         if current_sl > 0 and next_low <= current_sl:
                             exited_intrabar = True
@@ -299,7 +299,9 @@ class BacktestEngine:
                     trade_id += 1
                     in_position = False
                     position_side = None
-                    continue
+
+            if self.segment == Segment.EQUITY_INTRADAY and indices[i].date() != next_time.date():
+                curr_signal = 0.0
 
             # 2. Evaluate Signal Changes for Next-Bar Open Execution
             if not in_position and curr_signal != 0.0:
