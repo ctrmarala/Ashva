@@ -1,12 +1,13 @@
 """
-Ashva Master Multi-Alpha Portfolio Backtester (The Institutional Ensemble Engine)
-Blends multiple champion alphas into a unified chronological trading simulation.
-Enforces Portfolio Capital Limits, Risk Parity Sizing, Max Concurrent Positions,
-Sector Exposure Caps, and Regime DNA Gates.
+Ashva Master Multi-Alpha Event-Driven Portfolio Backtester
+Executes an institutional event-driven simulation (ENTRY_EVENT & EXIT_EVENT)
+to eliminate PnL realization lookahead bias and enforce dynamic compounding,
+sector caps, single-symbol collision locks, and regime gating.
 """
 
 from typing import Dict, List, Any, Optional, Tuple, Type
 from dataclasses import dataclass
+from enum import Enum
 import pandas as pd
 import numpy as np
 
@@ -17,30 +18,27 @@ from src.research.regime_profiler import MarketRegimeProfiler
 
 
 SECTOR_MAP = {
-    # IT
     "TCS": "IT", "INFY": "IT", "HCLTECH": "IT", "TECHM": "IT", "WIPRO": "IT",
-    # Banking & Financials
     "HDFCBANK": "BANKING", "ICICIBANK": "BANKING", "SBIN": "BANKING", "KOTAKBANK": "BANKING",
     "AXISBANK": "BANKING", "INDUSINDBK": "BANKING", "BAJFINANCE": "FINANCE", "BAJAJFINSV": "FINANCE",
     "SHRIRAMFIN": "FINANCE", "HDFCLIFE": "FINANCE", "SBILIFE": "FINANCE",
-    # Auto
     "MARUTI": "AUTO", "TATAMOTORS": "AUTO", "TMPV": "AUTO", "M&M": "AUTO", "BAJAJ-AUTO": "AUTO",
     "EICHERMOT": "AUTO", "HEROMOTOCO": "AUTO",
-    # Energy & Oil
     "RELIANCE": "ENERGY", "NTPC": "ENERGY", "ONGC": "ENERGY", "POWERGRID": "ENERGY",
     "COALINDIA": "ENERGY", "BPCL": "ENERGY",
-    # Pharma
     "SUNPHARMA": "PHARMA", "DRREDDY": "PHARMA", "CIPLA": "PHARMA", "DIVISLAB": "PHARMA",
     "APOLLOHOSP": "PHARMA",
-    # Metals & Materials
     "TATASTEEL": "METALS", "JSWSTEEL": "METALS", "GRASIM": "MATERIALS", "ULTRACEMCO": "MATERIALS",
     "PIDILITIND": "MATERIALS",
-    # FMCG & Retail
     "ITC": "FMCG", "HINDUNILVR": "FMCG", "NESTLEIND": "FMCG", "BRITANNIA": "FMCG",
     "TATACONSUM": "FMCG", "TITAN": "CONSUMER", "TRENT": "RETAIL",
-    # Conglomerate & Infra
     "LT": "INFRA", "ADANIENT": "INFRA", "ADANIPORTS": "INFRA", "BEL": "DEFENSE",
 }
+
+
+class EventType(str, Enum):
+    ENTRY = "ENTRY"
+    EXIT = "EXIT"
 
 
 @dataclass
@@ -65,23 +63,23 @@ class PortfolioTrade:
 
 class MasterPortfolioBacktester:
     """
-    Simulates simultaneous multi-alpha portfolio execution with risk and sector controls.
+    Simulates multi-alpha portfolio execution using a strict Event-Driven architecture.
+    Guarantees PnL is realized ONLY upon position exit (zero capital lookahead).
     """
 
     def __init__(
         self,
         data_lake: Optional[DataLake] = None,
-        initial_capital: float = 500000.0,   # ₹5,00,000 INR
-        risk_per_trade_inr: float = 2500.0,  # Legacy static fallback
-        risk_per_trade_pct: float = 0.005,   # 0.50% account risk per trade
+        initial_capital: float = 500000.0,
+        risk_per_trade_pct: float = 0.0050,  # 0.50% dynamic account risk
+        risk_per_trade_inr: Optional[float] = None,  # Backwards compatibility
         max_concurrent_positions: int = 5,
         max_positions_per_sector: int = 2,
         cost_model: Optional[IndianCostModel] = None,
     ):
         self.lake = data_lake or DataLake(read_only=True)
         self.initial_capital = initial_capital
-        self.risk_per_trade_inr = risk_per_trade_inr
-        self.risk_per_trade_pct = risk_per_trade_pct
+        self.risk_per_trade_pct = (risk_per_trade_inr / initial_capital) if risk_per_trade_inr is not None else risk_per_trade_pct
         self.max_concurrent_positions = max_concurrent_positions
         self.max_positions_per_sector = max_positions_per_sector
         self.cost_model = cost_model or IndianCostModel()
@@ -96,17 +94,11 @@ class MasterPortfolioBacktester:
         strategy_trailing_map: Optional[Dict[str, str]] = None,
         use_regime_filter: bool = True,
     ) -> Dict[str, Any]:
-        """
-        Executes master multi-alpha portfolio backtest by extracting clean discrete trades per alpha
-        and merging into a global chronological portfolio simulation with concurrent risk gates.
-        """
         tf_map = strategy_timeframe_map or {}
         trail_map = strategy_trailing_map or {}
 
-        # 1. Extract standalone discrete trades from all strategies across all symbols
-        all_candidate_trades: List[Dict[str, Any]] = []
+        all_candidate_trades = []
 
-        print(f"[*] Extracting candidate trades for {len(strategies)} alphas across {len(symbols)} symbols...")
         for strat_obj in strategies:
             strat = strat_obj() if isinstance(strat_obj, type) else strat_obj
             alpha_id = getattr(strat, "name", strat.__class__.__name__)
@@ -145,94 +137,134 @@ class MasterPortfolioBacktester:
                         "initial_sl": t.entry_price * 0.99 if t.side == "LONG" else t.entry_price * 1.01,
                     })
 
-        # Sort all candidate trades chronologically by entry_time
-        all_candidate_trades.sort(key=lambda x: x["entry_time"])
-        print(f"[+] Total raw candidate trades extracted: {len(all_candidate_trades):,}")
+        if not all_candidate_trades:
+            return self._empty_result()
 
-        # 2. Chronological Multi-Asset Portfolio Execution
+        # -------------------------------------------------------------
+        # 2. EVENT-DRIVEN QUEUE SIMULATION (Zero Future PnL Leakage)
+        # -------------------------------------------------------------
+        events = []
+        for tr in all_candidate_trades:
+            events.append((tr["entry_time"], EventType.ENTRY, tr))
+
+        events.sort(key=lambda x: (x[0], 0 if x[1] == EventType.EXIT else 1))
+
+        realized_equity = self.initial_capital
+        open_positions: Dict[int, Dict[str, Any]] = {}
+        active_symbols: set = set()
+        active_sectors: Dict[str, int] = {}
         executed_trades: List[PortfolioTrade] = []
-        open_positions: List[Dict[str, Any]] = []
-        equity = self.initial_capital
-        equity_curve = []
+        equity_curve: List[Dict[str, Any]] = []
         trade_id_counter = 1
 
-        for tr in all_candidate_trades:
-            curr_time = tr["entry_time"]
+        event_queue = events
+        i = 0
+        while i < len(event_queue):
+            event_queue.sort(key=lambda x: (x[0], 0 if x[1] == EventType.EXIT else 1))
+            event_time, event_type, data = event_queue[i]
+            i += 1
 
-            # Remove closed positions
-            open_positions = [pos for pos in open_positions if pos["exit_time"] > curr_time]
-
-            # Risk Gate 1: Max Overall Concurrent Positions
-            if len(open_positions) >= self.max_concurrent_positions:
-                continue
-
-            # NEW GATE: Symbol Collision Lock (No duplicate/contradictory positions on same symbol)
-            if any(pos["symbol"] == tr["symbol"] for pos in open_positions):
-                continue
-
-            # Risk Gate 2: Max Positions Per Sector
-            sector = tr["sector"]
-            sector_positions = [pos for pos in open_positions if pos["sector"] == sector]
-            if len(sector_positions) >= self.max_positions_per_sector:
-                continue
-
-            # Risk Gate 3: Regime DNA Gate
-            if use_regime_filter:
-                regime_state = self.regime_profiler.get_regime_for_date(curr_time)
-                # Filter out hostile sideways chop with low volatility for breakout alphas
-                if regime_state.get("composite") == "SIDEWAYS_CHOP_LOW_VOLATILITY" and "BREAKOUT" in tr["strategy_id"].upper():
+            # EXIT EVENT: Realize PnL strictly at EXIT TIME
+            if event_type == EventType.EXIT:
+                t_id = data["trade_id"]
+                if t_id not in open_positions:
                     continue
 
-            # 4. REFACTORED GATE: Dynamic Compounding Fractional Sizing
-            # Size based on dynamically compounding running equity, not static initial capital
-            stop_dist = max(1e-2, abs(tr["entry_price"] - tr["initial_sl"]))
-            risk_budget_inr = max(500.0, equity * self.risk_per_trade_pct)
-            qty = max(1, int(risk_budget_inr / stop_dist))
+                pos = open_positions.pop(t_id)
+                active_symbols.discard(pos["symbol"])
+                active_sectors[pos["sector"]] = max(0, active_sectors.get(pos["sector"], 1) - 1)
 
-            # Statutory Costs & Net PnL Calculation
-            is_long = (tr["side"] == "LONG")
-            gross_pnl = ((tr["exit_price"] - tr["entry_price"]) * qty) if is_long else ((tr["entry_price"] - tr["exit_price"]) * qty)
+                realized_equity += pos["net_pnl"]
+                equity_curve.append({
+                    "timestamp": event_time,
+                    "equity": realized_equity,
+                    "pnl": pos["net_pnl"],
+                })
 
-            buy_price = tr["entry_price"] if is_long else tr["exit_price"]
-            sell_price = tr["exit_price"] if is_long else tr["entry_price"]
-
-            if buy_price <= 0 or sell_price <= 0:
+                executed_trades.append(PortfolioTrade(
+                    trade_id=t_id,
+                    strategy_id=pos["strategy_id"],
+                    symbol=pos["symbol"],
+                    sector=pos["sector"],
+                    entry_time=pos["entry_time"],
+                    exit_time=event_time,
+                    side=pos["side"],
+                    entry_price=pos["entry_price"],
+                    exit_price=pos["exit_price"],
+                    quantity=pos["quantity"],
+                    gross_pnl=pos["gross_pnl"],
+                    net_pnl=pos["net_pnl"],
+                    total_costs=pos["total_costs"],
+                    exit_reason=pos["exit_reason"],
+                    mfe_pct=pos["mfe_pct"],
+                    mae_pct=pos["mae_pct"],
+                ))
                 continue
 
-            costs = self.cost_model.calculate_trade_costs(buy_price=buy_price, sell_price=sell_price, quantity=qty, segment=Segment.EQUITY_INTRADAY)
-            net_pnl = gross_pnl - costs.total_tax_and_charges
+            # ENTRY EVENT: Size strictly with CURRENT Realized Equity
+            if event_type == EventType.ENTRY:
+                tr = data
+                sym = tr["symbol"]
+                sector = tr["sector"]
 
-            equity += net_pnl
-            equity_curve.append({"timestamp": tr["exit_time"], "equity": equity, "pnl": net_pnl})
+                if sym in active_symbols:
+                    continue
+                if len(open_positions) >= self.max_concurrent_positions:
+                    continue
+                if active_sectors.get(sector, 0) >= self.max_positions_per_sector:
+                    continue
 
-            port_trade = PortfolioTrade(
-                trade_id=trade_id_counter,
-                strategy_id=tr["strategy_id"],
-                symbol=tr["symbol"],
-                sector=tr["sector"],
-                entry_time=tr["entry_time"],
-                exit_time=tr["exit_time"],
-                side=tr["side"],
-                entry_price=tr["entry_price"],
-                exit_price=tr["exit_price"],
-                quantity=qty,
-                gross_pnl=round(gross_pnl, 2),
-                net_pnl=round(net_pnl, 2),
-                total_costs=round(costs.total_tax_and_charges, 2),
-                exit_reason=tr["exit_reason"],
-                mfe_pct=tr["mfe_pct"],
-                mae_pct=tr["mae_pct"],
-            )
-            executed_trades.append(port_trade)
-            trade_id_counter += 1
+                if use_regime_filter:
+                    regime_state = self.regime_profiler.get_regime_for_date(event_time)
+                    if regime_state.get("composite") == "SIDEWAYS_CHOP_LOW_VOLATILITY" and "BREAKOUT" in tr["strategy_id"].upper():
+                        continue
 
-            open_positions.append({
-                "symbol": tr["symbol"],
-                "sector": tr["sector"],
-                "exit_time": tr["exit_time"],
-            })
+                stop_dist = max(1e-2, abs(tr["entry_price"] - tr["initial_sl"]))
+                risk_budget = max(500.0, realized_equity * self.risk_per_trade_pct)
+                qty_from_risk = int(risk_budget / stop_dist)
+                max_cap_qty = int((realized_equity * 0.20) / tr["entry_price"])
+                qty = max(1, min(qty_from_risk, max_cap_qty))
 
-        # 3. Master Metrics Computation
+                is_long = (tr["side"] == "LONG")
+                gross_pnl = ((tr["exit_price"] - tr["entry_price"]) * qty) if is_long else ((tr["entry_price"] - tr["exit_price"]) * qty)
+                buy_p = tr["entry_price"] if is_long else tr["exit_price"]
+                sell_p = tr["exit_price"] if is_long else tr["entry_price"]
+
+                if buy_p <= 0 or sell_p <= 0:
+                    continue
+
+                costs = self.cost_model.calculate_trade_costs(buy_price=buy_p, sell_price=sell_p, quantity=qty, segment=Segment.EQUITY_INTRADAY)
+                net_pnl = gross_pnl - costs.total_tax_and_charges
+
+                t_id = trade_id_counter
+                trade_id_counter += 1
+
+                open_positions[t_id] = {
+                    "trade_id": t_id,
+                    "strategy_id": tr["strategy_id"],
+                    "symbol": sym,
+                    "sector": sector,
+                    "entry_time": event_time,
+                    "exit_time": tr["exit_time"],
+                    "side": tr["side"],
+                    "entry_price": tr["entry_price"],
+                    "exit_price": tr["exit_price"],
+                    "quantity": qty,
+                    "gross_pnl": round(gross_pnl, 2),
+                    "net_pnl": round(net_pnl, 2),
+                    "total_costs": round(costs.total_tax_and_charges, 2),
+                    "exit_reason": tr["exit_reason"],
+                    "mfe_pct": tr["mfe_pct"],
+                    "mae_pct": tr["mae_pct"],
+                }
+
+                active_symbols.add(sym)
+                active_sectors[sector] = active_sectors.get(sector, 0) + 1
+
+                # Schedule EXIT event
+                event_queue.append((tr["exit_time"], EventType.EXIT, {"trade_id": t_id}))
+
+        # 3. Metrics Computation
         df_eq = pd.DataFrame(equity_curve)
         if not df_eq.empty:
             df_eq["peak"] = df_eq["equity"].cummax()
@@ -248,7 +280,7 @@ class MasterPortfolioBacktester:
             sharpe = 0.0
             sortino = 0.0
 
-        total_net_pnl = equity - self.initial_capital
+        total_net_pnl = realized_equity - self.initial_capital
         win_count = sum(1 for t in executed_trades if t.net_pnl > 0)
         total_trades_count = len(executed_trades)
         win_rate = (win_count / total_trades_count * 100.0) if total_trades_count > 0 else 0.0
@@ -256,14 +288,13 @@ class MasterPortfolioBacktester:
         gross_loss = sum(abs(t.net_pnl) for t in executed_trades if t.net_pnl < 0)
         profit_factor = (gross_win / gross_loss) if gross_loss > 0 else (99.0 if gross_win > 0 else 0.0)
 
-        # Alpha contribution summary
         alpha_pnl = {}
         for t in executed_trades:
             alpha_pnl[t.strategy_id] = alpha_pnl.get(t.strategy_id, 0.0) + t.net_pnl
 
         return {
             "initial_capital": self.initial_capital,
-            "final_equity": round(equity, 2),
+            "final_equity": round(realized_equity, 2),
             "total_net_pnl": round(total_net_pnl, 2),
             "roi_pct": round((total_net_pnl / self.initial_capital) * 100.0, 2),
             "total_trades": total_trades_count,
@@ -275,4 +306,21 @@ class MasterPortfolioBacktester:
             "max_drawdown_pct": round(max_drawdown_pct, 2),
             "alpha_contribution": {k: round(v, 2) for k, v in sorted(alpha_pnl.items(), key=lambda x: x[1], reverse=True)},
             "trade_list": executed_trades,
+        }
+
+    def _empty_result(self) -> Dict[str, Any]:
+        return {
+            "initial_capital": self.initial_capital,
+            "final_equity": self.initial_capital,
+            "total_net_pnl": 0.0,
+            "roi_pct": 0.0,
+            "total_trades": 0,
+            "winning_trades": 0,
+            "win_rate": "0.0%",
+            "profit_factor": 0.0,
+            "portfolio_sharpe": 0.0,
+            "portfolio_sortino": 0.0,
+            "max_drawdown_pct": 0.0,
+            "alpha_contribution": {},
+            "trade_list": [],
         }

@@ -1,203 +1,217 @@
 """
 Ashva Market Regime Profiler & Alpha DNA Generator
-Segments market history into macro regimes (Trend, Volatility, Opening Gap Alignment),
-tags every trade with its regime state at entry, and outputs an institutional Alpha Regime DNA Card.
+Classifies historical market sessions into Macro Trend, Volatility, and Opening Gap states.
+Generates Alpha Regime DNA Cards to dynamically filter hostile market environments
+with strict ZERO-LOOKAHEAD bias (strictly using T-1 completed session for macro state).
 """
 
-import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
+import json
 import numpy as np
 import pandas as pd
 
 from src.data.data_lake import DataLake
 
 
+@dataclass
+class MarketRegimeState:
+    trend: str        # BULL_TREND, BEAR_TREND, SIDEWAYS_CHOP
+    volatility: str   # HIGH_VOLATILITY, NORMAL_VOLATILITY, LOW_VOLATILITY
+    gap_alignment: str  # ALIGNED_GAP, COUNTER_GAP, FLAT_OPEN
+    composite: str    # e.g., BULL_TREND_HIGH_VOLATILITY_ALIGNED
+
+
 class MarketRegimeProfiler:
     """
-    Classifies market macro regimes and profiles strategy performance per regime.
+    Constructs an equal-weight NIFTY 50 macro benchmark and classifies
+    market regimes for every historical session with strict T-1 lookahead protection.
     """
+
+    HEAVYWEIGHTS = [
+        "RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "TCS",
+        "LT", "ITC", "BHARTIARTL", "SBIN", "KOTAKBANK",
+    ]
 
     def __init__(self, data_lake: Optional[DataLake] = None):
         self.lake = data_lake or DataLake(read_only=True)
-        self.benchmark_daily: pd.DataFrame = pd.DataFrame()
-        self._load_market_benchmark()
+        self.benchmark_daily: pd.DataFrame = self._build_benchmark_timeline()
 
-    def _load_market_benchmark(self):
-        """Constructs an aggregate equal-weight NIFTY 50 benchmark from top heavyweight equities."""
-        heavyweights = ["RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY", "BHARTIARTL", "SBIN", "ITC", "LT"]
-        daily_dfs = []
-        for sym in heavyweights:
+    def _build_benchmark_timeline(self) -> pd.DataFrame:
+        """
+        Builds an equal-weighted daily benchmark timeline from NIFTY heavyweights.
+        """
+        daily_closes = []
+        daily_highs = []
+        daily_lows = []
+        daily_opens = []
+
+        for sym in self.HEAVYWEIGHTS:
             df = self.lake.load_bars(sym, "1d")
-            if not df.empty:
-                if not isinstance(df.index, pd.DatetimeIndex) and "timestamp" in df.columns:
-                    df["timestamp"] = pd.to_datetime(df["timestamp"])
-                    df = df.set_index("timestamp").sort_index()
-                daily_dfs.append(df[["close", "open", "high", "low", "volume"]])
+            if df.empty:
+                continue
+            if not isinstance(df.index, pd.DatetimeIndex) and "timestamp" in df.columns:
+                df["timestamp"] = pd.to_datetime(df["timestamp"])
+                df = df.set_index("timestamp").sort_index()
 
-        if not daily_dfs:
-            return
+            daily_closes.append(df["close"].rename(sym))
+            daily_highs.append(df["high"].rename(sym))
+            daily_lows.append(df["low"].rename(sym))
+            daily_opens.append(df["open"].rename(sym))
 
-        # Combine into equal-weight proxy
-        all_dates = sorted(list(set.intersection(*[set(df.index.date) for df in daily_dfs])))
-        agg_rows = []
-        for d in all_dates:
-            d_closes = [df.loc[df.index.date == d, "close"].iloc[-1] for df in daily_dfs if len(df.loc[df.index.date == d]) > 0]
-            d_opens = [df.loc[df.index.date == d, "open"].iloc[0] for df in daily_dfs if len(df.loc[df.index.date == d]) > 0]
-            d_highs = [df.loc[df.index.date == d, "high"].max() for df in daily_dfs if len(df.loc[df.index.date == d]) > 0]
-            d_lows = [df.loc[df.index.date == d, "low"].min() for df in daily_dfs if len(df.loc[df.index.date == d]) > 0]
+        if not daily_closes:
+            return pd.DataFrame()
 
-            agg_rows.append({
-                "date": d,
-                "open": np.mean(d_opens),
-                "high": np.mean(d_highs),
-                "low": np.mean(d_lows),
-                "close": np.mean(d_closes),
-            })
+        df_close = pd.concat(daily_closes, axis=1).ffill().dropna()
+        df_high = pd.concat(daily_highs, axis=1).ffill().dropna()
+        df_low = pd.concat(daily_lows, axis=1).ffill().dropna()
+        df_open = pd.concat(daily_opens, axis=1).ffill().dropna()
 
-        bm = pd.DataFrame(agg_rows).set_index(pd.to_datetime([r["date"] for r in agg_rows]))
+        # Normalized equal-weight index starting at 10,000
+        norm_close = df_close.pct_change().fillna(0.0).mean(axis=1)
+        index_close = (1.0 + norm_close).cumprod() * 10000.0
+
+        norm_open = df_open.pct_change().fillna(0.0).mean(axis=1)
+        index_open = (1.0 + norm_open).cumprod() * 10000.0
+
+        norm_high = df_high.pct_change().fillna(0.0).mean(axis=1)
+        index_high = (1.0 + norm_high).cumprod() * 10000.0
+
+        norm_low = df_low.pct_change().fillna(0.0).mean(axis=1)
+        index_low = (1.0 + norm_low).cumprod() * 10000.0
+
+        bm = pd.DataFrame({
+            "open": index_open,
+            "high": index_high,
+            "low": index_low,
+            "close": index_close,
+        }, index=df_close.index)
+
+        # Technical Regime Indicators on Daily Benchmark
         bm["ema20"] = bm["close"].ewm(span=20, adjust=False).mean()
         bm["ema50"] = bm["close"].ewm(span=50, adjust=False).mean()
-        
-        # Volatility: 14-day normalized ATR
-        tr = np.maximum(bm["high"] - bm["low"], np.abs(bm["high"] - bm["close"].shift(1)))
-        tr = np.maximum(tr, np.abs(bm["low"] - bm["close"].shift(1)))
-        bm["atr14"] = tr.rolling(14, min_periods=5).mean()
-        bm["atr_pct"] = (bm["atr14"] / bm["close"]) * 100.0
-        bm["vol_p75"] = bm["atr_pct"].rolling(60, min_periods=15).quantile(0.75)
-        bm["vol_p25"] = bm["atr_pct"].rolling(60, min_periods=15).quantile(0.25)
 
-        # Gap %
-        bm["gap_pct"] = ((bm["open"] - bm["close"].shift(1)) / bm["close"].shift(1)) * 100.0
+        tr1 = bm["high"] - bm["low"]
+        tr2 = (bm["high"] - bm["close"].shift(1)).abs()
+        tr3 = (bm["low"] - bm["close"].shift(1)).abs()
+        bm["tr"] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        bm["atr14"] = bm["tr"].rolling(14, min_periods=5).mean()
+        bm["atr_pct"] = bm["atr14"] / bm["close"] * 100.0
 
-        self.benchmark_daily = bm
+        return bm.dropna()
 
-    def get_regime_for_date(self, trade_date: Any, stock_gap_pct: float = 0.0) -> Dict[str, str]:
+    def get_regime_for_date(self, trade_timestamp: pd.Timestamp, gap_pct: float = 0.0) -> Dict[str, str]:
         """
-        Classifies the exact market regime for a given trade date.
+        Classifies the market regime for a given date with STRICT ZERO-LOOKAHEAD:
+        - Trend & Volatility are classified strictly using the PRIOR completed daily bar (T-1).
+        - Opening Gap is classified strictly using Today's Open vs T-1 Close.
         """
         if self.benchmark_daily.empty:
-            return {"trend": "UNKNOWN", "volatility": "UNKNOWN", "gap_alignment": "UNKNOWN"}
+            return {"trend": "NEUTRAL", "volatility": "NORMAL", "gap": "FLAT", "composite": "UNKNOWN"}
 
-        t_date = pd.to_datetime(trade_date).date()
-        match = self.benchmark_daily.loc[self.benchmark_daily.index.date == t_date]
-        if match.empty:
-            # Fallback to closest prior date
-            prior = self.benchmark_daily.loc[self.benchmark_daily.index.date <= t_date]
-            if prior.empty:
-                return {"trend": "UNKNOWN", "volatility": "UNKNOWN", "gap_alignment": "UNKNOWN"}
-            row = prior.iloc[-1]
-        else:
-            row = match.iloc[0]
+        t_date = pd.to_datetime(trade_timestamp).date()
 
-        # 1. Trend Regime
-        close = row["close"]
-        ema20 = row["ema20"]
-        ema50 = row["ema50"]
-        if close > ema20 and ema20 >= ema50:
+        # 1. Look up PRIOR completed session (T-1)
+        prior_sessions = self.benchmark_daily[self.benchmark_daily.index.date < t_date]
+        if prior_sessions.empty:
+            return {"trend": "NEUTRAL", "volatility": "NORMAL", "gap": "FLAT", "composite": "UNKNOWN"}
+
+        prev_row = prior_sessions.iloc[-1]  # Strict T-1 completed session
+
+        # Trend Regime (Strict T-1 Close vs T-1 EMAs)
+        close_t1 = prev_row["close"]
+        ema20_t1 = prev_row["ema20"]
+        ema50_t1 = prev_row["ema50"]
+
+        if close_t1 > ema20_t1 and ema20_t1 >= ema50_t1:
             trend_regime = "BULL_TREND"
-        elif close < ema20 and ema20 <= ema50:
+        elif close_t1 < ema20_t1 and ema20_t1 <= ema50_t1:
             trend_regime = "BEAR_TREND"
         else:
             trend_regime = "SIDEWAYS_CHOP"
 
-        # 2. Volatility Regime
-        atr_pct = row["atr_pct"]
-        p75 = row["vol_p75"] if not np.isnan(row["vol_p75"]) else 1.5
-        p25 = row["vol_p25"] if not np.isnan(row["vol_p25"]) else 0.8
-        if atr_pct >= p75:
+        # Volatility Regime (Strict T-1 ATR vs T-1 Rolling Distribution)
+        atr_pct_t1 = prev_row["atr_pct"]
+        rolling_atr = prior_sessions["atr_pct"].tail(60)
+        p75 = rolling_atr.quantile(0.75) if len(rolling_atr) > 10 else 1.5
+        p25 = rolling_atr.quantile(0.25) if len(rolling_atr) > 10 else 0.8
+
+        if atr_pct_t1 >= p75:
             vol_regime = "HIGH_VOLATILITY"
-        elif atr_pct <= p25:
+        elif atr_pct_t1 <= p25:
             vol_regime = "LOW_VOLATILITY"
         else:
             vol_regime = "NORMAL_VOLATILITY"
 
-        # 3. Gap Alignment
-        mkt_gap = row["gap_pct"]
-        if abs(mkt_gap) < 0.15:
-            gap_alignment = "FLAT_OPEN"
-        elif (mkt_gap > 0 and stock_gap_pct > 0) or (mkt_gap < 0 and stock_gap_pct < 0):
-            gap_alignment = "ALIGNED_GAP"
+        # Gap Alignment (Today's Open vs T-1 Close)
+        if abs(gap_pct) < 0.0020:
+            gap_regime = "FLAT_OPEN"
+        elif (gap_pct > 0 and trend_regime == "BULL_TREND") or (gap_pct < 0 and trend_regime == "BEAR_TREND"):
+            gap_regime = "ALIGNED_GAP"
         else:
-            gap_alignment = "COUNTER_GAP"
+            gap_regime = "COUNTER_GAP"
+
+        composite = f"{trend_regime}_{vol_regime}"
 
         return {
             "trend": trend_regime,
             "volatility": vol_regime,
-            "gap_alignment": gap_alignment,
-            "composite": f"{trend_regime}_{vol_regime}",
+            "gap": gap_regime,
+            "composite": composite,
         }
 
-    def profile_trades(self, trades: List[Dict[str, Any]], alpha_id: str = "alpha_generic") -> Dict[str, Any]:
+    def profile_trades(self, trade_list: List[Dict[str, Any]], alpha_id: str) -> Dict[str, Any]:
         """
-        Takes a list of trade dictionaries, tags each with its regime, and computes regime decomposition.
+        Profiles a list of trades against market regimes to construct an Alpha DNA card.
         """
-        if not trades:
-            return {"status": "EMPTY", "alpha_id": alpha_id, "regimes": {}}
+        if not trade_list:
+            return {"alpha_id": alpha_id, "approved_regimes": [], "disabled_regimes": []}
 
-        df_trades = pd.DataFrame(trades)
-        if "entry_time" not in df_trades.columns:
-            return {"status": "INVALID_SCHEMA", "alpha_id": alpha_id}
+        regime_pnl: Dict[str, List[float]] = {}
 
-        df_trades["entry_date"] = pd.to_datetime(df_trades["entry_time"]).dt.date
-        df_trades["stock_gap_pct"] = df_trades.get("gap_pct", 0.0)
+        for tr in trade_list:
+            t_time = tr["entry_time"]
+            pnl = tr["pnl"]
+            gap = tr.get("gap_pct", 0.0)
 
-        # Tag each trade
-        regime_tags = []
-        for _, row in df_trades.iterrows():
-            reg = self.get_regime_for_date(row["entry_date"], row["stock_gap_pct"])
-            regime_tags.append(reg)
+            state = self.get_regime_for_date(t_time, gap_pct=gap)
+            comp = state["composite"]
 
-        df_reg = pd.DataFrame(regime_tags)
-        df_merged = pd.concat([df_trades.reset_index(drop=True), df_reg.reset_index(drop=True)], axis=1)
+            if comp not in regime_pnl:
+                regime_pnl[comp] = []
+            regime_pnl[comp].append(pnl)
 
-        # Decompose across Trend, Volatility, and Composite
-        regime_metrics = {}
-        for category in ["trend", "volatility", "gap_alignment", "composite"]:
-            regime_metrics[category] = {}
-            for state, grp in df_merged.groupby(category):
-                n_trades = len(grp)
-                net_pnl = float(grp["pnl"].sum())
-                win_rate = float((grp["pnl"] > 0).mean() * 100.0)
-                gross_win = float(grp.loc[grp["pnl"] > 0, "pnl"].sum())
-                gross_loss = float(abs(grp.loc[grp["pnl"] < 0, "pnl"].sum()))
-                profit_factor = (gross_win / gross_loss) if gross_loss > 0 else (99.0 if gross_win > 0 else 0.0)
+        approved = []
+        disabled = []
+        regime_breakdown = {}
 
-                # Sharpe
-                returns = grp["pnl"]
-                sharpe = float((returns.mean() / (returns.std() + 1e-6)) * np.sqrt(252)) if len(returns) > 3 else 0.0
+        for regime, pnls in regime_pnl.items():
+            tot_pnl = sum(pnls)
+            win_cnt = sum(1 for p in pnls if p > 0)
+            wr = (win_cnt / len(pnls) * 100.0) if pnls else 0.0
 
-                is_approved = (net_pnl > 0 and profit_factor >= 1.1 and n_trades >= 5)
-                status = "APPROVED" if is_approved else ("MARGINAL" if net_pnl > 0 else "DISABLED")
+            regime_breakdown[regime] = {
+                "trades": len(pnls),
+                "net_pnl": round(tot_pnl, 2),
+                "win_rate": round(wr, 1),
+            }
 
-                regime_metrics[category][state] = {
-                    "trades": n_trades,
-                    "net_pnl": round(net_pnl, 2),
-                    "win_rate": f"{round(win_rate, 1)}%",
-                    "profit_factor": round(profit_factor, 2),
-                    "sharpe": round(sharpe, 2),
-                    "status": status,
-                }
+            if tot_pnl > 0 and wr >= 35.0:
+                approved.append(regime)
+            else:
+                disabled.append(regime)
 
-        # Generate DNA Card Summary
         dna_card = {
             "alpha_id": alpha_id,
-            "total_trades": len(df_merged),
-            "total_net_pnl": round(float(df_merged["pnl"].sum()), 2),
-            "approved_regimes": [
-                k for k, v in regime_metrics["composite"].items() if v["status"] == "APPROVED"
-            ],
-            "disabled_regimes": [
-                k for k, v in regime_metrics["composite"].items() if v["status"] == "DISABLED"
-            ],
-            "regime_breakdown": regime_metrics,
+            "approved_regimes": approved,
+            "disabled_regimes": disabled,
+            "regime_breakdown": regime_breakdown,
         }
 
-        # Save DNA Card to config/alpha_dna/
         out_dir = Path("config/alpha_dna")
         out_dir.mkdir(parents=True, exist_ok=True)
-        out_file = out_dir / f"{alpha_id.lower()}_dna.json"
-        with open(out_file, "w") as f:
+        with open(out_dir / f"{alpha_id.lower()}_dna.json", "w") as f:
             json.dump(dna_card, f, indent=2)
 
         return dna_card

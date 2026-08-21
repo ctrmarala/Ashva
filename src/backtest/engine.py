@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from src.analytics.indian_costs import IndianCostModel, Segment, TradeCostBreakdown
+from src.backtest.intrabar_simulator import IntrabarSimulator
 
 
 @dataclass
