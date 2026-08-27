@@ -111,6 +111,11 @@ from src.strategies.alpha_77_nr4_shock_expansion import Alpha77NR4ShockExpansion
 from src.strategies.alpha_78_double_inside_momentum import Alpha78DoubleInsideMomentum
 from src.strategies.alpha_79_high_rr_opening_drive import Alpha79HighRROpeningDrive
 from src.strategies.alpha_80_nr7_volatility_expansion import Alpha80NR7VolatilityExpansion
+from src.strategies.alpha_81_double_inside_2r_expansion import Alpha81DoubleInside2RExpansion
+from src.strategies.alpha_82_double_inside_volume_shock import Alpha82DoubleInsideVolumeShock
+from src.strategies.alpha_83_double_inside_gap_drift import Alpha83DoubleInsideGapDrift
+from src.strategies.alpha_84_triple_inside_expansion import Alpha84TripleInsideExpansion
+from src.strategies.alpha_85_double_inside_225r_expansion import Alpha85DoubleInside225RExpansion
 
 STRATEGY_MAP = {
     "alpha_01": ("ALPHA_01_TRENDSURFER", AlphaTrendSurfer),
@@ -189,6 +194,11 @@ STRATEGY_MAP = {
     "alpha_78": ("ALPHA_78_DOUBLE_INSIDE_MOMENTUM", Alpha78DoubleInsideMomentum),
     "alpha_79": ("ALPHA_79_HIGH_RR_OPENING_DRIVE", Alpha79HighRROpeningDrive),
     "alpha_80": ("ALPHA_80_NR7_VOLATILITY_EXPANSION", Alpha80NR7VolatilityExpansion),
+    "alpha_81": ("ALPHA_81_DOUBLE_INSIDE_2R_EXPANSION", Alpha81DoubleInside2RExpansion),
+    "alpha_82": ("ALPHA_82_DOUBLE_INSIDE_VOLUME_SHOCK", Alpha82DoubleInsideVolumeShock),
+    "alpha_83": ("ALPHA_83_DOUBLE_INSIDE_GAP_DRIFT", Alpha83DoubleInsideGapDrift),
+    "alpha_84": ("ALPHA_84_TRIPLE_INSIDE_EXPANSION", Alpha84TripleInsideExpansion),
+    "alpha_85": ("ALPHA_85_DOUBLE_INSIDE_225R_EXPANSION", Alpha85DoubleInside225RExpansion),
 }
 
 from scripts.ingest_all_nifty50_timeframes import NIFTY_50_UNIVERSE
