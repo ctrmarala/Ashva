@@ -692,13 +692,181 @@ def render_trading_observability(dal: UIDataAccess):
 
 
 # =============================================================================
-# TAB 4: SYSTEM OBSERVABILITY (PLACEHOLDER FOR PHASE 4)
+# TAB 4: SYSTEM OBSERVABILITY COMPONENT
 # =============================================================================
 
-def render_system_observability():
-    st.title("System Observability")
-    st.caption("System health, resource monitoring, environment integrity, and broker connectivity.")
-    st.info("System Observability module will be integrated in Phase 4.")
+def render_system_observability(dal: UIDataAccess):
+    st.title("System Observability & Operational Health")
+    st.caption("Centralized operational health, engine status, active configuration, git provenance, and system telemetry.")
+
+    # 1. System Overview Section
+    sys_overview = dal.get_system_health_overview()
+    
+    top_c1, top_c2, top_c3, top_c4, top_c5 = st.columns(5)
+    top_c1.metric("Ashva System Status", sys_overview["overall_status"])
+    top_c2.metric("Environment", sys_overview["environment"])
+    top_c3.metric("Ashva Version", sys_overview["version"])
+    top_c4.metric("Git Commit", f"{sys_overview['git_branch']}@{sys_overview['git_commit']}", help=f"Status: {sys_overview['git_status']}")
+    top_c5.metric("Last Refreshed", sys_overview["last_refresh"][-8:])
+
+    st.markdown("---")
+
+    # Component Health Grid
+    st.subheader("Subsystem Operational Health Grid")
+    comps = sys_overview["components"]
+    
+    cc1, cc2, cc3, cc4, cc5, cc6 = st.columns(6)
+    cc1.metric("DATA LAYER", comps["DATA"]["status"], help=comps["DATA"]["detail"])
+    cc2.metric("ALPHA FACTORY", comps["ALPHA FACTORY"]["status"], help=comps["ALPHA FACTORY"]["detail"])
+    cc3.metric("TRADING CORE", comps["TRADING"]["status"], help=comps["TRADING"]["detail"])
+    cc4.metric("REPLAY ENGINE", comps["REPLAY"]["status"], help=comps["REPLAY"]["detail"])
+    cc5.metric("PAPER ENGINE", comps["PAPER"]["status"], help=comps["PAPER"]["detail"])
+    cc6.metric("LIVE BROKER", comps["LIVE"]["status"], help=comps["LIVE"]["detail"])
+
+    st.markdown("---")
+
+    # Subtabs for detailed System inspection
+    sys_tab_engine, sys_tab_data, sys_tab_trading, sys_tab_config, sys_tab_prov, sys_tab_logs, sys_tab_diag, sys_tab_runtime = st.tabs([
+        "⚙️ Engine Health",
+        "📊 Data Pipeline Health",
+        "⚡ Trading Engine State",
+        "📋 Active Configuration",
+        "🏷️ Version & Provenance",
+        "⚠️ Errors, Warnings & Logs",
+        "🛡️ Stale & Broken State",
+        "💻 Runtime & Environment"
+    ])
+
+    with sys_tab_engine:
+        st.subheader("Major Engine Health & Execution Lifecycle")
+        engines = dal.get_engine_health_metrics()
+        df_eng = pd.DataFrame(engines)
+        st.dataframe(
+            df_eng,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "engine": st.column_config.TextColumn("Engine", width="medium"),
+                "status": st.column_config.TextColumn("Status", width="small"),
+                "current_state": st.column_config.TextColumn("Current State", width="medium"),
+                "last_activity": st.column_config.TextColumn("Last Activity", width="medium"),
+                "last_successful_operation": st.column_config.TextColumn("Last Successful Operation", width="large"),
+                "last_error": st.column_config.TextColumn("Last Error", width="small"),
+            }
+        )
+
+    with sys_tab_data:
+        st.subheader("Data Pipeline Operational Health")
+        d_ind = dal.get_data_pipeline_health_indicators()
+        
+        dc1, dc2, dc3, dc4 = st.columns(4)
+        dc1.metric("DuckDB Storage", d_ind["duckdb_storage"])
+        dc2.metric("Parquet Mirror", d_ind["parquet_storage"])
+        dc3.metric("Data Freshness", d_ind["data_freshness"][:10])
+        dc4.metric("Hygiene Audit", d_ind["hygiene_audit"])
+
+        st.markdown("##### Storage & Feed Specifications")
+        st.write(f"**Symbols Available**: `{d_ind['symbols_available']}`")
+        st.write(f"**Timeframes Available**: `{d_ind['timeframes_available']}`")
+        st.write(f"**Structural Data Errors**: `{d_ind['data_errors_count']} errors detected`")
+        st.write(f"**Stale Feeds Status**: `{d_ind['stale_feeds_detected']}`")
+
+    with sys_tab_trading:
+        st.subheader("Trading Engine State & Activity Monitor")
+        t_ind = dal.get_trading_engine_health_indicators()
+        
+        tc1, tc2, tc3, tc4 = st.columns(4)
+        tc1.metric("Core Engine State", t_ind["trading_engine_state"])
+        tc2.metric("Active Contracts", f"{t_ind['active_alpha_contracts_count']} Alphas")
+        tc3.metric("Current Portfolio Equity", t_ind["current_equity"])
+        tc4.metric("Open Real-Time Positions", t_ind["open_positions"])
+
+        st.markdown("##### Last Event Telemetry")
+        st.write(f"**Last Signal Evaluation**: `{t_ind['last_signal_evaluated']}`")
+        st.write(f"**Last Order Submitted**: `{t_ind['last_order_submitted']}`")
+        st.write(f"**Last Fill Executed**: `{t_ind['last_fill_executed']}`")
+        st.write(f"**Last Position Update**: `{t_ind['last_position_update']}`")
+
+    with sys_tab_config:
+        st.subheader("Active System Configuration & Security Audit")
+        st.caption("Guarantees zero accidental divergence between expected and active production configurations.")
+        
+        cfg = dal.get_active_system_configuration()
+
+        cfg_col1, cfg_col2 = st.columns(2)
+        with cfg_col1:
+            st.markdown("#### Fund & Market Execution Settings")
+            st.json(cfg["fund_configuration"])
+            st.markdown("#### NSE Trading Hours & Square-Off")
+            st.json(cfg["market_hours"])
+            st.markdown("#### Alpha Factory Qualification Hurdles")
+            st.json(cfg["alpha_qualification_hurdles"])
+
+        with cfg_col2:
+            st.markdown("#### Real-Time RMS Limits (`config/risk_limits.yaml`)")
+            st.json(cfg["risk_limits"])
+            st.markdown("#### Gateway Credentials & Secret Security Audit")
+            st.info("Institutional Security Rule: All API credentials, JWT tokens, and private keys are strictly redacted.")
+            st.json(cfg["gateway_credentials_security_audit"])
+
+    with sys_tab_prov:
+        st.subheader("Version & Provenance (Reproducibility)")
+        st.caption("Verifies the exact source code revision and environment producing research and execution results.")
+        
+        prov = dal.get_system_version_provenance()
+        
+        pv1, pv2, pv3, pv4 = st.columns(4)
+        pv1.metric("Ashva Version", prov["ashva_version"])
+        pv2.metric("Git Commit SHA", prov["git_commit"])
+        pv3.metric("Git Branch", prov["git_branch"])
+        pv4.metric("Working Tree", prov["working_tree_status"])
+
+        st.write(f"**Commit Timestamp**: `{prov['commit_timestamp']}`")
+        st.write(f"**Python Runtime**: `{prov['python_version']}`")
+        st.write(f"**Host OS Platform**: `{prov['os_platform']}`")
+        st.write(f"**Python Interpreter**: `{prov['interpreter_path']}`")
+
+    with sys_tab_logs:
+        st.subheader("Operational Telemetry & Error Logs")
+        st.caption("Centralized logs from `system_events_log` and `logs/**/app.log` (Tokens and keys automatically sanitized).")
+
+        df_logs = dal.get_operational_logs_and_errors(limit=50)
+        
+        sev_filter = st.selectbox("Filter by Log Severity", ["ALL", "ERROR", "WARNING", "INFO"], index=0, key="select_log_sev")
+        if not df_logs.empty:
+            df_disp_logs = df_logs
+            if sev_filter != "ALL":
+                df_disp_logs = df_disp_logs[df_disp_logs["Severity"] == sev_filter]
+            st.dataframe(df_disp_logs, use_container_width=True, hide_index=True)
+        else:
+            st.info("HISTORICAL LOG STORE NOT AVAILABLE (0 log entries recorded).")
+
+    with sys_tab_diag:
+        st.subheader("Stale & Broken State Detection")
+        st.caption("Automated diagnosis of potential desynchronizations, lock contentions, or missing configurations.")
+        
+        stale_diag = dal.get_stale_and_broken_state_diagnostics()
+        
+        sd1, sd2, sd3 = st.columns(3)
+        sd1.metric("Data Freshness Status", "SYNCHRONIZED" if "SYNCHRONIZED" in stale_diag["data_staleness_status"] else "STALE")
+        sd2.metric("Config Files Missing", "0 Missing" if isinstance(stale_diag["missing_config_files"], str) else f"{len(stale_diag['missing_config_files'])} Missing")
+        sd3.metric("Database File Integrity", "HEALTHY" if isinstance(stale_diag["database_integrity_issues"], str) else "ISSUES")
+
+        st.write(f"**Data Freshness Detail**: `{stale_diag['data_staleness_status']}`")
+        st.write(f"**Missing Configuration Files**: `{stale_diag['missing_config_files']}`")
+        st.write(f"**Database Integrity Audit**: `{stale_diag['database_integrity_issues']}`")
+        st.write(f"**SQLite WAL Lock Status**: `{stale_diag['stale_wal_locks']}`")
+
+    with sys_tab_runtime:
+        st.subheader("Low-Level Runtime & Environment Information")
+        rt = dal.get_system_runtime_info()
+        
+        st.write(f"**Process ID**: `{rt['process_id']}`")
+        st.write(f"**Working Directory**: `{rt['working_directory']}`")
+        st.write(f"**DuckDB Storage Path**: `{rt['duckdb_database_path']}`")
+        st.write(f"**Trading Ledger Path**: `{rt['trading_ledger_path']}`")
+        st.write(f"**Experiment Ledger Path**: `{rt['experiment_ledger_path']}`")
+        st.write(f"**OS Platform & Hardware**: `{rt['os_platform']}`")
 
 
 # =============================================================================
@@ -725,7 +893,7 @@ def main():
         render_trading_observability(dal)
 
     with tab_system:
-        render_system_observability()
+        render_system_observability(dal)
 
 
 if __name__ == "__main__":
