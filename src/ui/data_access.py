@@ -1666,9 +1666,20 @@ class UIDataAccess:
         """
         d_overview = self.get_data_overview()
         
-        # Check DuckDB freshness
+        # Check DuckDB freshness dynamically
         latest_ts_str = d_overview.get("latest_timestamp", "")
-        data_freshness_status = "SYNCHRONIZED (August 28, 2026 Market Close)" if "2026-08-28" in latest_ts_str else "STALE (Prior to August 28, 2026)"
+        if latest_ts_str and latest_ts_str != "NOT AVAILABLE":
+            try:
+                latest_dt = pd.to_datetime(latest_ts_str).date()
+                days_ago = (datetime.now().date() - latest_dt).days
+                if days_ago <= 3:
+                    data_freshness_status = f"SYNCHRONIZED (Latest: {latest_ts_str})"
+                else:
+                    data_freshness_status = f"STALE (Latest: {latest_ts_str}, {days_ago}d ago)"
+            except Exception:
+                data_freshness_status = f"SYNCHRONIZED (Latest: {latest_ts_str})"
+        else:
+            data_freshness_status = "NO DATA RECORDED"
 
         # Check configuration files existence
         missing_configs = []

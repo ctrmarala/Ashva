@@ -1,11 +1,7 @@
 """
-Ashva Real-Time Live Forward Paper Trading Engine
-Runs during active NSE market hours (09:15 AM - 03:30 PM IST).
-Fetches live market ticks/candles via Angel One SmartAPI, evaluates ML Meta-Labeled Alpha strategies,
-checks RMS risk limits, places paper orders with exact Indian tax accounting, and updates the Web Dashboard.
-
-Usage:
-    python scripts/run_live_paper_session.py --symbols INFY TCS ICICIBANK RELIANCE --timeframe 15m
+[DEPRECATED / LEGACY]
+Notice: For unified production execution, use `src/trading/engine.py` (TradingEngine)
+or `scripts/run_paper_bot.py` with QualifiedAlphaContract and TradingManifest.
 """
 
 import argparse

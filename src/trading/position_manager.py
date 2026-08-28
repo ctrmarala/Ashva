@@ -228,7 +228,24 @@ class PositionManager:
             return None
 
     def get_position(self, symbol: str) -> Optional[Position]:
-        return self.open_positions.get(symbol.upper())
+        return self.open_positions.get(symbol.upper(), None)
+
+    def restore_position(self, p_dict: Dict[str, Any]):
+        """Restores an open position from crash-recovery WAL snapshot."""
+        sym = p_dict["symbol"].upper()
+        side_val = p_dict.get("side", "BUY")
+        side = OrderSide.BUY if str(side_val).upper() in ["BUY", "ORDERSIDE.BUY"] else OrderSide.SELL
+        pos = Position(
+            symbol=sym,
+            side=side,
+            quantity=int(p_dict["quantity"]),
+            entry_price=float(p_dict["entry_price"]),
+            entry_time=pd.to_datetime(p_dict.get("entry_time", datetime.now())),
+            strategy_id=p_dict.get("strategy_id", "UNKNOWN"),
+            stop_loss=p_dict.get("stop_loss"),
+            take_profit=p_dict.get("take_profit"),
+        )
+        self.open_positions[sym] = pos
 
     def get_all_positions(self) -> List[Position]:
         return list(self.open_positions.values())

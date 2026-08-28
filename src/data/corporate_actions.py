@@ -14,6 +14,7 @@ Enforces CRSP/NSE institutional standards:
 
 from dataclasses import dataclass, asdict
 from enum import Enum
+import logging
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 import json
@@ -22,6 +23,8 @@ import pandas as pd
 import duckdb
 
 from src.data.data_lake import DataLake
+
+logger = logging.getLogger("Ashva.CorporateActionManager")
 
 
 class CorporateActionType(str, Enum):
@@ -121,7 +124,7 @@ class CorporateActionManager:
                     WHERE symbol = ? AND timestamp < ?;
                 """, [factor, factor, factor, factor, factor, sym, ex_dt])
             except Exception as e:
-                pass
+                logger.error(f"Error updating DuckDB bars for corporate action on {sym}: {e}")
 
         # 2. Update Parquet Files for all available timeframes
         timeframes = ["1m", "5m", "10m", "15m", "30m", "1d"]
@@ -146,7 +149,7 @@ class CorporateActionManager:
                             df.to_parquet(parquet_file, engine="pyarrow", index=False)
                             updated_timeframes.append(tf)
                 except Exception as e:
-                    pass
+                    logger.error(f"Error updating Parquet {parquet_file.name} for corporate action: {e}")
 
         # 3. Append to Audit Ledger
         record = {

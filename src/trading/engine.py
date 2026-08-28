@@ -8,6 +8,7 @@ Enforces per-alpha entry windows, actual-fill barrier registration, and strict r
 
 from datetime import datetime, time
 import logging
+import sqlite3
 from typing import Dict, List, Any, Optional
 import pandas as pd
 import numpy as np
@@ -17,6 +18,7 @@ from src.core.events import (
     OrderEvent, FillEvent, OrderSide, OrderType, ProductType,
     PortfolioUpdateEvent, TradingMode, DecisionEvent,
 )
+from src.core.state_machine import StateMachineWAL
 from src.market_data.provider import MarketDataProvider
 from src.execution.adapter import ExecutionAdapter
 from src.trading.contract import QualifiedAlphaContract
@@ -91,12 +93,27 @@ class TradingEngine:
         self.manifest = manifest or TradingManifest(contracts=alpha_contracts or [])
         
         # State Managers (Single Authoritative Source of Truth)
+        self.state_wal = StateMachineWAL()
         self.order_manager = OrderManager()
         self.position_manager = PositionManager(cost_model=self.cost_model)
         self.portfolio_state = PortfolioState(initial_capital=initial_capital)
         self.risk_manager = risk_manager or LiveRiskManager()
         self.allocator = allocator or MultiAlphaAllocator()
         self.ledger = ledger or TradingLedger()
+
+        # Crash Recovery: Restore persisted portfolio & position state in PAPER / LIVE modes
+        if self.mode in (TradingMode.PAPER, TradingMode.LIVE):
+            saved_state = self.state_wal.load_portfolio_state()
+            if saved_state:
+                self.portfolio_state.cash = float(saved_state.get("cash", initial_capital))
+                self.portfolio_state.equity = float(saved_state.get("equity", initial_capital))
+                self.portfolio_state.daily_starting_equity = float(saved_state.get("daily_starting_equity", initial_capital))
+                self.portfolio_state.peak_equity = float(saved_state.get("peak_equity", initial_capital))
+                if saved_state.get("kill_switch_active"):
+                    self.risk_manager.kill_switch_active = True
+            saved_positions = self.state_wal.load_open_positions()
+            for p in saved_positions:
+                self.position_manager.restore_position(p)
 
         # Strategy Instances (Instantiated directly from Frozen Contracts)
         self._strategy_instances: Dict[str, Any] = {}
@@ -169,6 +186,15 @@ class TradingEngine:
                 closed_trade["mode"] = self.mode.value if hasattr(self.mode, "value") else str(self.mode)
                 self.portfolio_state.on_trade_closed(closed_trade["net_pnl"], fill.timestamp)
                 self.ledger.log_closed_trade(closed_trade)
+                if self.mode in (TradingMode.PAPER, TradingMode.LIVE):
+                    self.state_wal.remove_position(sym)
+                    self.state_wal.save_portfolio_state(
+                        cash=self.portfolio_state.cash,
+                        equity=self.portfolio_state.current_equity,
+                        daily_starting_equity=self.portfolio_state.daily_starting_equity,
+                        peak_equity=self.portfolio_state.peak_equity,
+                        kill_switch_active=self.risk_manager.kill_switch_active,
+                    )
             elif pos_before is None:
                 # Newly opened position -> Register barrier with adapter using actual fill price!
                 self.execution_adapter.register_barriers(
@@ -184,6 +210,24 @@ class TradingEngine:
                     stop_loss=fill.stop_loss,
                     take_profit=fill.take_profit,
                 )
+                if self.mode in (TradingMode.PAPER, TradingMode.LIVE):
+                    self.state_wal.upsert_position(
+                        symbol=sym,
+                        side=fill.side.value if hasattr(fill.side, "value") else str(fill.side),
+                        quantity=fill.quantity,
+                        entry_price=fill.fill_price,
+                        entry_time=fill.timestamp.isoformat() if hasattr(fill.timestamp, "isoformat") else str(fill.timestamp),
+                        strategy_id=fill.strategy_id,
+                        stop_loss=fill.stop_loss,
+                        take_profit=fill.take_profit,
+                    )
+                    self.state_wal.save_portfolio_state(
+                        cash=self.portfolio_state.cash,
+                        equity=self.portfolio_state.current_equity,
+                        daily_starting_equity=self.portfolio_state.daily_starting_equity,
+                        peak_equity=self.portfolio_state.peak_equity,
+                        kill_switch_active=self.risk_manager.kill_switch_active,
+                    )
 
         # 3. Update Position & Portfolio MTM Valuations
         self.position_manager.on_market_event(market_event)
@@ -246,6 +290,15 @@ class TradingEngine:
                     closed_trade["mode"] = self.mode.value if hasattr(self.mode, "value") else str(self.mode)
                     self.portfolio_state.on_trade_closed(closed_trade["net_pnl"], event_time)
                     self.ledger.log_closed_trade(closed_trade)
+                    if self.mode in (TradingMode.PAPER, TradingMode.LIVE):
+                        self.state_wal.remove_position(sym)
+                        self.state_wal.save_portfolio_state(
+                            cash=self.portfolio_state.cash,
+                            equity=self.portfolio_state.current_equity,
+                            daily_starting_equity=self.portfolio_state.daily_starting_equity,
+                            peak_equity=self.portfolio_state.peak_equity,
+                            kill_switch_active=self.risk_manager.kill_switch_active,
+                        )
                 return
 
         # 5. Evaluate Alpha Contracts & Generate Signals (Only if Not in Position)

@@ -94,9 +94,19 @@ class DataLake:
         """)
         self.conn.unregister("temp_bars")
 
-        # Save partitioned Parquet backup
+        # Save partitioned Parquet backup (preserving historical continuity)
         parquet_file = self.parquet_dir / f"{symbol.upper()}_{timeframe.lower()}.parquet"
-        df_to_save.to_parquet(parquet_file, engine="pyarrow", index=False)
+        if parquet_file.exists():
+            try:
+                existing_p = pd.read_parquet(parquet_file)
+                combined = pd.concat([existing_p, df_to_save], ignore_index=True)
+                combined.drop_duplicates(subset=["symbol", "timeframe", "timestamp"], keep="last", inplace=True)
+                combined.sort_values(by="timestamp", inplace=True)
+                combined.to_parquet(parquet_file, engine="pyarrow", index=False)
+            except Exception:
+                df_to_save.to_parquet(parquet_file, engine="pyarrow", index=False)
+        else:
+            df_to_save.to_parquet(parquet_file, engine="pyarrow", index=False)
 
     def load_bars(
         self,

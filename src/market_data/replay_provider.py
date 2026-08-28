@@ -125,7 +125,7 @@ class ReplayMarketDataProvider(MarketDataProvider):
     def get_historical_slice(self, symbol: str, up_to_timestamp: pd.Timestamp) -> pd.DataFrame:
         """Returns historical bars strictly up to the current simulation time (point-in-time window)."""
         sym_clean = symbol.upper()
-        df = self._cached_bars.get(sym_clean, pd.DataFrame())
+        df = self._full_bars.get(sym_clean, pd.DataFrame())
         if df.empty:
             return df
         return df.loc[:up_to_timestamp]
