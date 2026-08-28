@@ -84,12 +84,11 @@ def render_data_observability(dal: UIDataAccess):
 
     st.markdown("---")
 
-    subtab_matrix, subtab_detail, subtab_hygiene, subtab_ingestion, subtab_alpha_conn = st.tabs([
+    subtab_matrix, subtab_detail, subtab_hygiene, subtab_ingestion = st.tabs([
         "📊 Coverage Matrix",
         "🔍 Symbol Deep Dive",
         "🛡️ Quality & Hygiene Audit",
-        "📥 Ingestion Telemetry",
-        "🔗 Data → Alpha Mapping"
+        "📥 Ingestion Telemetry"
     ])
 
     with subtab_matrix:
@@ -199,23 +198,6 @@ def render_data_observability(dal: UIDataAccess):
             st.dataframe(df_logs, use_container_width=True, hide_index=True)
         else:
             st.info("No session log files discovered in logs/ directory.")
-
-    with subtab_alpha_conn:
-        st.subheader("Data Lake → Alpha Factory Requirements Mapping")
-        st.caption("Bridges research hypotheses requirements with live Data Lake availability.")
-
-        df_conn = dal.get_alpha_data_connection()
-        if not df_conn.empty:
-            search_alpha = st.text_input("Filter by Alpha ID or Mechanism", placeholder="e.g. ALPHA_86, ALPHA_70...", key="search_alpha_conn")
-            df_disp_conn = df_conn
-            if search_alpha:
-                df_disp_conn = df_disp_conn[
-                    df_disp_conn["Alpha ID"].str.contains(search_alpha, case=False, na=False) |
-                    df_disp_conn["Mechanism"].str.contains(search_alpha, case=False, na=False)
-                ]
-            st.dataframe(df_disp_conn, use_container_width=True, hide_index=True)
-        else:
-            st.info("No Alpha mechanisms found in AlphaKnowledgeMap.")
 
 
 # =============================================================================
