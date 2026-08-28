@@ -1,11 +1,12 @@
 """
-Ashva Production Replay Trading Engine: Replay Execution for Recent Sessions
+Ashva Production Replay Trading Engine: Replay Execution for Target Sessions
 Executes qualified positive alphas across the liquid NIFTY universe using the production TradingEngine.
 """
 
 import sys
 import argparse
 from pathlib import Path
+from datetime import time
 from typing import Dict, List, Any
 import pandas as pd
 import numpy as np
@@ -33,22 +34,30 @@ from src.strategies.alpha_54_gap_marubozu_momentum import Alpha54GapMarubozuMome
 from src.strategies.alpha_04_gap_and_go import Alpha04GapAndGo
 
 parser = argparse.ArgumentParser(description="Ashva Replay Engine Runner")
-parser.add_argument("--start-date", type=str, default="2026-08-01", help="Replay start date (YYYY-MM-DD)")
-parser.add_argument("--end-date", type=str, default="2026-08-20", help="Replay end date (YYYY-MM-DD)")
+parser.add_argument("--start-date", type=str, default="2026-08-26", help="Replay start date (YYYY-MM-DD)")
+parser.add_argument("--end-date", type=str, default="2026-08-26", help="Replay end date (YYYY-MM-DD)")
+parser.add_argument("--universe", type=str, default="ALL_50", help="ALL_50 or NIFTY_14")
 args = parser.parse_args()
 
 lake = DataLake(read_only=True)
 cost_model = IndianCostModel(default_slippage_bps=3.0)
 
-universe = [
-    "INFY", "TCS", "ICICIBANK", "HDFCBANK", "SBIN", "AXISBANK",
-    "KOTAKBANK", "RELIANCE", "LT", "TATASTEEL", "BHARTIARTL",
-    "BAJFINANCE", "MARUTI", "SUNPHARMA"
-]
+if args.universe == "ALL_50":
+    universe = lake.list_symbols("15m")
+else:
+    universe = [
+        "INFY", "TCS", "ICICIBANK", "HDFCBANK", "SBIN", "AXISBANK",
+        "KOTAKBANK", "RELIANCE", "LT", "TATASTEEL", "BHARTIARTL",
+        "BAJFINANCE", "MARUTI", "SUNPHARMA"
+    ]
+
+# Ensure end_date includes entire day up to 23:59:59
+s_date = f"{args.start_date} 00:00:00" if len(args.start_date) == 10 else args.start_date
+e_date = f"{args.end_date} 23:59:59" if len(args.end_date) == 10 else args.end_date
 
 print("=" * 115)
-print(f"[*] ASHVA PRODUCTION REPLAY ENGINE: EXECUTING QUALIFIED ALPHAS ({args.start_date} to {args.end_date})")
-print(f"[*] Universe: {len(universe)} Liquid NIFTY Equities | Segment: Cash Intraday (15:15 IST Square-off)")
+print(f"[*] ASHVA PRODUCTION REPLAY ENGINE: EXECUTING QUALIFIED ALPHAS ({s_date} to {e_date})")
+print(f"[*] Universe: {len(universe)} NIFTY Equities | Segment: Cash Intraday (15:15 IST Square-off)")
 print("=" * 115)
 
 qualified_models = [
@@ -72,6 +81,8 @@ for name, cls_ref, trailing in qualified_models:
         strategy_class=cls_ref,
         universe=universe,
         timeframe="15m",
+        entry_start_time=time(9, 15),
+        entry_end_time=time(15, 0),
         trailing_mode=trailing,
         risk_per_trade_pct=0.0050,
         max_capital_allocation_pct=0.20,
@@ -80,7 +91,7 @@ for name, cls_ref, trailing in qualified_models:
 
 print(f"[+] Configured {len(contracts)} Qualified Alpha Contracts in TradingEngine.")
 
-replay_provider = ReplayMarketDataProvider(data_lake=lake, start_date=args.start_date, end_date=args.end_date)
+replay_provider = ReplayMarketDataProvider(data_lake=lake, start_date=s_date, end_date=e_date)
 replay_provider.subscribe(universe, "15m")
 
 replay_adapter = ReplayExecutionAdapter(cost_model=cost_model, segment=Segment.EQUITY_INTRADAY)
@@ -93,7 +104,7 @@ trading_engine = TradingEngine(
     cost_model=cost_model,
 )
 
-print(f"[+] Starting event replay stream from {args.start_date} to {args.end_date}...")
+print(f"[+] Starting event replay stream from {s_date} to {e_date}...")
 summary = trading_engine.run()
 
 total_trades = summary.get("total_trades", 0)

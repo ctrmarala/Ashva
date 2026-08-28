@@ -116,6 +116,9 @@ from src.strategies.alpha_82_double_inside_volume_shock import Alpha82DoubleInsi
 from src.strategies.alpha_83_double_inside_gap_drift import Alpha83DoubleInsideGapDrift
 from src.strategies.alpha_84_triple_inside_expansion import Alpha84TripleInsideExpansion
 from src.strategies.alpha_85_double_inside_225r_expansion import Alpha85DoubleInside225RExpansion
+from src.strategies.alpha_86_three_day_trend_surge_2r import Alpha86ThreeDayTrendSurge2R
+from src.strategies.alpha_87_two_day_trend_surge_2r import Alpha87TwoDayTrendSurge2R
+from src.strategies.alpha_88_three_day_trend_surge_175r import Alpha88ThreeDayTrendSurge175R
 
 STRATEGY_MAP = {
     "alpha_01": ("ALPHA_01_TRENDSURFER", AlphaTrendSurfer),
@@ -199,6 +202,9 @@ STRATEGY_MAP = {
     "alpha_83": ("ALPHA_83_DOUBLE_INSIDE_GAP_DRIFT", Alpha83DoubleInsideGapDrift),
     "alpha_84": ("ALPHA_84_TRIPLE_INSIDE_EXPANSION", Alpha84TripleInsideExpansion),
     "alpha_85": ("ALPHA_85_DOUBLE_INSIDE_225R_EXPANSION", Alpha85DoubleInside225RExpansion),
+    "alpha_86": ("ALPHA_86_THREE_DAY_TREND_SURGE_2R", Alpha86ThreeDayTrendSurge2R),
+    "alpha_87": ("ALPHA_87_TWO_DAY_TREND_SURGE_2R", Alpha87TwoDayTrendSurge2R),
+    "alpha_88": ("ALPHA_88_THREE_DAY_TREND_SURGE_175R", Alpha88ThreeDayTrendSurge175R),
 }
 
 from scripts.ingest_all_nifty50_timeframes import NIFTY_50_UNIVERSE
