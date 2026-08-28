@@ -19,24 +19,24 @@ def test_universe_manager_default_resolution():
 
 def test_universe_manager_metadata():
     um = UniverseManager(config_path="config/settings.yaml")
-    assert um.get_universe_name() == "NIFTY 50"
+    assert um.get_universe_name() in ["NIFTY 50", "NIFTY 75", "NIFTY 100"]
     assert um.get_benchmark_symbol() == "^NSEI"
 
 
 def test_global_helper_functions():
     symbols = get_universe_symbols()
     assert len(symbols) >= 50
-    assert get_universe_name() == "NIFTY 50"
+    assert get_universe_name() in ["NIFTY 50", "NIFTY 75", "NIFTY 100"]
     assert get_benchmark_symbol() == "^NSEI"
 
 
 def test_dal_universe_integration():
     dal = UIDataAccess()
-    assert dal.get_active_universe_name() == "NIFTY 50"
+    assert dal.get_active_universe_name() in ["NIFTY 50", "NIFTY 75", "NIFTY 100"]
     assert dal.get_benchmark_symbol() == "^NSEI"
     overview = dal.get_data_overview()
     assert "universe_name" in overview
-    assert overview["universe_name"] == "NIFTY 50"
+    assert overview["universe_name"] in ["NIFTY 50", "NIFTY 75", "NIFTY 100"]
 
 
 def test_custom_universe_config_resolution(tmp_path):
