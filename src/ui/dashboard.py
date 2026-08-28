@@ -36,7 +36,6 @@ def render_data_observability(dal: UIDataAccess):
     st.title("Data Lake Observability")
     st.caption("Authoritative inspection of raw market data, timeframe coverage, 540-day research horizon, and data hygiene.")
 
-    # 1. System Overview Metrics
     overview = dal.get_data_overview()
     quality = dal.get_data_quality_summary()
 
@@ -57,7 +56,6 @@ def render_data_observability(dal: UIDataAccess):
         "🔗 Data → Alpha Mapping"
     ])
 
-    # --- SUBTAB 1: COVERAGE MATRIX ---
     with subtab_matrix:
         st.subheader("Symbol / Timeframe Coverage Matrix")
         st.caption("Point-in-time bar counts and 540-day horizon compliance across DuckDB & Apache Parquet.")
@@ -73,7 +71,6 @@ def render_data_observability(dal: UIDataAccess):
         else:
             st.warning("No market data discovered in DataLake.")
 
-    # --- SUBTAB 2: SYMBOL DEEP DIVE ---
     with subtab_detail:
         st.subheader("Symbol Detail & Timeframe Inspector")
         symbols = dal.get_symbol_list()
@@ -102,7 +99,6 @@ def render_data_observability(dal: UIDataAccess):
         else:
             st.warning("No symbols available in DataLake.")
 
-    # --- SUBTAB 3: QUALITY & HYGIENE AUDIT ---
     with subtab_hygiene:
         st.subheader("Repository-Wide Data Quality Audit")
         st.caption("Automated structural sanity checks executed across all stored time series in DuckDB.")
@@ -123,7 +119,6 @@ def render_data_observability(dal: UIDataAccess):
         4. **540-Day Research Horizon**: Lookback availability satisfies the 18-month statistical robustness threshold.
         """)
 
-    # --- SUBTAB 4: INGESTION TELEMETRY ---
     with subtab_ingestion:
         st.subheader("Ingestion Status & Log Telemetry")
         st.caption("Observability around historical ingestion jobs, active sessions, and data storage files.")
@@ -146,7 +141,6 @@ def render_data_observability(dal: UIDataAccess):
         else:
             st.info("No session log files discovered in logs/ directory.")
 
-    # --- SUBTAB 5: DATA -> ALPHA CONNECTION ---
     with subtab_alpha_conn:
         st.subheader("Data Lake → Alpha Factory Requirements Mapping")
         st.caption("Bridges research hypotheses requirements with live Data Lake availability.")
@@ -177,7 +171,7 @@ def render_alpha_factory(dal: UIDataAccess):
     summary = dal.get_alpha_factory_summary()
     kpi1, kpi2, kpi3, kpi4, kpi5, kpi6 = st.columns(6)
     kpi1.metric("Total Alphas", summary["total_alphas"])
-    kpi2.metric("Tested", f"{summary['tested']} / {summary['total_alphas']}")
+    kpi2.metric("Actually Tested", f"{summary['tested']} / {summary['total_alphas']}")
     kpi3.metric("PROVEN (Capital)", summary["proven"])
     kpi4.metric("FAILED (Rejected)", summary["failed"])
     kpi5.metric("UNCERTAIN (Watchlist)", summary["uncertain"])
@@ -226,10 +220,15 @@ def render_alpha_factory(dal: UIDataAccess):
                 "alpha_id": st.column_config.TextColumn("Alpha ID", width="small"),
                 "name": st.column_config.TextColumn("Strategy Name", width="medium"),
                 "status": st.column_config.TextColumn("Status", width="small"),
+                "tested": st.column_config.TextColumn("Tested", width="small"),
+                "category": st.column_config.TextColumn("Category", width="medium"),
+                "timeframe": st.column_config.TextColumn("Timeframe", width="small"),
+                "universe": st.column_config.TextColumn("Universe", width="small"),
+                "test_period": st.column_config.TextColumn("Test Period", width="small"),
                 "sharpe": st.column_config.TextColumn("Sharpe (IS)", width="small"),
-                "net_profit_factor": st.column_config.TextColumn("Net PF", width="small"),
+                "profit_factor": st.column_config.TextColumn("Net PF", width="small"),
                 "oos_sharpe": st.column_config.TextColumn("OOS Sharpe", width="small"),
-                "max_drawdown_pct": st.column_config.TextColumn("Max DD", width="small"),
+                "max_drawdown": st.column_config.TextColumn("Max DD", width="small"),
                 "positive_symbols": st.column_config.TextColumn("Positive Assets", width="medium"),
                 "last_tested": st.column_config.TextColumn("Last Tested", width="medium"),
             }
@@ -253,15 +252,16 @@ def render_alpha_factory(dal: UIDataAccess):
         st.caption(f"Category: **{detail['category']}** | Timeframe: **{detail['timeframe']}** | Version: **{detail['version']}** | Tested: **{'YES' if detail['is_tested'] else 'NO'}**")
 
         detail_tabs = st.tabs([
-            "🎯 Hypothesis & Rationale",
+            "🎯 Hypothesis & Parameters",
             "🛡️ Qualification Gates",
-            "📈 Performance Metrics",
-            "🏢 Symbol-Level Audit",
+            "📈 Quantitative Metrics",
+            "🏢 Symbol-Level Performance",
             "🔬 Research Evidence & 540d",
-            "📜 Test History Journal"
+            "📜 Test History Journal",
+            "⚙️ Replay Context & Provenance"
         ])
 
-        # SUBTAB 1: HYPOTHESIS & RATIONALE
+        # SUBTAB 1: HYPOTHESIS & PARAMETERS
         with detail_tabs[0]:
             st.markdown("#### Economic Rationale & Mechanism")
             st.write(detail["hypothesis"])
@@ -271,12 +271,14 @@ def render_alpha_factory(dal: UIDataAccess):
 
             col_p1, col_p2 = st.columns(2)
             with col_p1:
-                st.markdown("#### Entry & Holding Rules")
+                st.markdown("#### Entry, Exit & Holding Specifications")
                 st.write(f"**Entry Window**: `{detail['entry_window']}`")
+                st.write(f"**Entry Conditions**: `{detail['entry_conditions']}`")
+                st.write(f"**Exit Conditions**: `{detail['exit_conditions']}`")
                 st.write(f"**Holding Concept**: `{detail['holding_concept']}`")
-                st.write(f"**Target Universe**: `{', '.join(detail['target_instruments'][:8])}...`")
+                st.write(f"**Research Universe**: `{', '.join(detail['target_instruments'][:8])}...`")
             with col_p2:
-                st.markdown("#### Parameter Specifications")
+                st.markdown("#### Strategy Parameters")
                 if detail["parameters"]:
                     st.json(detail["parameters"])
                 else:
@@ -305,69 +307,125 @@ def render_alpha_factory(dal: UIDataAccess):
             g_col4.metric(g4.get("name", "Post-Tax Net PF"), g4.get("value", "N/A"), delta="PASS" if g4.get("passed") else "FAIL", delta_color="normal" if g4.get("passed") else "inverse")
             g_col4.caption(f"Hurdle: {g4.get('threshold', 'N/A')}")
 
-            st.markdown("#### Status Explanation & Institutional Rationale")
-            st.success(detail["explanations"]["status_reason"]) if detail["status"] == "PROVEN" else st.error(detail["explanations"]["status_reason"])
+            st.markdown("#### Status Explanation & Quantitative Justification")
+            if detail["status"] == "PROVEN":
+                st.success(f"**PROVEN QUALIFICATION**: {detail['explanations']['status_reason']}")
+            elif detail["status"] == "FAILED":
+                st.error(f"**FAILED / REJECTED**: {detail['explanations']['status_reason']}")
+            elif detail["status"] == "UNCERTAIN":
+                st.warning(f"**UNCERTAIN**: {detail['explanations']['status_reason']}")
+            else:
+                st.info(f"**UNEXPLORED**: {detail['explanations']['status_reason']}")
 
-            if detail["explanations"]["failure_lessons"] != "N/A":
-                st.warning(f"**Failure Lessons & Empirical Observations**: {detail['explanations']['failure_lessons']}")
+            if detail["explanations"]["failure_lessons"] != "NOT APPLICABLE" and detail["explanations"]["failure_lessons"]:
+                st.warning(f"**Empirical Failure Lessons & Friction Analysis**: {detail['explanations']['failure_lessons']}")
             if detail["explanations"]["known_limitations"]:
                 st.write(f"**Known Regime Limitations**: {detail['explanations']['known_limitations']}")
 
-        # SUBTAB 3: PERFORMANCE METRICS
+        # SUBTAB 3: QUANTITATIVE METRICS
         with detail_tabs[2]:
-            st.markdown("#### Persisted Research & In-Sample Metrics")
+            st.markdown("#### Complete Quantitative Metrics Breakdown")
+            st.caption("Metrics faithfully retrieved from backend state. Metrics not recorded or implemented are explicitly demarcated.")
             m = detail["metrics"]
             
-            m1, m2, m3, m4, m5 = st.columns(5)
-            m1.metric("In-Sample Sharpe", f"{m.get('in_sample_sharpe', 0.0):+.2f}")
-            m2.metric("CPCV OOS Sharpe", f"{m.get('cpcv_oos_sharpe', 0.0):+.2f}")
-            m3.metric("Net Profit Factor", f"{m.get('net_profit_factor', 0.0):.2f}")
-            m4.metric("DSR p-value", f"{m.get('deflated_sharpe_p_value', 1.0):.4f}")
-            m5.metric("Monte Carlo 95% DD", f"{m.get('monte_carlo_95_max_dd_pct', 0.0):.2f}%")
+            mc1, mc2, mc3 = st.columns(3)
+            with mc1:
+                st.markdown("##### In-Sample & Aggregate")
+                st.write(f"**Total Trades**: `{m.get('total_trades')}`")
+                st.write(f"**Winning Trades**: `{m.get('winning_trades')}`")
+                st.write(f"**Losing Trades**: `{m.get('losing_trades')}`")
+                st.write(f"**Win Rate**: `{m.get('win_rate')}`")
+                st.write(f"**Gross Profit**: `{m.get('gross_profit')}`")
+                st.write(f"**Gross Loss**: `{m.get('gross_loss')}`")
+                st.write(f"**Net P&L (INR)**: `{m.get('net_pnl')}`")
+            with mc2:
+                st.markdown("##### Risk-Adjusted & Ratios")
+                st.write(f"**Expectancy**: `{m.get('expectancy')}`")
+                st.write(f"**Profit Factor**: `{m.get('profit_factor')}`")
+                st.write(f"**Sharpe Ratio**: `{m.get('sharpe')}`")
+                st.write(f"**Sortino Ratio**: `{m.get('sortino')}`")
+                st.write(f"**Max Drawdown**: `{m.get('max_drawdown')}`")
+                st.write(f"**Average Win**: `{m.get('avg_win')}`")
+                st.write(f"**Average Loss**: `{m.get('avg_loss')}`")
+            with mc3:
+                st.markdown("##### Out-Of-Sample (CPCV) & Tail")
+                st.write(f"**OOS Trades**: `{m.get('oos_trades')}`")
+                st.write(f"**OOS Net P&L**: `{m.get('oos_pnl')}`")
+                st.write(f"**OOS Sharpe**: `{m.get('oos_sharpe')}`")
+                st.write(f"**OOS Win Rate**: `{m.get('oos_win_rate')}`")
+                st.write(f"**OOS Drawdown**: `{m.get('oos_drawdown')}`")
+                st.write(f"**Deflated Sharpe (p-value)**: `{m.get('deflated_sharpe_p_value', 'NOT AVAILABLE')}`")
+                st.write(f"**Average Holding Time**: `{m.get('avg_holding_time')}`")
 
-            st.markdown("#### Out-Of-Sample (OOS) Baseline Accounting")
-            oos1, oos2, oos3 = st.columns(3)
-            oos1.write(f"**540d Net PnL (INR)**: `Rs {m.get('pnl_540d_inr', 'NOT AVAILABLE')}`")
-            oos2.write(f"**OOS Validated Trades**: `{m.get('oos_trades', 'NOT AVAILABLE')}`")
-            oos3.write(f"**OOS Net PnL (INR)**: `Rs {m.get('oos_pnl_inr', 'NOT AVAILABLE')}`")
-
-        # SUBTAB 4: SYMBOL PERFORMANCE
+        # SUBTAB 4: SYMBOL-LEVEL PERFORMANCE
         with detail_tabs[3]:
-            st.markdown("#### Cross-Sectional Asset Performance & Data Status")
+            st.markdown("#### Cross-Sectional Asset Performance & Data Lake Status")
+            st.caption("Distinguishes universal Alpha Logic from instrument-specific data coverage.")
             sym_df = pd.DataFrame(detail["symbol_performance"])
             if not sym_df.empty:
                 st.dataframe(sym_df, use_container_width=True, hide_index=True)
             else:
-                st.info("No symbol breakdown available.")
+                st.info("No symbol performance breakdown available.")
 
         # SUBTAB 5: RESEARCH EVIDENCE & 540D CEILING AUDIT
         with detail_tabs[4]:
-            st.markdown("#### 540-Day Research Horizon Compliance Audit")
-            d_read = detail["data_readiness"]
+            st.markdown("#### 540-Day Research Horizon Compliance & Evidence Audit")
+            ev = detail.get("research_evidence", {})
+            d_read = detail.get("data_readiness", {})
             
-            st.write(f"**Target Timeframe**: `{d_read.get('timeframe', '15m')}`")
-            st.write(f"**Data Lake Universe Coverage**: `{d_read.get('symbols_ready', 0)} / {d_read.get('symbols_total', 0)} symbols qualified`")
-            st.write(f"**18-Month Lookback Compliance**: `{d_read.get('horizon_compliance', 'NOT AVAILABLE')}`")
-            
+            c_ev1, c_ev2 = st.columns(2)
+            with c_ev1:
+                st.write(f"**Research Start Date**: `{ev.get('research_start', 'NOT AVAILABLE')}`")
+                st.write(f"**Research End Date**: `{ev.get('research_end', 'NOT AVAILABLE')}`")
+                st.write(f"**Actual Calendar Days**: `{ev.get('calendar_days', 'NOT AVAILABLE')} Days`")
+                st.write(f"**Estimated Trading Days**: `{ev.get('trading_days', 'NOT AVAILABLE')} Days`")
+                st.write(f"**Data Storage Source**: `{ev.get('data_source', 'NOT AVAILABLE')}`")
+            with c_ev2:
+                st.write(f"**Required Timeframe**: `{d_read.get('timeframe', '15m')}`")
+                st.write(f"**Universe Coverage**: `{d_read.get('symbols_ready', 0)} / {d_read.get('symbols_total', 0)} symbols qualified`")
+                st.write(f"**540-Day Horizon Status**: `{d_read.get('horizon_compliance', 'NOT AVAILABLE')}`")
+
             st.info("""
-            **Ashva Research Lookback Rule**:
-            The quantitative factory strictly enforces an 18-month / 540-day empirical window to ensure statistical significance 
-            across multiple market regimes while discarding stale pre-structural market data.
+            **Ashva Multi-Window Lookback Hierarchy**:
+            - **60-Day Window**: Recency-weighted current regime trajectory & decay detection.
+            - **180-Day & 365-Day Windows**: Intermediate multi-season stability validation.
+            - **540-Day Full Horizon**: Hard institutional ceiling (~18 months) ensuring statistical significance.
             """)
 
         # SUBTAB 6: TEST HISTORY JOURNAL
         with detail_tabs[5]:
-            st.markdown("#### Chronological Experiment Trial Ledger")
+            st.markdown("#### Chronological Research Trials Ledger (`experiment_ledger.db`)")
             hist = detail["test_history"]
             if hist:
                 df_hist = pd.DataFrame(hist)
                 st.dataframe(
-                    df_hist[["experiment_id", "timestamp", "status", "in_sample_sharpe", "cpcv_oos_sharpe", "net_profit_factor", "git_commit_sha"]],
+                    df_hist[["experiment_id", "timestamp", "status", "in_sample_sharpe", "cpcv_oos_sharpe", "net_profit_factor", "monte_carlo_95_max_dd", "git_commit_sha"]],
                     use_container_width=True,
                     hide_index=True
                 )
             else:
                 st.info("No recorded trial history found in SQLite experiment ledger.")
+
+        # SUBTAB 7: REPLAY CONTEXT & PROVENANCE
+        with detail_tabs[6]:
+            st.markdown("#### Execution Alignment & Replay Context")
+            st.caption("Verifies consistency between research configuration and trading engine execution parameters.")
+            rep = detail.get("replay_context", {})
+            
+            c_rep1, c_rep2 = st.columns(2)
+            with c_rep1:
+                st.write(f"**Execution Timeframe**: `{rep.get('timeframe', '15m')}`")
+                st.write(f"**Trading Entry Window**: `{rep.get('entry_window', '09:15-15:00')}`")
+                st.write(f"**Trailing Stop Mode**: `{rep.get('trailing_stop_mode', 'STEP_RATCHET')}`")
+                st.write(f"**Intraday Square-off**: `{rep.get('intraday_squareoff', '15:15 IST')}`")
+            with c_rep2:
+                prov = detail.get("provenance", {})
+                st.markdown("#### Quantitative Source & Provenance")
+                st.write(f"**Research Commit SHA**: `{prov.get('research_commit', 'NOT AVAILABLE')}`")
+                st.write(f"**Code Commit SHA**: `{prov.get('code_commit', 'NOT AVAILABLE')}`")
+                st.write(f"**Qualification Version**: `{prov.get('qualification_version', 'v1.0.0')}`")
+                st.write(f"**Research Timestamp**: `{prov.get('research_timestamp', 'NOT AVAILABLE')}`")
+
     else:
         st.info("Select an alpha from the dropdown above to view its quantitative dossier.")
 

@@ -1,7 +1,8 @@
 """
 Unit tests for Tab 2 Alpha Factory Observability in Ashva UI.
 Verifies alpha counts, status classifications, registry table loading, alpha detail loading,
-qualification gate evaluation, and testing at least one PROVEN, one FAILED, one UNCERTAIN, and one UNEXPLORED alpha.
+qualification gate evaluation, metric demarcations (NOT AVAILABLE vs NOT IMPLEMENTED),
+research evidence, replay context, and fresh DAL behavior.
 """
 
 import pytest
@@ -18,8 +19,8 @@ def dal_instance():
 
 def test_alpha_factory_summary_counts(dal_instance):
     summary = dal_instance.get_alpha_factory_summary()
-    assert summary["total_alphas"] >= 84
-    assert summary["tested"] >= 80
+    assert summary["total_alphas"] >= 86
+    assert summary["tested"] >= 84
     assert summary["proven"] > 0
     assert summary["failed"] > 0
     assert summary["uncertain"] >= 0
@@ -32,17 +33,16 @@ def test_alpha_registry_table_structure(dal_instance):
     assert len(df) >= 84
     
     expected_cols = [
-        "alpha_id", "name", "version", "status", "raw_status", "tested",
-        "category", "timeframe", "universe", "test_period", "sharpe",
-        "net_profit_factor", "oos_sharpe", "max_drawdown_pct", "positive_symbols",
-        "trials_count", "last_tested"
+        "alpha_id", "name", "version", "status", "raw_status", "dynamic_status", "tested",
+        "category", "timeframe", "universe", "test_period", "trades", "win_rate", "net_pnl",
+        "expectancy", "profit_factor", "sharpe", "max_drawdown", "oos_trades", "oos_pnl",
+        "oos_sharpe", "positive_symbols", "trials_count", "last_tested"
     ]
     for col in expected_cols:
-        assert col in df.columns
+        assert col in df.columns, f"Missing expected column: {col}"
 
 
 def test_proven_alpha_detail(dal_instance):
-    # Test PROVEN Alpha (e.g. alpha_86)
     detail = dal_instance.get_alpha_detail("alpha_86")
     assert detail["alpha_id"] == "alpha_86"
     assert detail["status"] == "PROVEN"
@@ -56,12 +56,14 @@ def test_proven_alpha_detail(dal_instance):
     assert "gate_4_net_pf" in gates
     assert gates["gate_4_net_pf"]["passed"] is True
     
-    assert detail["metrics"]["net_profit_factor"] >= 1.08
+    assert detail["metrics"]["profit_factor"] >= 1.08
     assert len(detail["symbol_performance"]) > 0
+    assert "research_evidence" in detail
+    assert "replay_context" in detail
+    assert "provenance" in detail
 
 
 def test_failed_alpha_detail(dal_instance):
-    # Test FAILED Alpha (e.g. alpha_01)
     detail = dal_instance.get_alpha_detail("alpha_01")
     assert detail["alpha_id"] == "alpha_01"
     assert detail["status"] == "FAILED"
@@ -71,7 +73,6 @@ def test_failed_alpha_detail(dal_instance):
 
 
 def test_uncertain_alpha_detail(dal_instance):
-    # Test UNCERTAIN Alpha (e.g. alpha_03 or alpha_04)
     detail = dal_instance.get_alpha_detail("alpha_03")
     assert detail["alpha_id"] == "alpha_03"
     assert detail["status"] in ["UNCERTAIN", "FAILED"]
@@ -79,7 +80,6 @@ def test_uncertain_alpha_detail(dal_instance):
 
 
 def test_unexplored_alpha_detail(dal_instance):
-    # Test UNEXPLORED candidate (alpha_34)
     detail = dal_instance.get_alpha_detail("alpha_34")
     assert detail["alpha_id"] == "alpha_34"
     assert detail["status"] == "UNEXPLORED"
@@ -87,17 +87,20 @@ def test_unexplored_alpha_detail(dal_instance):
     assert "UNEXPLORED" in detail["explanations"]["status_reason"]
 
 
-def test_alpha_filtering(dal_instance):
-    df = dal_instance.get_alpha_registry_table()
-    
-    df_proven = df[df["status"] == "PROVEN"]
-    assert not df_proven.empty
-    
-    df_failed = df[df["status"] == "FAILED"]
-    assert not df_failed.empty
-    
-    df_tested = df[df["tested"] == "YES"]
-    assert len(df_tested) >= 80
+def test_metrics_demarcation(dal_instance):
+    detail = dal_instance.get_alpha_detail("alpha_86")
+    m = detail["metrics"]
+    # Verify that unimplemented metrics are explicitly marked NOT IMPLEMENTED
+    assert m["expectancy"] == "NOT IMPLEMENTED"
+    assert m["sortino"] == "NOT IMPLEMENTED"
+    assert m["avg_win"] == "NOT IMPLEMENTED"
+
+
+def test_fresh_dal_behavior():
+    dal1 = UIDataAccess()
+    dal2 = UIDataAccess()
+    assert dal1 is not dal2
+    assert dal1.get_alpha_factory_summary() == dal2.get_alpha_factory_summary()
 
 
 def test_missing_alpha_handling(dal_instance):
