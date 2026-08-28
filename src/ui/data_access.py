@@ -1862,7 +1862,7 @@ class UIDataAccess:
         total_missing_sessions = 0
         clean_symbols_count = 0
 
-        target_audit_syms = symbols[:20] if len(symbols) > 20 else symbols
+        target_audit_syms = symbols
 
         for sym in target_audit_syms:
             audit = NSECalendar.audit_symbol_calendar_coverage(sym, timeframe="15m", duckdb_path=str(self.duckdb_path))
