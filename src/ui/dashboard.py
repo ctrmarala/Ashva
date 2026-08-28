@@ -15,8 +15,7 @@ st.set_page_config(
 )
 
 # Initialize Data Access Layer
-@st.cache_resource
-def get_dal():
+def get_dal() -> UIDataAccess:
     return UIDataAccess()
 
 @st.cache_data(ttl=5)
