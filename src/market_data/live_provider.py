@@ -26,6 +26,7 @@ class LiveMarketDataProvider(MarketDataProvider):
         self.subscribed_symbols: List[str] = []
         self.timeframe: str = "15m"
         self._latest_prices: Dict[str, float] = {}
+        self._last_event_timestamps: Dict[str, Any] = {}
         self._event_queue: queue.Queue = queue.Queue()
         self._stop_event = threading.Event()
 
@@ -35,8 +36,13 @@ class LiveMarketDataProvider(MarketDataProvider):
         logger.info(f"Subscribed live market data to {len(self.subscribed_symbols)} symbols: {self.subscribed_symbols}")
 
     def push_market_event(self, event: MarketEvent):
-        """Allows external WebSocket tick/bar receiver to feed events into the queue."""
-        self._latest_prices[event.symbol.upper()] = event.close
+        """Allows external WebSocket tick/bar receiver to feed events into the queue with deduplication."""
+        sym = event.symbol.upper()
+        if sym in self._last_event_timestamps and self._last_event_timestamps[sym] == event.timestamp:
+            logger.debug(f"Suppressed duplicate tick/bar for {sym} at {event.timestamp}")
+            return
+        self._last_event_timestamps[sym] = event.timestamp
+        self._latest_prices[sym] = event.close
         self._event_queue.put(event)
 
     def stream_events(self) -> Generator[MarketEvent, None, None]:

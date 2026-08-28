@@ -189,7 +189,7 @@ def run_multi_timeframe_ingestion(timeframes: List[str] = ["5m", "30m", "1d"], d
                 print(f" [FAILED: {e}]")
                 failed_symbols.append(symbol)
 
-        print(f"\n[*] {tf_clean.upper()} SUMMARY: {success_count}/50 Symbols Stored.")
+        print(f"\n[*] {tf_clean.upper()} SUMMARY: {success_count}/{len(TARGET_UNIVERSE)} Symbols Stored.")
 
     print("\n" + "=" * 100)
     print(f"[*] ALL REQUESTED TIMEFRAMES INGESTION COMPLETE")

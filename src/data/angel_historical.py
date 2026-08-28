@@ -123,6 +123,7 @@ class AngelHistoricalFetcher:
             "TATAMOTORS": "TMPV",
             "M&M": "M&M",
             "BAJAJ-AUTO": "BAJAJ-AUTO",
+            "ZOMATO": "ETERNAL",
         }
         target_sym = alias_map.get(sym_clean, sym_clean)
 
