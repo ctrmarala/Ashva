@@ -9,7 +9,7 @@ from src.ui.data_access import UIDataAccess
 
 st.set_page_config(
     page_title="Ashva Observability Hub",
-    page_icon="??",
+    page_icon="🐎",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -20,14 +20,13 @@ def get_dal():
     return UIDataAccess()
 
 @st.cache_data(ttl=5)
-def load_alpha_trading_data():
+def load_trading_data():
     dal = get_dal()
-    df_alphas = dal.get_alpha_registry_summary()
     df_replay = dal.get_trading_state("REPLAY")
     df_paper = dal.get_trading_state("PAPER")
     df_live = dal.get_trading_state("LIVE")
     df_diagnostics = dal.get_replay_diagnostics()
-    return df_alphas, df_replay, df_paper, df_live, df_diagnostics
+    return df_replay, df_paper, df_live, df_diagnostics
 
 
 # =============================================================================
@@ -51,13 +50,12 @@ def render_data_observability(dal: UIDataAccess):
 
     st.markdown("---")
 
-    # 2. Sub-sections via tabs or clean sections
     subtab_matrix, subtab_detail, subtab_hygiene, subtab_ingestion, subtab_alpha_conn = st.tabs([
-        "?? Coverage Matrix",
-        "?? Symbol Deep Dive",
-        "??? Quality & Hygiene Audit",
-        "?? Ingestion Telemetry",
-        "?? Data ? Alpha Mapping"
+        "📊 Coverage Matrix",
+        "🔍 Symbol Deep Dive",
+        "🛡️ Quality & Hygiene Audit",
+        "📥 Ingestion Telemetry",
+        "🔗 Data → Alpha Mapping"
     ])
 
     # --- SUBTAB 1: COVERAGE MATRIX ---
@@ -82,7 +80,7 @@ def render_data_observability(dal: UIDataAccess):
         symbols = dal.get_symbol_list()
         
         if symbols:
-            selected_sym = st.selectbox("Select Symbol for Point-in-Time Inspection", symbols, index=0)
+            selected_sym = st.selectbox("Select Symbol for Point-in-Time Inspection", symbols, index=0, key="select_data_symbol")
             detail = dal.get_symbol_detail(selected_sym)
 
             if detail:
@@ -90,7 +88,6 @@ def render_data_observability(dal: UIDataAccess):
                 c1.metric("Selected Symbol", detail["symbol"])
                 c1.write(f"**Primary Storage**: {detail['data_source']}")
                 
-                # Quality breakdown for this symbol
                 q_metrics = detail["quality_metrics"]
                 c2.metric("Duplicate Bars", q_metrics["duplicate_bars"])
                 c2.metric("Invalid OHLC Bars", q_metrics["invalid_ohlc_bars"])
@@ -122,7 +119,7 @@ def render_data_observability(dal: UIDataAccess):
         st.markdown("""
         **Institutional Data Quality Verification Rules**:
         1. **Zero Duplicate Timestamps**: Stored series contains unique `(symbol, timeframe, timestamp)` composite keys.
-        2. **Valid OHLC Bounds**: Strict validation ($High \ge Low$, $Open > 0$, $Close > 0$, $Volume \ge 0$).
+        2. **Valid OHLC Bounds**: Strict validation ($High \\ge Low$, $Open > 0$, $Close > 0$, $Volume \\ge 0$).
         3. **Strict Intraday Hours**: Intraday bars must strictly fall between 09:15:00 and 15:30:00 IST.
         4. **540-Day Research Horizon**: Lookback availability satisfies the 18-month statistical robustness threshold.
         """)
@@ -152,7 +149,7 @@ def render_data_observability(dal: UIDataAccess):
 
     # --- SUBTAB 5: DATA -> ALPHA CONNECTION ---
     with subtab_alpha_conn:
-        st.subheader("Data Lake ? Alpha Factory Requirements Mapping")
+        st.subheader("Data Lake → Alpha Factory Requirements Mapping")
         st.caption("Bridges research hypotheses requirements with live Data Lake availability.")
 
         df_conn = dal.get_alpha_data_connection()
@@ -170,38 +167,214 @@ def render_data_observability(dal: UIDataAccess):
 
 
 # =============================================================================
-# TAB 2: EXISTING ALPHA FACTORY COMPONENT (PRESERVED)
+# TAB 2: ALPHA FACTORY OBSERVABILITY COMPONENT
 # =============================================================================
 
-def render_alpha_factory(df_alphas: pd.DataFrame):
-    st.title("Alpha Factory Registry")
-    st.caption("Observability over the autonomous hypothesis laboratory, research trials, and capital candidates.")
-    
-    # 1. Summary Metrics
-    col1, col2, col3, col4 = st.columns(4)
-    total = len(df_alphas) if not df_alphas.empty else 0
-    proven = len(df_alphas[df_alphas["dynamic_status"] == "CAPITAL_CANDIDATE"]) if "dynamic_status" in df_alphas.columns else 0
-    failed = len(df_alphas[df_alphas["status"] == "EXPLORED_FAILED"]) if "status" in df_alphas.columns else 0
-    
-    col1.metric("Total Alphas", total)
-    col2.metric("Proven / Capital Candidate", proven)
-    col3.metric("Failed / Rejected", failed)
-    
-    if df_alphas.empty:
-        st.warning("No alphas found in registry.")
-        return
+def render_alpha_factory(dal: UIDataAccess):
+    st.title("Alpha Factory Observability")
+    st.caption("Authoritative governance, empirical audit records, qualification gates, and statistical lifecycle tracking.")
 
-    # 2. DataFrame with search
-    search = st.text_input("Search Alpha ID", key="search_alpha_factory")
-    df_disp = df_alphas
-    if search:
-        df_disp = df_disp[df_disp["alpha_id"].str.contains(search, case=False, na=False)]
+    # 1. Section 1: Factory Summary KPI Metrics
+    summary = dal.get_alpha_factory_summary()
+    kpi1, kpi2, kpi3, kpi4, kpi5, kpi6 = st.columns(6)
+    kpi1.metric("Total Alphas", summary["total_alphas"])
+    kpi2.metric("Tested", f"{summary['tested']} / {summary['total_alphas']}")
+    kpi3.metric("PROVEN (Capital)", summary["proven"])
+    kpi4.metric("FAILED (Rejected)", summary["failed"])
+    kpi5.metric("UNCERTAIN (Watchlist)", summary["uncertain"])
+    kpi6.metric("UNEXPLORED", summary["unexplored"])
+
+    st.markdown("---")
+
+    # 2. Section 2: Master Alpha Registry Table with Filters
+    st.subheader("Master Alpha Registry")
+    
+    col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+    with col_f1:
+        status_filter = st.selectbox("Filter by Status", ["ALL", "PROVEN", "FAILED", "UNCERTAIN", "UNEXPLORED"], index=0, key="filter_alpha_status")
+    with col_f2:
+        tested_filter = st.selectbox("Tested / Untested", ["ALL", "YES", "NO"], index=0, key="filter_alpha_tested")
+    with col_f3:
+        category_filter = st.selectbox("Category Filter", ["ALL", "MOMENTUM", "VOLATILITY_EXPANSION", "OPENING_AUCTION", "ORDER_FLOW_IMBALANCE", "STATISTICAL_REVERSION"], index=0, key="filter_alpha_category")
+    with col_f4:
+        search_query = st.text_input("Search Alpha ID / Name / Rationale", placeholder="e.g. alpha_86, DOUBLE_INSIDE, ORB...", key="search_alpha_registry")
+
+    df_registry = dal.get_alpha_registry_table()
+
+    if not df_registry.empty:
+        df_disp = df_registry.copy()
         
-    st.dataframe(df_disp, use_container_width=True)
+        # Apply filters
+        if status_filter != "ALL":
+            df_disp = df_disp[df_disp["status"] == status_filter]
+        if tested_filter != "ALL":
+            df_disp = df_disp[df_disp["tested"] == tested_filter]
+        if category_filter != "ALL":
+            df_disp = df_disp[df_disp["category"].str.contains(category_filter, case=False, na=False)]
+        if search_query:
+            df_disp = df_disp[
+                df_disp["alpha_id"].str.contains(search_query, case=False, na=False) |
+                df_disp["name"].str.contains(search_query, case=False, na=False) |
+                df_disp["category"].str.contains(search_query, case=False, na=False)
+            ]
+
+        # Display Registry Table
+        st.dataframe(
+            df_disp,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "alpha_id": st.column_config.TextColumn("Alpha ID", width="small"),
+                "name": st.column_config.TextColumn("Strategy Name", width="medium"),
+                "status": st.column_config.TextColumn("Status", width="small"),
+                "sharpe": st.column_config.TextColumn("Sharpe (IS)", width="small"),
+                "net_profit_factor": st.column_config.TextColumn("Net PF", width="small"),
+                "oos_sharpe": st.column_config.TextColumn("OOS Sharpe", width="small"),
+                "max_drawdown_pct": st.column_config.TextColumn("Max DD", width="small"),
+                "positive_symbols": st.column_config.TextColumn("Positive Assets", width="medium"),
+                "last_tested": st.column_config.TextColumn("Last Tested", width="medium"),
+            }
+        )
+    else:
+        st.warning("No Alpha strategies discovered in registry.")
+
+    st.markdown("---")
+
+    # 3. Section 3-12: Alpha Deep Dive Inspector
+    st.subheader("Alpha Hypothesis Deep Dive & Audit Inspector")
+    
+    alpha_options = list(df_registry["alpha_id"].values) if not df_registry.empty else ["alpha_86"]
+    selected_alpha = st.selectbox("Select Alpha ID for Full Quantitative Audit", alpha_options, index=0, key="select_alpha_detail")
+
+    detail = dal.get_alpha_detail(selected_alpha)
+
+    if detail:
+        # Header Badge & Metadata
+        st.markdown(f"### `{detail['alpha_id'].upper()}`: {detail['name']} — Status: `{detail['status']}`")
+        st.caption(f"Category: **{detail['category']}** | Timeframe: **{detail['timeframe']}** | Version: **{detail['version']}** | Tested: **{'YES' if detail['is_tested'] else 'NO'}**")
+
+        detail_tabs = st.tabs([
+            "🎯 Hypothesis & Rationale",
+            "🛡️ Qualification Gates",
+            "📈 Performance Metrics",
+            "🏢 Symbol-Level Audit",
+            "🔬 Research Evidence & 540d",
+            "📜 Test History Journal"
+        ])
+
+        # SUBTAB 1: HYPOTHESIS & RATIONALE
+        with detail_tabs[0]:
+            st.markdown("#### Economic Rationale & Mechanism")
+            st.write(detail["hypothesis"])
+            
+            st.markdown("#### Market Mechanism Description")
+            st.info(detail["mechanism"])
+
+            col_p1, col_p2 = st.columns(2)
+            with col_p1:
+                st.markdown("#### Entry & Holding Rules")
+                st.write(f"**Entry Window**: `{detail['entry_window']}`")
+                st.write(f"**Holding Concept**: `{detail['holding_concept']}`")
+                st.write(f"**Target Universe**: `{', '.join(detail['target_instruments'][:8])}...`")
+            with col_p2:
+                st.markdown("#### Parameter Specifications")
+                if detail["parameters"]:
+                    st.json(detail["parameters"])
+                else:
+                    st.write("No parameters defined (Default baseline).")
+
+        # SUBTAB 2: QUALIFICATION GATES
+        with detail_tabs[1]:
+            st.markdown("#### Institutional Qualification Gates Evaluation")
+            gates = detail["qualification_gates"]
+            
+            g_col1, g_col2, g_col3, g_col4 = st.columns(4)
+            
+            g1 = gates.get("gate_1_dsr", {})
+            g_col1.metric(g1.get("name", "DSR Test"), g1.get("value", "N/A"), delta="PASS" if g1.get("passed") else "FAIL", delta_color="normal" if g1.get("passed") else "inverse")
+            g_col1.caption(f"Hurdle: {g1.get('threshold', 'N/A')}")
+
+            g2 = gates.get("gate_2_cpcv", {})
+            g_col2.metric(g2.get("name", "CPCV OOS Quality"), g2.get("value", "N/A"), delta="PASS" if g2.get("passed") else "FAIL", delta_color="normal" if g2.get("passed") else "inverse")
+            g_col2.caption(f"Hurdle: {g2.get('threshold', 'N/A')}")
+
+            g3 = gates.get("gate_3_mc_tail", {})
+            g_col3.metric(g3.get("name", "Monte Carlo 5000 DD"), g3.get("value", "N/A"), delta="PASS" if g3.get("passed") else "FAIL", delta_color="normal" if g3.get("passed") else "inverse")
+            g_col3.caption(f"Tolerance: {g3.get('threshold', 'N/A')}")
+
+            g4 = gates.get("gate_4_net_pf", {})
+            g_col4.metric(g4.get("name", "Post-Tax Net PF"), g4.get("value", "N/A"), delta="PASS" if g4.get("passed") else "FAIL", delta_color="normal" if g4.get("passed") else "inverse")
+            g_col4.caption(f"Hurdle: {g4.get('threshold', 'N/A')}")
+
+            st.markdown("#### Status Explanation & Institutional Rationale")
+            st.success(detail["explanations"]["status_reason"]) if detail["status"] == "PROVEN" else st.error(detail["explanations"]["status_reason"])
+
+            if detail["explanations"]["failure_lessons"] != "N/A":
+                st.warning(f"**Failure Lessons & Empirical Observations**: {detail['explanations']['failure_lessons']}")
+            if detail["explanations"]["known_limitations"]:
+                st.write(f"**Known Regime Limitations**: {detail['explanations']['known_limitations']}")
+
+        # SUBTAB 3: PERFORMANCE METRICS
+        with detail_tabs[2]:
+            st.markdown("#### Persisted Research & In-Sample Metrics")
+            m = detail["metrics"]
+            
+            m1, m2, m3, m4, m5 = st.columns(5)
+            m1.metric("In-Sample Sharpe", f"{m.get('in_sample_sharpe', 0.0):+.2f}")
+            m2.metric("CPCV OOS Sharpe", f"{m.get('cpcv_oos_sharpe', 0.0):+.2f}")
+            m3.metric("Net Profit Factor", f"{m.get('net_profit_factor', 0.0):.2f}")
+            m4.metric("DSR p-value", f"{m.get('deflated_sharpe_p_value', 1.0):.4f}")
+            m5.metric("Monte Carlo 95% DD", f"{m.get('monte_carlo_95_max_dd_pct', 0.0):.2f}%")
+
+            st.markdown("#### Out-Of-Sample (OOS) Baseline Accounting")
+            oos1, oos2, oos3 = st.columns(3)
+            oos1.write(f"**540d Net PnL (INR)**: `Rs {m.get('pnl_540d_inr', 'NOT AVAILABLE')}`")
+            oos2.write(f"**OOS Validated Trades**: `{m.get('oos_trades', 'NOT AVAILABLE')}`")
+            oos3.write(f"**OOS Net PnL (INR)**: `Rs {m.get('oos_pnl_inr', 'NOT AVAILABLE')}`")
+
+        # SUBTAB 4: SYMBOL PERFORMANCE
+        with detail_tabs[3]:
+            st.markdown("#### Cross-Sectional Asset Performance & Data Status")
+            sym_df = pd.DataFrame(detail["symbol_performance"])
+            if not sym_df.empty:
+                st.dataframe(sym_df, use_container_width=True, hide_index=True)
+            else:
+                st.info("No symbol breakdown available.")
+
+        # SUBTAB 5: RESEARCH EVIDENCE & 540D CEILING AUDIT
+        with detail_tabs[4]:
+            st.markdown("#### 540-Day Research Horizon Compliance Audit")
+            d_read = detail["data_readiness"]
+            
+            st.write(f"**Target Timeframe**: `{d_read.get('timeframe', '15m')}`")
+            st.write(f"**Data Lake Universe Coverage**: `{d_read.get('symbols_ready', 0)} / {d_read.get('symbols_total', 0)} symbols qualified`")
+            st.write(f"**18-Month Lookback Compliance**: `{d_read.get('horizon_compliance', 'NOT AVAILABLE')}`")
+            
+            st.info("""
+            **Ashva Research Lookback Rule**:
+            The quantitative factory strictly enforces an 18-month / 540-day empirical window to ensure statistical significance 
+            across multiple market regimes while discarding stale pre-structural market data.
+            """)
+
+        # SUBTAB 6: TEST HISTORY JOURNAL
+        with detail_tabs[5]:
+            st.markdown("#### Chronological Experiment Trial Ledger")
+            hist = detail["test_history"]
+            if hist:
+                df_hist = pd.DataFrame(hist)
+                st.dataframe(
+                    df_hist[["experiment_id", "timestamp", "status", "in_sample_sharpe", "cpcv_oos_sharpe", "net_profit_factor", "git_commit_sha"]],
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.info("No recorded trial history found in SQLite experiment ledger.")
+    else:
+        st.info("Select an alpha from the dropdown above to view its quantitative dossier.")
 
 
 # =============================================================================
-# TAB 3: EXISTING TRADING OBSERVABILITY COMPONENT (PRESERVED)
+# TAB 3: TRADING OBSERVABILITY COMPONENT (PRESERVED)
 # =============================================================================
 
 def render_trading_observability(df_replay, df_paper, df_live, df_diagnostics):
@@ -215,7 +388,6 @@ def render_trading_observability(df_replay, df_paper, df_live, df_diagnostics):
         if not df_diagnostics.empty:
             st.dataframe(df_diagnostics, use_container_width=True)
             
-            # Highlight drops
             st.write("### Drop-off Analysis")
             for _, row in df_diagnostics.iterrows():
                 st.write(f"**{row['alpha_id']}**: Bars: {row['bars_received']} -> Generate: {row['generate_signals_calls']} -> Raw: {row['raw_signals']} -> Alloc: {row['allocator_rejected']} dropped -> Risk: {row['risk_rejected']} dropped -> Final: {row['final_trades']}")
@@ -259,7 +431,7 @@ def render_system_observability():
 
 def main():
     dal = get_dal()
-    df_alphas, df_replay, df_paper, df_live, df_diagnostics = load_alpha_trading_data()
+    df_replay, df_paper, df_live, df_diagnostics = load_trading_data()
 
     # Top-Level Unified Tabs
     tab_data, tab_alpha, tab_trading, tab_system = st.tabs([
@@ -273,7 +445,7 @@ def main():
         render_data_observability(dal)
 
     with tab_alpha:
-        render_alpha_factory(df_alphas)
+        render_alpha_factory(dal)
 
     with tab_trading:
         render_trading_observability(df_replay, df_paper, df_live, df_diagnostics)
