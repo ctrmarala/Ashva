@@ -14,7 +14,6 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from src.data.data_lake import DataLake
-from src.data.yfinance_loader import YFinanceLoader
 from src.strategies.alpha_rl.env import AshvaTradingEnv
 from src.strategies.alpha_rl.agent import AlphaRLAgent
 from src.backtest.engine import BacktestEngine
@@ -24,12 +23,10 @@ def main():
     parser = argparse.ArgumentParser(description="Ashva RL Training Pipeline")
     parser.add_argument("--symbol", type=str, default="RELIANCE", help="Symbol to train on")
     parser.add_argument("--timeframe", type=str, default="5m", help="Candle timeframe")
-    parser.add_argument("--period", type=str, default="1mo", help="Lookback period")
     parser.add_argument("--episodes", type=int, default=15, help="Number of training episodes")
 
     args = parser.parse_args()
     data_lake = DataLake()
-    loader = YFinanceLoader(data_lake=data_lake)
 
     print("=" * 80)
     print(f"[*] ASHVA DEEP REINFORCEMENT LEARNING TRAINING PIPELINE")
@@ -38,9 +35,9 @@ def main():
 
     # 1. Load Data
     df = data_lake.load_bars(args.symbol, args.timeframe)
-    if df.empty or len(df) < 50:
-        print(f"[*] Fetching market data for {args.symbol}...")
-        df = loader.fetch_and_store(symbol=args.symbol, timeframe=args.timeframe, period=args.period)
+    if df.empty:
+        print(f"[-] No market data found for {args.symbol} in DataLake. Please sync via Angel One SmartAPI first.")
+        return
 
     print(f"[+] Loaded {len(df)} candles for RL Environment.\n")
 

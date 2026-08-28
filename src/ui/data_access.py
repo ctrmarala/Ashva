@@ -22,7 +22,6 @@ from src.research.knowledge_map import AlphaKnowledgeMap
 from scripts.run_hypothesis_lab import STRATEGY_MAP
 from src.data.nse_calendar import NSECalendar
 from src.data.data_lake import DataLake
-from src.data.yfinance_loader import YFinanceLoader
 from src.data.angel_historical import AngelHistoricalFetcher
 from src.data.corporate_actions import CorporateActionManager, CorporateAction
 from src.core.universe_manager import get_universe_symbols, get_universe_name, get_benchmark_symbol
@@ -1807,9 +1806,8 @@ class UIDataAccess:
 
     def sync_market_data_now(self, symbol: Optional[str] = None, timeframe: str = "15m", period: str = "5d") -> Dict[str, Any]:
         """
-        Executes one-click incremental market data synchronization directly from the UI.
-        Prioritizes Angel One SmartAPI if active session credentials exist, otherwise seamlessly
-        uses YFinanceLoader fallback to update DuckDB and Parquet stores.
+        Executes one-click incremental market data synchronization directly from the UI
+        using the authoritative Angel One SmartAPI data pipeline to update DuckDB and Parquet stores.
         """
         if symbol and not symbol.upper().startswith("ALL"):
             target_symbols = [symbol.upper()]
@@ -1821,7 +1819,7 @@ class UIDataAccess:
         total_bars_added = 0
         errors = []
 
-        # Attempt SmartAPI first if configured
+        # Attempt SmartAPI initialization
         angel_cfg_file = self.config_dir / "angel_one.yaml"
         fetcher = None
         if angel_cfg_file.exists():
@@ -1839,18 +1837,26 @@ class UIDataAccess:
                     fetcher.initialize_session()
             except Exception as e:
                 fetcher = None
+                errors.append(f"SmartAPI Authentication: {str(e)}")
 
-        # Execute Ingestion
-        yf_loader = YFinanceLoader(data_lake=lake) if fetcher is None else None
+        if fetcher is None:
+            return {
+                "status": "ERROR",
+                "symbols_requested": len(target_symbols),
+                "symbols_updated": 0,
+                "total_bars_processed": 0,
+                "provider_used": "Angel One SmartAPI (Authentication Required)",
+                "timeframe": timeframe,
+                "errors": errors if errors else ["Angel One SmartAPI credentials not configured in config/angel_one.yaml."],
+                "completed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
 
+        # Execute Ingestion via Angel One SmartAPI
         for sym in target_symbols:
             try:
-                if fetcher is not None:
-                    to_dt = datetime.now().strftime("%Y-%m-%d %H:%M")
-                    from_dt = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M")
-                    df = fetcher.fetch_and_store(symbol=sym, timeframe=timeframe, from_date=from_dt, to_date=to_dt)
-                else:
-                    df = yf_loader.fetch_and_store(symbol=sym, timeframe=timeframe, period=period)
+                to_dt = datetime.now().strftime("%Y-%m-%d %H:%M")
+                from_dt = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M")
+                df = fetcher.fetch_and_store(symbol=sym, timeframe=timeframe, from_date=from_dt, to_date=to_dt)
 
                 if not df.empty:
                     updated_count += 1
@@ -1863,7 +1869,7 @@ class UIDataAccess:
             "symbols_requested": len(target_symbols),
             "symbols_updated": updated_count,
             "total_bars_processed": total_bars_added,
-            "provider_used": "Angel One SmartAPI" if fetcher is not None else "YFinance Fallback Loader",
+            "provider_used": "Angel One SmartAPI",
             "timeframe": timeframe,
             "errors": errors[:5],
             "completed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),

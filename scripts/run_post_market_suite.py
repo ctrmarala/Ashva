@@ -22,7 +22,6 @@ import pandas as pd
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from src.data.data_lake import DataLake
-from src.data.yfinance_loader import YFinanceLoader
 from src.strategies.alpha_bosch_aivo import AlphaInstitutionalValueOscillations
 from src.strategies.alpha_trend_pullback import AlphaInstitutionalTrendPullback
 from src.strategies.alpha_vol_squeeze import AlphaVolatilitySqueeze
@@ -33,21 +32,14 @@ from src.strategies.alpha_rl.env import AshvaTradingEnv
 
 
 def generate_synthetic_or_load(lake: DataLake, symbol: str, timeframe: str = "15m") -> pd.DataFrame:
-    """Loads bars from DataLake or fetches via YFinance loader."""
+    """Loads bars from DataLake."""
     try:
         df = lake.load_bars(symbol, timeframe)
-        if not df.empty and len(df) > 100:
+        if not df.empty:
             return df
     except Exception:
         pass
-
-    # Fallback to YFinance loader
-    try:
-        loader = YFinanceLoader(data_lake=lake)
-        df = loader.fetch_and_store(symbol, timeframe=timeframe, period="60d")
-        return df
-    except Exception:
-        return pd.DataFrame()
+    return pd.DataFrame()
 
 
 def main():

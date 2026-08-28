@@ -13,7 +13,6 @@ import numpy as np
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from src.data.data_lake import DataLake
-from src.data.yfinance_loader import YFinanceLoader
 from src.backtest.engine import BacktestEngine
 from src.analytics.indian_costs import IndianCostModel, Segment
 from src.strategies.alpha_orb_pro import AlphaAuctionORBPro
@@ -28,23 +27,15 @@ TARGET_UNIVERSE = NIFTY_50_UNIVERSE
 
 def sync_nifty_50(data_lake: DataLake):
     print("=" * 80)
-    print(f"[*] SYNCING NIFTY 50 UNIVERSE ({len(NIFTY_50_UNIVERSE)} ASSETS) INTO DATA LAKE")
+    print(f"[*] VERIFYING UNIVERSE DATA ({len(TARGET_UNIVERSE)} ASSETS) IN DATA LAKE")
     print("=" * 80)
 
-    loader = YFinanceLoader(data_lake=data_lake)
-    for i, sym in enumerate(NIFTY_50_UNIVERSE, 1):
-        # Check if already present with sufficient bars
+    for i, sym in enumerate(TARGET_UNIVERSE, 1):
         existing = data_lake.load_bars(sym, "15m")
-        if not existing.empty and len(existing) > 500:
-            print(f"[{i:02d}/{len(NIFTY_50_UNIVERSE)}] {sym:12s} -> Already cached ({len(existing)} bars)")
-            continue
-
-        print(f"[{i:02d}/{len(NIFTY_50_UNIVERSE)}] Downloading {sym:12s} (15m)...", end="", flush=True)
-        try:
-            df = loader.fetch_and_store(symbol=sym, timeframe="15m", period="60d")
-            print(f" [OK: {len(df)} bars]")
-        except Exception as e:
-            print(f" [FAILED: {e}]")
+        if not existing.empty:
+            print(f"[{i:02d}/{len(TARGET_UNIVERSE)}] {sym:12s} -> Ready ({len(existing)} bars)")
+        else:
+            print(f"[{i:02d}/{len(TARGET_UNIVERSE)}] {sym:12s} -> [!] Missing in DataLake (Sync via Angel One SmartAPI)")
 
 
 def scan_universe_alphas():

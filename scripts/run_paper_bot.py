@@ -20,7 +20,6 @@ from src.core.events import OrderEvent, OrderSide, OrderType, ProductType
 from src.core.event_bus import AsyncEventBus
 from src.core.state_machine import StateMachineWAL
 from src.data.data_lake import DataLake
-from src.data.yfinance_loader import YFinanceLoader
 from src.risk.risk_manager import RiskManager
 from src.risk.position_sizer import PositionSizer
 from src.execution.paper_broker import PaperBroker
@@ -79,16 +78,15 @@ def main():
     event_bus = AsyncEventBus()
     state_wal = StateMachineWAL()
     data_lake = DataLake()
-    loader = YFinanceLoader(data_lake=data_lake)
     rms = RiskManager(max_daily_loss_pct=1.5, max_open_positions=4)
     position_sizer = PositionSizer()
     paper_broker = PaperBroker(initial_capital=500000.0, state_wal=state_wal)
 
     # 2. Ensure Data
     df = data_lake.load_bars(args.symbol, args.timeframe)
-    if df.empty or len(df) < 50:
-        print(f"[*] Fetching historical market data for {args.symbol}...")
-        df = loader.fetch_and_store(symbol=args.symbol, timeframe=args.timeframe, period="60d")
+    if df.empty:
+        print(f"[-] No market data found for {args.symbol} in DataLake. Please sync via Angel One SmartAPI first.")
+        return
 
     print(f"[+] Loaded {len(df)} candles for simulation.")
 

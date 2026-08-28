@@ -8,10 +8,7 @@ duckdb>=0.9.0
 pyarrow>=12.0.0
 pyyaml>=6.0
 
-# Financial Data Ingestion
-yfinance>=0.2.30
-
-# Angel One SmartAPI & Auth
+# Financial Data Ingestion (Angel One SmartAPI & Auth)
 smartapi-python>=1.4.0
 pyotp>=2.8.0
 requests>=2.31.0

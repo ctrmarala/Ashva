@@ -14,7 +14,6 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from src.data.data_lake import DataLake
-from src.data.yfinance_loader import YFinanceLoader
 from src.strategies.alpha_pairs import AlphaCointegrationPairs
 from src.backtest.engine import BacktestEngine
 from src.analytics.tearsheet import QuantTearsheetGenerator
@@ -28,7 +27,6 @@ def main():
 
     args = parser.parse_args()
     data_lake = DataLake()
-    loader = YFinanceLoader(data_lake=data_lake)
 
     print("=" * 80)
     print(f"[*] ASHVA STATISTICAL ARBITRAGE & COINTEGRATION LAB")
@@ -39,10 +37,9 @@ def main():
     df_a = data_lake.load_bars(args.asset_a, args.timeframe)
     df_b = data_lake.load_bars(args.asset_b, args.timeframe)
 
-    if df_a.empty:
-        df_a = loader.fetch_and_store(args.asset_a, timeframe=args.timeframe, period="1mo")
-    if df_b.empty:
-        df_b = loader.fetch_and_store(args.asset_b, timeframe=args.timeframe, period="1mo")
+    if df_a.empty or df_b.empty:
+        print(f"[-] Missing market data in DataLake for {args.asset_a} or {args.asset_b}. Please sync via Angel One SmartAPI first.")
+        return
 
     strat = AlphaCointegrationPairs()
 
