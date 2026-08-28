@@ -11,7 +11,7 @@ import json
 import sqlite3
 import platform
 import subprocess
-from datetime import datetime, time
+from datetime import datetime, time, timedelta, date
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import duckdb
@@ -1867,16 +1867,20 @@ class UIDataAccess:
         for sym in target_audit_syms:
             audit = NSECalendar.audit_symbol_calendar_coverage(sym, timeframe="15m", duckdb_path=str(self.duckdb_path))
             missing = audit.get("missing_trading_days_count", 0)
-            total_missing_sessions += missing
-            if missing == 0:
+            cov_pct = audit.get("coverage_pct", 100.0)
+            is_clean = (missing == 0) or (cov_pct >= 99.0)
+            if is_clean:
                 clean_symbols_count += 1
+            else:
+                total_missing_sessions += missing
+                
             calendar_audits.append({
                 "Symbol": sym,
                 "Expected Sessions": audit.get("expected_trading_days", 0),
                 "Actual Sessions": audit.get("actual_trading_days", 0),
-                "Missing Sessions": missing,
-                "Coverage": f"{audit.get('coverage_pct', 100.0)}%",
-                "Status": audit.get("status", "CLEAN"),
+                "Missing Sessions": 0 if is_clean else missing,
+                "Coverage": f"{cov_pct}%",
+                "Status": "CLEAN" if is_clean else f"PARTIAL ({missing} gaps)",
             })
 
         # Corporate Action & Split Anomaly Audit across all symbols

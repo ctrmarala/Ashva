@@ -51,10 +51,13 @@ NSE_HOLIDAYS_2025: Set[date] = {
 }
 
 NSE_HOLIDAYS_2026: Set[date] = {
+    date(2026, 1, 15),  # Makar Sankranti / Municipal Election
     date(2026, 1, 26),  # Republic Day
     date(2026, 2, 16),  # Mahashivratri
     date(2026, 3, 3),   # Holi
     date(2026, 3, 20),  # Id-Ul-Fitr
+    date(2026, 3, 26),  # Shri Ram Navami
+    date(2026, 3, 31),  # Mahavir Jayanti / Annual Closing
     date(2026, 4, 3),   # Good Friday
     date(2026, 4, 14),  # Dr. Baba Saheb Ambedkar Jayanti
     date(2026, 5, 1),   # Maharashtra Day
@@ -67,6 +70,13 @@ NSE_HOLIDAYS_2026: Set[date] = {
     date(2026, 11, 9),  # Diwali Balipratipada
     date(2026, 11, 24), # Gurunanak Jayanti
     date(2026, 12, 25), # Christmas
+}
+
+# Official NSE Special Live Trading Sessions (e.g. Budget Sunday session, Diwali Muhurat Trading)
+NSE_SPECIAL_SESSIONS: Set[date] = {
+    date(2024, 11, 1),  # Diwali Muhurat Trading 2024
+    date(2025, 10, 21), # Diwali Muhurat Trading 2025
+    date(2026, 2, 1),   # Union Budget Special Live Sunday Trading 2026
 }
 
 ALL_NSE_HOLIDAYS: Set[date] = NSE_HOLIDAYS_2024.union(NSE_HOLIDAYS_2025).union(NSE_HOLIDAYS_2026)
@@ -93,9 +103,12 @@ class NSECalendar:
     @classmethod
     def is_trading_day(cls, dt: Union[date, datetime, str]) -> bool:
         """
-        Returns True if the date is a regular NSE trading session (Monday to Friday, excluding official NSE holidays).
+        Returns True if the date is an active NSE trading session (including special live sessions).
         """
         d = cls.to_date(dt)
+        # Check special exchange sessions (e.g. Budget Sunday, Muhurat Trading)
+        if d in NSE_SPECIAL_SESSIONS:
+            return True
         # Check weekend (5 = Saturday, 6 = Sunday)
         if d.weekday() >= 5:
             return False

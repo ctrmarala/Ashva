@@ -53,9 +53,14 @@ def render_data_observability(dal: UIDataAccess):
             with st.spinner(f"Synchronizing market data for {selected_sync_target}..."):
                 res = dal.sync_market_data_now(symbol=selected_sync_target, timeframe="15m")
                 if res["status"] == "SUCCESS":
-                    st.success(f"✓ Sync Complete: Processed {res['symbols_updated']} symbols ({res['total_bars_processed']} bars) via {res['provider_used']}.")
+                    st.success(f"✓ Sync Complete: Successfully updated {res['symbols_updated']}/{res['symbols_requested']} symbols ({res['total_bars_processed']} bars) via {res['provider_used']}.")
                 else:
                     st.warning(f"Sync Notice: {res['status']} ({len(res.get('errors', []))} notices).")
+                
+                if res.get("errors"):
+                    with st.expander(f"⚠️ View Sync Notices & Error Details ({len(res['errors'])})", expanded=True):
+                        for err in res["errors"]:
+                            st.write(f"- `{err}`")
 
     with act_col2:
         st.write("")
