@@ -60,12 +60,21 @@ def render_data_observability(dal: UIDataAccess):
     with act_col2:
         st.write("")
         st.write("")
-        if st.button("🛡️ Validate Data & NSE Calendar", key="btn_validate_data", use_container_width=True):
-            with st.spinner("Executing full repository hygiene check and NSE Calendar audit..."):
+        if st.button("🛡️ Validate Data, Calendar & Stock Splits", key="btn_validate_data", use_container_width=True):
+            with st.spinner("Executing full repository hygiene check, NSE Calendar audit & Stock Split detection..."):
                 val_res = dal.run_comprehensive_data_validation()
-                st.success(f"✓ Validation Complete: {val_res['clean_calendar_symbols']}/{val_res['symbols_audited_count']} symbols audited with 100% calendar coverage.")
-                if val_res.get("calendar_audits_table"):
-                    st.dataframe(pd.DataFrame(val_res["calendar_audits_table"]), use_container_width=True, hide_index=True)
+                st.success(f"✓ Comprehensive Validation Complete: {val_res['clean_calendar_symbols']}/{val_res['symbols_audited_count']} symbols with 100% calendar coverage. Split Audit: {val_res['split_audit_status']}.")
+                
+                with st.expander("🔍 Comprehensive Validation Details", expanded=True):
+                    tab_val_cal, tab_val_split = st.tabs(["📅 NSE Calendar Coverage", "🍰 Stock Split & Bonus Anomaly Audit"])
+                    with tab_val_cal:
+                        if val_res.get("calendar_audits_table"):
+                            st.dataframe(pd.DataFrame(val_res["calendar_audits_table"]), use_container_width=True, hide_index=True)
+                    with tab_val_split:
+                        if val_res.get("split_anomalies_table"):
+                            st.dataframe(pd.DataFrame(val_res["split_anomalies_table"]), use_container_width=True, hide_index=True)
+                        else:
+                            st.success(f"✓ {val_res['split_audit_status']}")
 
     with act_col3:
         st.write("")
@@ -110,6 +119,7 @@ def render_data_observability(dal: UIDataAccess):
                 c1, c2, c3 = st.columns(3)
                 c1.metric("Selected Symbol", detail["symbol"])
                 c1.write(f"**Primary Storage**: {detail['data_source']}")
+                c1.write(f"**Stock Split Status**: `{detail['quality_metrics'].get('unadjusted_stock_splits', 'CLEAN')}`")
                 
                 q_metrics = detail["quality_metrics"]
                 c2.metric("Duplicate Bars", q_metrics["duplicate_bars"])
@@ -132,6 +142,12 @@ def render_data_observability(dal: UIDataAccess):
                             st.write(f"**Missing Trading Dates**: `{', '.join(cal['missing_dates'])}`")
                         else:
                             st.success("✓ Zero missing trading sessions. 100% calendar consistency with NSE trading calendar.")
+
+                # Show Stock Split Anomalies Box if detected
+                split_drops = detail.get("split_anomalies", [])
+                if split_drops:
+                    st.warning(f"⚠️ {len(split_drops)} Potential Unadjusted Overnight Price Drops / Splits Detected for {detail['symbol']}")
+                    st.dataframe(pd.DataFrame(split_drops), use_container_width=True, hide_index=True)
 
                 st.write("#### Available Timeframes Breakdown")
                 df_tf_detail = pd.DataFrame(detail["timeframes_detail"])

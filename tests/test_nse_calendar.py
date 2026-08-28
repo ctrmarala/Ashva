@@ -59,6 +59,7 @@ def test_audit_symbol_calendar_coverage():
 def test_dal_symbol_detail_includes_calendar_audit(dal_instance):
     detail = dal_instance.get_symbol_detail("INFY")
     assert "calendar_audit" in detail
+    assert "unadjusted_stock_splits" in detail["quality_metrics"]
     cal = detail["calendar_audit"]
     assert "expected_trading_days" in cal
     assert "coverage_pct" in cal
@@ -72,6 +73,9 @@ def test_dal_comprehensive_validation(dal_instance):
     assert val_report["symbols_audited_count"] > 0
     assert "calendar_audits_table" in val_report
     assert len(val_report["calendar_audits_table"]) > 0
+    assert "split_audit_status" in val_report
+    assert "split_anomalies_count" in val_report
+    assert val_report["split_anomalies_count"] == 0
 
 
 def test_dal_sync_market_data_now(dal_instance):

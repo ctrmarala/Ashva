@@ -24,6 +24,7 @@ from src.data.nse_calendar import NSECalendar
 from src.data.data_lake import DataLake
 from src.data.yfinance_loader import YFinanceLoader
 from src.data.angel_historical import AngelHistoricalFetcher
+from src.data.corporate_actions import CorporateActionManager, CorporateAction
 
 
 class UIDataAccess:
@@ -272,6 +273,12 @@ class UIDataAccess:
                 f"({cal_audit.get('actual_trading_days', 0)}/{cal_audit.get('expected_trading_days', 0)} sessions - {cal_audit.get('coverage_pct', 100.0)}% coverage)"
             )
 
+            # Run Corporate Action / Split Anomaly Detector
+            ca_lake = DataLake(db_path=str(self.duckdb_path), parquet_dir=str(self.parquet_dir), read_only=True)
+            ca_mgr = CorporateActionManager(data_lake=ca_lake)
+            split_anomalies = ca_mgr.detect_unadjusted_anomalies(sym_upper, timeframe="1d", threshold_pct=0.20)
+            split_status = "0 Unadjusted Splits (Price Series Adjusted)" if not split_anomalies else f"{len(split_anomalies)} Unadjusted Splits Detected"
+
             return {
                 "symbol": sym_upper,
                 "data_source": df_tf["source"].iloc[0] if "source" in df_tf.columns and not df_tf.empty else "HISTORICAL",
@@ -280,10 +287,12 @@ class UIDataAccess:
                     "duplicate_bars": int(dup_count),
                     "invalid_ohlc_bars": int(invalid_ohlc),
                     "out_of_market_hours_bars": int(out_of_hours),
+                    "unadjusted_stock_splits": split_status,
                     "missing_bars_calendar_audit": calendar_status,
                     "data_gaps": f"{cal_audit.get('missing_trading_days_count', 0)} Missing Sessions" if cal_audit.get('missing_trading_days_count', 0) > 0 else "0 Structure Violations",
                 },
                 "calendar_audit": cal_audit,
+                "split_anomalies": split_anomalies,
             }
         except Exception as e:
             print(f"Error in get_symbol_detail for {symbol}: {e}")
@@ -1839,17 +1848,21 @@ class UIDataAccess:
 
     def run_comprehensive_data_validation(self) -> Dict[str, Any]:
         """
-        Runs comprehensive repository-wide data hygiene audit AND cross-sectional
-        NSE Trading Holiday Calendar gap verification across the NIFTY universe.
+        Runs comprehensive repository-wide validation:
+        1. Data hygiene audit (duplicate keys, invalid OHLC bounds, out-of-hours bars)
+        2. Cross-sectional NSE Trading Holiday Calendar gap verification
+        3. Corporate actions & unadjusted stock split anomaly detection across all 50 symbols
         """
         hygiene = self.get_data_quality_summary()
         symbols = self.get_symbol_list()
+        if not symbols:
+            symbols = ["INFY", "TCS", "RELIANCE", "HDFCBANK", "ICICIBANK"]
         
         calendar_audits = []
         total_missing_sessions = 0
         clean_symbols_count = 0
 
-        target_audit_syms = symbols[:14] if symbols else ["INFY", "TCS", "RELIANCE"]
+        target_audit_syms = symbols[:20] if len(symbols) > 20 else symbols
 
         for sym in target_audit_syms:
             audit = NSECalendar.audit_symbol_calendar_coverage(sym, timeframe="15m", duckdb_path=str(self.duckdb_path))
@@ -1866,12 +1879,27 @@ class UIDataAccess:
                 "Status": audit.get("status", "CLEAN"),
             })
 
+        # Corporate Action & Split Anomaly Audit across all symbols
+        ca_lake = DataLake(db_path=str(self.duckdb_path), parquet_dir=str(self.parquet_dir), read_only=True)
+        ca_mgr = CorporateActionManager(data_lake=ca_lake)
+        split_anomalies_list = []
+
+        for sym in symbols:
+            anomalies = ca_mgr.detect_unadjusted_anomalies(sym, timeframe="1d", threshold_pct=0.20)
+            if anomalies:
+                split_anomalies_list.extend(anomalies)
+
+        split_status_str = f"CLEAN (0 Unadjusted Splits Across {len(symbols)} Equities)" if not split_anomalies_list else f"WARNING ({len(split_anomalies_list)} Unadjusted Drops Detected)"
+
         return {
             "hygiene_summary": hygiene,
             "symbols_audited_count": len(calendar_audits),
             "clean_calendar_symbols": clean_symbols_count,
             "total_missing_sessions_across_universe": total_missing_sessions,
             "calendar_audits_table": calendar_audits,
+            "split_audit_status": split_status_str,
+            "split_anomalies_count": len(split_anomalies_list),
+            "split_anomalies_table": split_anomalies_list,
             "audit_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
 
