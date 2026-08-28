@@ -51,13 +51,24 @@ def run_multi_timeframe_ingestion(timeframes: List[str] = ["5m", "30m", "1d"], d
     with open(config_path, "r") as f:
         cfg = yaml.safe_load(f).get("smartapi", {})
 
-    token_file = Path("config/nifty50_tokens.json")
-    if not token_file.exists():
-        print(f"[!] Error: {token_file} not found. Run token mapper first.")
-        return
+    settings_cfg = Path("config/settings.yaml")
+    token_file_path = "config/nifty50_tokens.json"
+    if settings_cfg.exists():
+        try:
+            with open(settings_cfg, "r") as sf:
+                s_data = yaml.safe_load(sf) or {}
+                token_file_path = s_data.get("universe", {}).get("token_file", "config/nifty50_tokens.json")
+        except Exception:
+            pass
 
-    with open(token_file, "r") as f:
-        token_map: Dict[str, str] = json.load(f)
+    token_file = Path(token_file_path)
+    token_map: Dict[str, str] = {}
+    if token_file.exists():
+        try:
+            with open(token_file, "r") as f:
+                token_map = json.load(f)
+        except Exception:
+            token_map = {}
 
     lake = DataLake(read_only=False)
     fetcher = AngelHistoricalFetcher(
@@ -80,7 +91,7 @@ def run_multi_timeframe_ingestion(timeframes: List[str] = ["5m", "30m", "1d"], d
     for tf in timeframes:
         tf_clean = tf.lower()
         if tf_clean not in INTERVAL_SETTINGS:
-            print(f"[!] Unsupported timeframe {tf}. Skipping.")
+            print(f"[!] Warning: Timeframe '{tf_clean}' not supported. Skipping.")
             continue
 
         setting = INTERVAL_SETTINGS[tf_clean]
@@ -95,8 +106,8 @@ def run_multi_timeframe_ingestion(timeframes: List[str] = ["5m", "30m", "1d"], d
         success_count = 0
         failed_symbols = []
 
-        for idx, symbol in enumerate(NIFTY_50_UNIVERSE, 1):
-            print(f"[{idx:02d}/50] Ingesting {symbol:12s} ({tf_clean})...", end="", flush=True)
+        for idx, symbol in enumerate(TARGET_UNIVERSE, 1):
+            print(f"[{idx:02d}/{len(TARGET_UNIVERSE)}] Ingesting {symbol:12s} ({tf_clean})...", end="", flush=True)
 
             existing = lake.load_bars(symbol.upper(), tf_clean)
             if not existing.empty and len(existing) >= min_bars_thresh:
@@ -104,9 +115,9 @@ def run_multi_timeframe_ingestion(timeframes: List[str] = ["5m", "30m", "1d"], d
                 success_count += 1
                 continue
 
-            token = token_map.get(symbol.upper())
+            token = token_map.get(symbol.upper()) or fetcher.get_token_for_symbol(symbol.upper())
             if not token:
-                print(f" [FAILED: Token not found in token map]")
+                print(f" [FAILED: Token not found in token map or Angel One Scrip Master]")
                 failed_symbols.append(symbol)
                 continue
 

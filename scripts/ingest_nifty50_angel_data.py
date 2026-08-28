@@ -17,15 +17,11 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from src.data.data_lake import DataLake
 from src.data.angel_historical import AngelHistoricalFetcher
+from src.core.universe_manager import get_universe_symbols, get_universe_name
 
-NIFTY_50_UNIVERSE = [
-    "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY", "BHARTIARTL", "SBIN", "ITC", "HINDUNILVR",
-    "LT", "BAJFINANCE", "HCLTECH", "MARUTI", "SUNPHARMA", "ADANIENT", "KOTAKBANK", "TATAMOTORS", "TATASTEEL",
-    "NTPC", "AXISBANK", "ONGC", "TITAN", "ADANIPORTS", "COALINDIA", "POWERGRID", "M&M", "BAJAJFINSV", "WIPRO",
-    "NESTLEIND", "ULTRACEMCO", "JSWSTEEL", "GRASIM", "TECHM", "EICHERMOT", "HDFCLIFE", "BPCL", "DRREDDY",
-    "BRITANNIA", "CIPLA", "APOLLOHOSP", "TATACONSUM", "SHRIRAMFIN", "BAJAJ-AUTO", "BEL", "HEROMOTOCO",
-    "INDUSINDBK", "SBILIFE", "TRENT", "DIVISLAB", "PIDILITIND"
-]
+TARGET_UNIVERSE = get_universe_symbols()
+UNIVERSE_NAME = get_universe_name()
+NIFTY_50_UNIVERSE = TARGET_UNIVERSE
 
 MAX_HORIZON_DAYS = 540
 
@@ -34,7 +30,7 @@ def run_ingestion(timeframe: str = "15m", days: int = 540):
     days = min(days, MAX_HORIZON_DAYS)
     print("=" * 100)
     print(f"[*] ASHVA ANGEL ONE HISTORICAL INGESTION ENGINE")
-    print(f"[*] Universe: {len(NIFTY_50_UNIVERSE)} NIFTY 50 Equities | Timeframe: {timeframe.upper()} | Lookback: {days} Days (18 Months)")
+    print(f"[*] Universe: {len(TARGET_UNIVERSE)} {UNIVERSE_NAME} Equities | Timeframe: {timeframe.upper()} | Lookback: {days} Days (18 Months)")
     print("=" * 100)
 
     # 1. Load Angel One credentials
@@ -67,8 +63,8 @@ def run_ingestion(timeframe: str = "15m", days: int = 540):
     success_count = 0
     failed_symbols = []
 
-    for idx, symbol in enumerate(NIFTY_50_UNIVERSE, 1):
-        print(f"\n[{idx:02d}/{len(NIFTY_50_UNIVERSE)}] Ingesting {symbol:12s} ({timeframe})...", end="", flush=True)
+    for idx, symbol in enumerate(TARGET_UNIVERSE, 1):
+        print(f"\n[{idx:02d}/{len(TARGET_UNIVERSE)}] Ingesting {symbol:12s} ({timeframe})...", end="", flush=True)
         try:
             existing = lake.load_bars(symbol.upper(), timeframe.lower())
             if not existing.empty and len(existing) >= 5000:
