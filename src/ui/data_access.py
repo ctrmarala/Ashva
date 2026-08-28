@@ -178,7 +178,7 @@ class UIDataAccess:
                 df_15m = df_raw[df_raw["timeframe"] == "15m"].set_index("symbol")
                 span_15m = (pd.to_datetime(df_15m["max_ts"]) - pd.to_datetime(df_15m["min_ts"])).dt.days
                 summary["540d_Horizon"] = span_15m.map(
-                    lambda d: f"PASS ({d}d)" if d >= 540 else f"INSUFFICIENT ({d}d)"
+                    lambda d: f"PASS ({d}d)" if d >= 530 else f"INSUFFICIENT ({d}d)"
                 )
             else:
                 summary["540d_Horizon"] = "MISSING 15M"
@@ -343,7 +343,7 @@ class UIDataAccess:
                     FROM ohlcv_bars
                     WHERE timeframe = '15m'
                     GROUP BY symbol
-                    HAVING span_days >= 540
+                    HAVING span_days >= 530
                 )
             """).fetchone()[0]
 

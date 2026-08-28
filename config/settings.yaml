@@ -15,9 +15,9 @@ market:
     opening_range_end: "09:45:00"
 
 universe:
-  name: "NIFTY 75"
+  name: "NIFTY 77"
   benchmark: "^NSEI"          # NIFTY Index Benchmark
-  token_file: "config/nifty75_tokens.json"
+  token_file: "config/nifty77_tokens.json"
   primary_tickers:
     - "INFY"
     - "TCS"

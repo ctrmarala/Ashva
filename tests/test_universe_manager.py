@@ -18,25 +18,34 @@ def test_universe_manager_default_resolution():
 
 
 def test_universe_manager_metadata():
+    import yaml
+    with open("config/settings.yaml", "r") as f:
+        cfg_name = (yaml.safe_load(f) or {}).get("universe", {}).get("name", "NIFTY 50")
     um = UniverseManager(config_path="config/settings.yaml")
-    assert um.get_universe_name() in ["NIFTY 50", "NIFTY 75", "NIFTY 100"]
+    assert um.get_universe_name() == cfg_name
     assert um.get_benchmark_symbol() == "^NSEI"
 
 
 def test_global_helper_functions():
+    import yaml
+    with open("config/settings.yaml", "r") as f:
+        cfg_name = (yaml.safe_load(f) or {}).get("universe", {}).get("name", "NIFTY 50")
     symbols = get_universe_symbols()
     assert len(symbols) >= 50
-    assert get_universe_name() in ["NIFTY 50", "NIFTY 75", "NIFTY 100"]
+    assert get_universe_name() == cfg_name
     assert get_benchmark_symbol() == "^NSEI"
 
 
 def test_dal_universe_integration():
+    import yaml
+    with open("config/settings.yaml", "r") as f:
+        cfg_name = (yaml.safe_load(f) or {}).get("universe", {}).get("name", "NIFTY 50")
     dal = UIDataAccess()
-    assert dal.get_active_universe_name() in ["NIFTY 50", "NIFTY 75", "NIFTY 100"]
+    assert dal.get_active_universe_name() == cfg_name
     assert dal.get_benchmark_symbol() == "^NSEI"
     overview = dal.get_data_overview()
     assert "universe_name" in overview
-    assert overview["universe_name"] in ["NIFTY 50", "NIFTY 75", "NIFTY 100"]
+    assert overview["universe_name"] == cfg_name
 
 
 def test_custom_universe_config_resolution(tmp_path):
