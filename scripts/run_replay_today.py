@@ -1,6 +1,6 @@
 """
 Ashva Production Replay Trading Engine: Replay Execution for Target Sessions
-Executes qualified positive alphas across the liquid NIFTY universe using the production TradingEngine.
+Executes all qualified positive alphas across the liquid NIFTY universe using the production TradingEngine.
 """
 
 import sys
@@ -21,21 +21,27 @@ from src.market_data.replay_provider import ReplayMarketDataProvider
 from src.execution.replay_adapter import ReplayExecutionAdapter
 
 # Strategy Registry
-from src.strategies.alpha_78_double_inside_momentum import Alpha78DoubleInsideMomentum
+from src.strategies.alpha_86_three_day_trend_surge_2r import Alpha86ThreeDayTrendSurge2R
+from src.strategies.alpha_87_two_day_trend_surge_2r import Alpha87TwoDayTrendSurge2R
+from src.strategies.alpha_88_three_day_trend_surge_175r import Alpha88ThreeDayTrendSurge175R
 from src.strategies.alpha_81_double_inside_2r_expansion import Alpha81DoubleInside2RExpansion
 from src.strategies.alpha_82_double_inside_volume_shock import Alpha82DoubleInsideVolumeShock
+from src.strategies.alpha_83_double_inside_gap_drift import Alpha83DoubleInsideGapDrift
+from src.strategies.alpha_84_triple_inside_expansion import Alpha84TripleInsideExpansion
 from src.strategies.alpha_85_double_inside_225r_expansion import Alpha85DoubleInside225RExpansion
+from src.strategies.alpha_78_double_inside_momentum import Alpha78DoubleInsideMomentum
 from src.strategies.alpha_70_double_inside_target_expansion import Alpha70DoubleInsideTargetExpansion
 from src.strategies.alpha_73_inside_day_expansion import Alpha73InsideDayExpansion
-from src.strategies.alpha_56_nr4_moderate_gap_shock import Alpha56NR4ModerateGapShock
-from src.strategies.alpha_68_nr5_high_conviction_gap import Alpha68NR5HighConvictionGap
+from src.strategies.alpha_66_two_day_trend_high_vol_gap import Alpha66TwoDayTrendHighVolGap
 from src.strategies.alpha_67_ten_day_max_vol_gap import Alpha67TenDayMaxVolGap
+from src.strategies.alpha_68_nr5_high_conviction_gap import Alpha68NR5HighConvictionGap
+from src.strategies.alpha_56_nr4_moderate_gap_shock import Alpha56NR4ModerateGapShock
 from src.strategies.alpha_54_gap_marubozu_momentum import Alpha54GapMarubozuMomentum
 from src.strategies.alpha_04_gap_and_go import Alpha04GapAndGo
 
 parser = argparse.ArgumentParser(description="Ashva Replay Engine Runner")
-parser.add_argument("--start-date", type=str, default="2026-08-26", help="Replay start date (YYYY-MM-DD)")
-parser.add_argument("--end-date", type=str, default="2026-08-26", help="Replay end date (YYYY-MM-DD)")
+parser.add_argument("--start-date", type=str, default="2026-08-24", help="Replay start date (YYYY-MM-DD)")
+parser.add_argument("--end-date", type=str, default="2026-08-28", help="Replay end date (YYYY-MM-DD)")
 parser.add_argument("--universe", type=str, default="ALL_50", help="ALL_50 or NIFTY_14")
 args = parser.parse_args()
 
@@ -51,7 +57,7 @@ else:
         "BAJFINANCE", "MARUTI", "SUNPHARMA"
     ]
 
-# Ensure end_date includes entire day up to 23:59:59
+# Format exact timestamp boundaries to capture all intraday bars
 s_date = f"{args.start_date} 00:00:00" if len(args.start_date) == 10 else args.start_date
 e_date = f"{args.end_date} 23:59:59" if len(args.end_date) == 10 else args.end_date
 
@@ -61,15 +67,26 @@ print(f"[*] Universe: {len(universe)} NIFTY Equities | Segment: Cash Intraday (1
 print("=" * 115)
 
 qualified_models = [
-    ("ALPHA_78_DOUBLE_INSIDE_MOMENTUM", Alpha78DoubleInsideMomentum, "STEP_RATCHET"),
+    # Multi-Day Trend Continuation Surge Family
+    ("ALPHA_86_THREE_DAY_TREND_SURGE_2R", Alpha86ThreeDayTrendSurge2R, "STEP_RATCHET"),
+    ("ALPHA_87_TWO_DAY_TREND_SURGE_2R", Alpha87TwoDayTrendSurge2R, "STEP_RATCHET"),
+    ("ALPHA_88_THREE_DAY_TREND_SURGE_175R", Alpha88ThreeDayTrendSurge175R, "STEP_RATCHET"),
+    ("ALPHA_66_TWO_DAY_TREND_HIGH_VOL_GAP", Alpha66TwoDayTrendHighVolGap, "STEP_RATCHET"),
+    
+    # Asymmetric Compression Family
     ("ALPHA_81_DOUBLE_INSIDE_2R_EXPANSION", Alpha81DoubleInside2RExpansion, "STEP_RATCHET"),
     ("ALPHA_82_DOUBLE_INSIDE_VOLUME_SHOCK", Alpha82DoubleInsideVolumeShock, "STEP_RATCHET"),
+    ("ALPHA_83_DOUBLE_INSIDE_GAP_DRIFT", Alpha83DoubleInsideGapDrift, "STEP_RATCHET"),
+    ("ALPHA_84_TRIPLE_INSIDE_EXPANSION", Alpha84TripleInsideExpansion, "STEP_RATCHET"),
     ("ALPHA_85_DOUBLE_INSIDE_225R_EXPANSION", Alpha85DoubleInside225RExpansion, "STEP_RATCHET"),
+    ("ALPHA_78_DOUBLE_INSIDE_MOMENTUM", Alpha78DoubleInsideMomentum, "STEP_RATCHET"),
     ("ALPHA_70_DOUBLE_INSIDE_TARGET_EXPANSION", Alpha70DoubleInsideTargetExpansion, "STEP_RATCHET"),
     ("ALPHA_73_INSIDE_DAY_EXPANSION", Alpha73InsideDayExpansion, "BREAK_EVEN"),
-    ("ALPHA_56_NR4_MODERATE_GAP_SHOCK", Alpha56NR4ModerateGapShock, "STEP_RATCHET"),
-    ("ALPHA_68_NR5_HIGH_CONVICTION_GAP", Alpha68NR5HighConvictionGap, "STEP_RATCHET"),
+    
+    # Opening Volatility & Gap Shock Family
     ("ALPHA_67_TEN_DAY_MAX_VOL_GAP", Alpha67TenDayMaxVolGap, "BREAK_EVEN"),
+    ("ALPHA_68_NR5_HIGH_CONVICTION_GAP", Alpha68NR5HighConvictionGap, "STEP_RATCHET"),
+    ("ALPHA_56_NR4_MODERATE_GAP_SHOCK", Alpha56NR4ModerateGapShock, "STEP_RATCHET"),
     ("ALPHA_54_GAP_MARUBOZU_MOMENTUM", Alpha54GapMarubozuMomentum, "STEP_RATCHET"),
     ("ALPHA_04_GAP_AND_GO", Alpha04GapAndGo, "BREAK_EVEN"),
 ]
