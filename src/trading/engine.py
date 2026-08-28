@@ -32,6 +32,37 @@ from src.analytics.indian_costs import IndianCostModel, Segment
 logger = logging.getLogger("Ashva.TradingEngine")
 
 
+class ReplayDiagnosticTracker:
+    """Tracks signal generation drops per alpha during Replay mode."""
+    def __init__(self):
+        # alpha_id -> metrics dict
+        self.stats: Dict[str, Dict[str, Any]] = {}
+        
+    def init_alpha(self, alpha_id: str, symbol: str, entry_start: time, entry_end: time):
+        if alpha_id not in self.stats:
+            self.stats[alpha_id] = {
+                "alpha_id": alpha_id,
+                "symbols_evaluated": set(),
+                "bars_received": 0,
+                "generate_signals_calls": 0,
+                "raw_signals": 0,
+                "accepted_signals": 0,
+                "allocator_rejected": 0,
+                "risk_rejected": 0,
+                "final_trades": 0,
+                "entry_window": f"{entry_start.strftime('%H:%M')}-{entry_end.strftime('%H:%M')}"
+            }
+        self.stats[alpha_id]["symbols_evaluated"].add(symbol)
+        
+    def get_summary(self) -> List[Dict[str, Any]]:
+        res = []
+        for v in self.stats.values():
+            d = v.copy()
+            d["symbols_evaluated"] = ",".join(sorted(list(d["symbols_evaluated"])))
+            res.append(d)
+        return res
+
+
 class TradingEngine:
     """
     Master unified production execution engine for Ashva.
@@ -71,6 +102,11 @@ class TradingEngine:
         self._strategy_instances: Dict[str, Any] = {}
         for contract in self.manifest.get_active_contracts():
             self._strategy_instances[contract.alpha_id] = contract.instantiate_strategy()
+
+        self.diagnostic_tracker = ReplayDiagnosticTracker()
+        for contract in self.manifest.get_active_contracts():
+            for sym in contract.symbols:
+                self.diagnostic_tracker.init_alpha(contract.alpha_id, sym, contract.entry_start_time, contract.entry_end_time)
 
         # Point-in-Time Rolling Bar History Buffer per symbol
         self._history_buffers: Dict[str, List[Dict[str, Any]]] = {}
@@ -233,6 +269,9 @@ class TradingEngine:
                 if strat is None:
                     continue
 
+                self.diagnostic_tracker.stats[contract.alpha_id]["bars_received"] += 1
+                self.diagnostic_tracker.stats[contract.alpha_id]["generate_signals_calls"] += 1
+
                 try:
                     df_sig = strat.generate_signals(df_hist)
                     if "signal" not in df_sig.columns:
@@ -257,6 +296,7 @@ class TradingEngine:
                         suggested_stop_loss=sl_val,
                         suggested_take_profit=tp_val,
                     )
+                    self.diagnostic_tracker.stats[contract.alpha_id]["raw_signals"] += 1
                     candidate_signals.append(sig)
                     contracts_map[contract.alpha_id] = contract
                     self.ledger.log_signal(sig)
@@ -279,6 +319,10 @@ class TradingEngine:
 
             for dec in decisions:
                 self.ledger.log_decision(dec)
+                if not dec.is_accepted:
+                    self.diagnostic_tracker.stats[dec.alpha_id]["allocator_rejected"] += 1
+                else:
+                    self.diagnostic_tracker.stats[dec.alpha_id]["accepted_signals"] += 1
 
             # 7. Risk Validation & Submission for Approved Intents
             for intent in intents:
@@ -293,8 +337,10 @@ class TradingEngine:
                     order_event = self.execution_adapter.submit_order(intent)
                     self.order_manager.on_order_submitted(intent, order_event)
                     self.ledger.log_order(order_event)
+                    self.diagnostic_tracker.stats[intent.strategy_id]["final_trades"] += 1
                 else:
                     # Log explicit RMS rejection in the decision ledger for full transparency
+                    self.diagnostic_tracker.stats[intent.strategy_id]["risk_rejected"] += 1
                     rms_dec = DecisionEvent(
                         decision_id=f"DEC_RMS_{datetime.now().strftime('%Y%m%d%H%M%S%f')[:17]}",
                         signal_id=intent.signal_id,
@@ -324,6 +370,16 @@ class TradingEngine:
         net_wins = sum(t["net_pnl"] for t in closed_trades if t["net_pnl"] > 0)
         net_losses = abs(sum(t["net_pnl"] for t in closed_trades if t["net_pnl"] < 0))
         net_pf = (net_wins / net_losses) if net_losses > 0 else (99.0 if net_wins > 0 else 0.0)
+
+        # Write diagnostics to DB
+        try:
+            with sqlite3.connect("data_lake/trading_ledger.db") as conn:
+                df_diag = pd.DataFrame(self.diagnostic_tracker.get_summary())
+                if not df_diag.empty:
+                    df_diag["timestamp"] = datetime.now().isoformat()
+                    df_diag.to_sql("replay_diagnostics", conn, if_exists="append", index=False)
+        except Exception as e:
+            logger.error(f"Failed to write replay diagnostics: {e}")
 
         return {
             **portfolio_summary,
