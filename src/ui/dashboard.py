@@ -3,8 +3,10 @@ Ashva Master Observability Dashboard
 Unified observability suite providing multi-tab inspection for Data, Alpha Factory, Trading, and System.
 """
 
+import importlib
 import streamlit as st
 import pandas as pd
+import src.ui.data_access
 from src.ui.data_access import UIDataAccess
 
 st.set_page_config(
@@ -16,7 +18,8 @@ st.set_page_config(
 
 # Initialize Data Access Layer
 def get_dal() -> UIDataAccess:
-    return UIDataAccess()
+    importlib.reload(src.ui.data_access)
+    return src.ui.data_access.UIDataAccess()
 
 
 # =============================================================================
