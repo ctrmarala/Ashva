@@ -16,15 +16,10 @@ sys.path.append(str(Path.cwd()))
 
 from src.data.data_lake import DataLake
 from src.data.angel_historical import AngelHistoricalFetcher
+from src.core.universe_manager import get_universe_symbols, get_universe_name
 
-NIFTY_50_UNIVERSE = [
-    "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY", "BHARTIARTL", "SBIN", "ITC", "HINDUNILVR",
-    "LT", "BAJFINANCE", "HCLTECH", "MARUTI", "SUNPHARMA", "ADANIENT", "KOTAKBANK", "TATAMOTORS", "TATASTEEL",
-    "NTPC", "AXISBANK", "ONGC", "TITAN", "ADANIPORTS", "COALINDIA", "POWERGRID", "M&M", "BAJAJFINSV", "WIPRO",
-    "NESTLEIND", "ULTRACEMCO", "JSWSTEEL", "GRASIM", "TECHM", "EICHERMOT", "HDFCLIFE", "BPCL", "DRREDDY",
-    "BRITANNIA", "CIPLA", "APOLLOHOSP", "TATACONSUM", "SHRIRAMFIN", "BAJAJ-AUTO", "BEL", "HEROMOTOCO",
-    "INDUSINDBK", "SBILIFE", "TRENT", "DIVISLAB", "PIDILITIND"
-]
+TARGET_UNIVERSE = get_universe_symbols()
+UNIVERSE_NAME = get_universe_name()
 
 config_path = Path("config/angel_one.yaml")
 if not config_path.exists():
@@ -44,8 +39,8 @@ fetcher = AngelHistoricalFetcher(
 )
 
 print("=" * 110)
-print(f"[*] INGESTING NIFTY 50 DATA UP TO TODAY (2026-08-28 15:30 IST)")
-print(f"[*] Total Equities: {len(NIFTY_50_UNIVERSE)} | Timeframe: 15m")
+print(f"[*] INGESTING {UNIVERSE_NAME} DATA UP TO TODAY (2026-08-28 15:30 IST)")
+print(f"[*] Total Equities: {len(TARGET_UNIVERSE)} | Timeframe: 15m")
 print("=" * 110)
 
 try:
@@ -61,8 +56,8 @@ to_date = datetime.now().strftime("%Y-%m-%d %H:%M")
 success_count = 0
 failed_syms = []
 
-for idx, sym in enumerate(NIFTY_50_UNIVERSE, 1):
-    print(f"[{idx:02d}/50] Ingesting {sym:12s} (15m)... ", end="", flush=True)
+for idx, sym in enumerate(TARGET_UNIVERSE, 1):
+    print(f"[{idx:02d}/{len(TARGET_UNIVERSE)}] Ingesting {sym:12s} (15m)... ", end="", flush=True)
     try:
         df = fetcher.fetch_and_store(
             symbol=sym,
@@ -79,7 +74,7 @@ for idx, sym in enumerate(NIFTY_50_UNIVERSE, 1):
     time.sleep(0.5)
 
 print("\n" + "=" * 110)
-print(f"[*] INGESTION COMPLETE: {success_count}/50 symbols successfully updated to today.")
+print(f"[*] INGESTION COMPLETE: {success_count}/{len(TARGET_UNIVERSE)} symbols successfully updated to today.")
 if failed_syms:
     print(f"[-] Failed symbols: {failed_syms}")
 print("=" * 110)

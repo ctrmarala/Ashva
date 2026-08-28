@@ -25,6 +25,7 @@ from src.data.data_lake import DataLake
 from src.data.yfinance_loader import YFinanceLoader
 from src.data.angel_historical import AngelHistoricalFetcher
 from src.data.corporate_actions import CorporateActionManager, CorporateAction
+from src.core.universe_manager import get_universe_symbols, get_universe_name, get_benchmark_symbol
 
 
 class UIDataAccess:
@@ -116,6 +117,7 @@ class UIDataAccess:
             latest_str = str(row[3]) if row[3] is not None else "NOT AVAILABLE"
 
             return {
+                "universe_name": self.get_active_universe_name(),
                 "total_symbols": int(row[0]) if row[0] is not None else 0,
                 "total_bars": int(row[1]) if row[1] is not None else 0,
                 "available_timeframes": timeframes,
@@ -129,6 +131,7 @@ class UIDataAccess:
         except Exception as e:
             print(f"Error in get_data_overview: {e}")
             return {
+                "universe_name": self.get_active_universe_name(),
                 "total_symbols": 0,
                 "total_bars": 0,
                 "available_timeframes": [],
@@ -1783,15 +1786,24 @@ class UIDataAccess:
             "process_id": os.getpid(),
         }
 
+    def get_active_universe_name(self) -> str:
+        """Retrieves active configured universe name."""
+        return get_universe_name(config_path=str(self.config_dir / "settings.yaml"))
+
+    def get_benchmark_symbol(self) -> str:
+        """Retrieves active benchmark ticker."""
+        return get_benchmark_symbol(config_path=str(self.config_dir / "settings.yaml"))
+
     def sync_market_data_now(self, symbol: Optional[str] = None, timeframe: str = "15m", period: str = "5d") -> Dict[str, Any]:
         """
         Executes one-click incremental market data synchronization directly from the UI.
         Prioritizes Angel One SmartAPI if active session credentials exist, otherwise seamlessly
         uses YFinanceLoader fallback to update DuckDB and Parquet stores.
         """
-        target_symbols = [symbol.upper()] if symbol and symbol != "ALL NIFTY 50" else self.get_symbol_list()
-        if not target_symbols:
-            target_symbols = ["INFY", "TCS", "RELIANCE", "HDFCBANK", "ICICIBANK"]
+        if symbol and not symbol.upper().startswith("ALL"):
+            target_symbols = [symbol.upper()]
+        else:
+            target_symbols = self.get_symbol_list() or get_universe_symbols(config_path=str(self.config_dir / "settings.yaml"))
 
         lake = DataLake(db_path=str(self.duckdb_path), parquet_dir=str(self.parquet_dir), read_only=False)
         updated_count = 0

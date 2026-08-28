@@ -207,9 +207,10 @@ STRATEGY_MAP = {
     "alpha_88": ("ALPHA_88_THREE_DAY_TREND_SURGE_175R", Alpha88ThreeDayTrendSurge175R),
 }
 
-from scripts.ingest_all_nifty50_timeframes import NIFTY_50_UNIVERSE
+from src.core.universe_manager import get_universe_symbols
 
-DEFAULT_UNIVERSE = NIFTY_50_UNIVERSE
+DEFAULT_UNIVERSE = get_universe_symbols()
+NIFTY_50_UNIVERSE = DEFAULT_UNIVERSE
 
 
 def run_strategy_backtest(

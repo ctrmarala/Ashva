@@ -20,16 +20,10 @@ from src.strategies.alpha_orb_pro import AlphaAuctionORBPro
 from src.strategies.alpha_04_gap_and_go import Alpha04GapAndGo
 from src.strategies.alpha_14_gap_momentum_drift import Alpha14GapMomentumDrift
 from src.strategies.alpha_18_three_day_trend_orb import Alpha18ThreeDayTrendORB
+from src.core.universe_manager import get_universe_symbols, get_universe_name
 
-
-NIFTY_50_UNIVERSE = [
-    "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY", "BHARTIARTL", "SBIN", "ITC", "HINDUNILVR",
-    "LT", "BAJFINANCE", "HCLTECH", "MARUTI", "SUNPHARMA", "ADANIENT", "KOTAKBANK", "TATAMOTORS", "TATASTEEL",
-    "NTPC", "AXISBANK", "ONGC", "TITAN", "ADANIPORTS", "COALINDIA", "POWERGRID", "M&M", "BAJAJFINSV", "WIPRO",
-    "NESTLEIND", "ULTRACEMCO", "JSWSTEEL", "GRASIM", "TECHM", "EICHERMOT", "HDFCLIFE", "BPCL", "DRREDDY",
-    "BRITANNIA", "CIPLA", "APOLLOHOSP", "TATACONSUM", "SHRIRAMFIN", "BAJAJ-AUTO", "BEL", "HEROMOTOCO",
-    "INDUSINDBK", "SBILIFE", "TRENT", "DIVISLAB", "PIDILITIND"
-]
+NIFTY_50_UNIVERSE = get_universe_symbols()
+TARGET_UNIVERSE = NIFTY_50_UNIVERSE
 
 
 def sync_nifty_50(data_lake: DataLake):

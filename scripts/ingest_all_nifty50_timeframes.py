@@ -18,15 +18,10 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from src.data.data_lake import DataLake
 from src.data.angel_historical import AngelHistoricalFetcher
+from src.core.universe_manager import get_universe_symbols, get_universe_name
 
-NIFTY_50_UNIVERSE = [
-    "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY", "BHARTIARTL", "SBIN", "ITC", "HINDUNILVR",
-    "LT", "BAJFINANCE", "HCLTECH", "MARUTI", "SUNPHARMA", "ADANIENT", "KOTAKBANK", "TATAMOTORS", "TATASTEEL",
-    "NTPC", "AXISBANK", "ONGC", "TITAN", "ADANIPORTS", "COALINDIA", "POWERGRID", "M&M", "BAJAJFINSV", "WIPRO",
-    "NESTLEIND", "ULTRACEMCO", "JSWSTEEL", "GRASIM", "TECHM", "EICHERMOT", "HDFCLIFE", "BPCL", "DRREDDY",
-    "BRITANNIA", "CIPLA", "APOLLOHOSP", "TATACONSUM", "SHRIRAMFIN", "BAJAJ-AUTO", "BEL", "HEROMOTOCO",
-    "INDUSINDBK", "SBILIFE", "TRENT", "DIVISLAB", "PIDILITIND"
-]
+TARGET_UNIVERSE = get_universe_symbols()
+NIFTY_50_UNIVERSE = TARGET_UNIVERSE
 
 INTERVAL_SETTINGS = {
     "1m": {"interval": "ONE_MINUTE", "chunk_days": 25, "min_bars": 50000},

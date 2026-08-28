@@ -47,7 +47,9 @@ def render_data_observability(dal: UIDataAccess):
     act_col1, act_col2, act_col3 = st.columns([2, 2, 1])
     
     with act_col1:
-        symbols_list = ["ALL NIFTY 50"] + dal.get_symbol_list()
+        univ_name = dal.get_active_universe_name()
+        available_syms = dal.get_symbol_list()
+        symbols_list = [f"ALL {univ_name.upper()} ({len(available_syms)} Equities)"] + available_syms
         selected_sync_target = st.selectbox("Select Target for Synchronization", symbols_list, index=0, key="sync_target_select")
         if st.button("🔄 Sync Missing Data / Backfill", key="btn_sync_data", use_container_width=True):
             with st.spinner(f"Synchronizing market data for {selected_sync_target}..."):
