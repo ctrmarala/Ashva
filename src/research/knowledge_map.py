@@ -466,6 +466,10 @@ class AlphaKnowledgeMap:
         ]
         return candidate_territory
 
+    def get_all_mechanisms(self) -> List[AlphaResearchRecord]:
+        """Returns list of all registered alpha research records."""
+        return list(self.registry.values())
+
     def register_experiment_result(self, record: AlphaResearchRecord):
         """Adds a newly tested alpha to the knowledge base."""
         self.registry[record.alpha_id] = record

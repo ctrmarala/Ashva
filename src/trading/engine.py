@@ -105,7 +105,8 @@ class TradingEngine:
 
         self.diagnostic_tracker = ReplayDiagnosticTracker()
         for contract in self.manifest.get_active_contracts():
-            for sym in contract.symbols:
+            sym_list = getattr(contract, "symbols", None) or getattr(contract, "universe", [])
+            for sym in sym_list:
                 self.diagnostic_tracker.init_alpha(contract.alpha_id, sym, contract.entry_start_time, contract.entry_end_time)
 
         # Point-in-Time Rolling Bar History Buffer per symbol
