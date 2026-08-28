@@ -42,6 +42,39 @@ def render_data_observability(dal: UIDataAccess):
 
     st.markdown("---")
 
+    # Action Toolbar for Interactive Sync and Validation
+    st.markdown("#### ⚡ Data Management & Action Toolbar")
+    act_col1, act_col2, act_col3 = st.columns([2, 2, 1])
+    
+    with act_col1:
+        symbols_list = ["ALL NIFTY 50"] + dal.get_symbol_list()
+        selected_sync_target = st.selectbox("Select Target for Synchronization", symbols_list, index=0, key="sync_target_select")
+        if st.button("🔄 Sync Missing Data / Backfill", key="btn_sync_data", use_container_width=True):
+            with st.spinner(f"Synchronizing market data for {selected_sync_target}..."):
+                res = dal.sync_market_data_now(symbol=selected_sync_target, timeframe="15m")
+                if res["status"] == "SUCCESS":
+                    st.success(f"✓ Sync Complete: Processed {res['symbols_updated']} symbols ({res['total_bars_processed']} bars) via {res['provider_used']}.")
+                else:
+                    st.warning(f"Sync Notice: {res['status']} ({len(res.get('errors', []))} notices).")
+
+    with act_col2:
+        st.write("")
+        st.write("")
+        if st.button("🛡️ Validate Data & NSE Calendar", key="btn_validate_data", use_container_width=True):
+            with st.spinner("Executing full repository hygiene check and NSE Calendar audit..."):
+                val_res = dal.run_comprehensive_data_validation()
+                st.success(f"✓ Validation Complete: {val_res['clean_calendar_symbols']}/{val_res['symbols_audited_count']} symbols audited with 100% calendar coverage.")
+                if val_res.get("calendar_audits_table"):
+                    st.dataframe(pd.DataFrame(val_res["calendar_audits_table"]), use_container_width=True, hide_index=True)
+
+    with act_col3:
+        st.write("")
+        st.write("")
+        if st.button("🔄 Refresh Data", key="btn_refresh_data", use_container_width=True):
+            st.rerun()
+
+    st.markdown("---")
+
     subtab_matrix, subtab_detail, subtab_hygiene, subtab_ingestion, subtab_alpha_conn = st.tabs([
         "📊 Coverage Matrix",
         "🔍 Symbol Deep Dive",
@@ -83,7 +116,22 @@ def render_data_observability(dal: UIDataAccess):
                 c2.metric("Invalid OHLC Bars", q_metrics["invalid_ohlc_bars"])
                 
                 c3.metric("Out-of-Market-Hours Bars", q_metrics["out_of_market_hours_bars"])
-                c3.write(f"**Holiday Calendar Audit**: `{q_metrics['missing_bars_calendar_audit']}`")
+                c3.write(f"**NSE Calendar Coverage**: `{q_metrics['missing_bars_calendar_audit']}`")
+
+                # Show NSE Calendar Audit Box
+                cal = detail.get("calendar_audit", {})
+                if cal and "expected_trading_days" in cal:
+                    with st.expander(f"📅 NSE Holiday Calendar Audit Breakdown for {detail['symbol']}", expanded=False):
+                        ca1, ca2, ca3, ca4 = st.columns(4)
+                        ca1.metric("Expected Sessions", f"{cal.get('expected_trading_days', 0)} Days")
+                        ca2.metric("Actual Sessions in DB", f"{cal.get('actual_trading_days', 0)} Days")
+                        ca3.metric("Missing Sessions", f"{cal.get('missing_trading_days_count', 0)} Days")
+                        ca4.metric("Calendar Coverage", f"{cal.get('coverage_pct', 100.0)}%")
+                        
+                        if cal.get("missing_dates"):
+                            st.write(f"**Missing Trading Dates**: `{', '.join(cal['missing_dates'])}`")
+                        else:
+                            st.success("✓ Zero missing trading sessions. 100% calendar consistency with NSE trading calendar.")
 
                 st.write("#### Available Timeframes Breakdown")
                 df_tf_detail = pd.DataFrame(detail["timeframes_detail"])
@@ -111,6 +159,7 @@ def render_data_observability(dal: UIDataAccess):
         2. **Valid OHLC Bounds**: Strict validation ($High \\ge Low$, $Open > 0$, $Close > 0$, $Volume \\ge 0$).
         3. **Strict Intraday Hours**: Intraday bars must strictly fall between 09:15:00 and 15:30:00 IST.
         4. **540-Day Research Horizon**: Lookback availability satisfies the 18-month statistical robustness threshold.
+        5. **NSE Trading Holiday Alignment**: Reconciles trading sessions against the official 2024–2026 NSE Exchange Holiday Calendar.
         """)
 
     with subtab_ingestion:

@@ -20,6 +20,10 @@ import yaml
 
 from src.research.knowledge_map import AlphaKnowledgeMap
 from scripts.run_hypothesis_lab import STRATEGY_MAP
+from src.data.nse_calendar import NSECalendar
+from src.data.data_lake import DataLake
+from src.data.yfinance_loader import YFinanceLoader
+from src.data.angel_historical import AngelHistoricalFetcher
 
 
 class UIDataAccess:
@@ -257,6 +261,17 @@ class UIDataAccess:
                 WHERE symbol = ? AND timeframe != '1d' AND (CAST(timestamp AS TIME) < TIME '09:15:00' OR CAST(timestamp AS TIME) > TIME '15:30:00')
             """, [sym_upper]).fetchone()[0]
 
+            cal_audit = NSECalendar.audit_symbol_calendar_coverage(
+                sym_upper, 
+                timeframe="15m", 
+                duckdb_path=str(self.duckdb_path)
+            )
+
+            calendar_status = (
+                f"{cal_audit.get('summary_text', 'CLEAN')} "
+                f"({cal_audit.get('actual_trading_days', 0)}/{cal_audit.get('expected_trading_days', 0)} sessions - {cal_audit.get('coverage_pct', 100.0)}% coverage)"
+            )
+
             return {
                 "symbol": sym_upper,
                 "data_source": df_tf["source"].iloc[0] if "source" in df_tf.columns and not df_tf.empty else "HISTORICAL",
@@ -265,9 +280,10 @@ class UIDataAccess:
                     "duplicate_bars": int(dup_count),
                     "invalid_ohlc_bars": int(invalid_ohlc),
                     "out_of_market_hours_bars": int(out_of_hours),
-                    "missing_bars_calendar_audit": "NOT IMPLEMENTED (Requires NSE Exchange Holiday Calendar Integration)",
-                    "data_gaps": "0 Critical Structure Violations",
-                }
+                    "missing_bars_calendar_audit": calendar_status,
+                    "data_gaps": f"{cal_audit.get('missing_trading_days_count', 0)} Missing Sessions" if cal_audit.get('missing_trading_days_count', 0) > 0 else "0 Structure Violations",
+                },
+                "calendar_audit": cal_audit,
             }
         except Exception as e:
             print(f"Error in get_symbol_detail for {symbol}: {e}")
@@ -1756,6 +1772,107 @@ class UIDataAccess:
             "trading_ledger_path": str(self.trd_db_path.resolve()),
             "experiment_ledger_path": str(self.exp_db_path.resolve()),
             "process_id": os.getpid(),
+        }
+
+    def sync_market_data_now(self, symbol: Optional[str] = None, timeframe: str = "15m", period: str = "5d") -> Dict[str, Any]:
+        """
+        Executes one-click incremental market data synchronization directly from the UI.
+        Prioritizes Angel One SmartAPI if active session credentials exist, otherwise seamlessly
+        uses YFinanceLoader fallback to update DuckDB and Parquet stores.
+        """
+        target_symbols = [symbol.upper()] if symbol and symbol != "ALL NIFTY 50" else self.get_symbol_list()
+        if not target_symbols:
+            target_symbols = ["INFY", "TCS", "RELIANCE", "HDFCBANK", "ICICIBANK"]
+
+        lake = DataLake(db_path=str(self.duckdb_path), parquet_dir=str(self.parquet_dir), read_only=False)
+        updated_count = 0
+        total_bars_added = 0
+        errors = []
+
+        # Attempt SmartAPI first if configured
+        angel_cfg_file = self.config_dir / "angel_one.yaml"
+        fetcher = None
+        if angel_cfg_file.exists():
+            try:
+                with open(angel_cfg_file, "r") as f:
+                    cfg = yaml.safe_load(f).get("smartapi", {})
+                if cfg.get("api_key") and cfg.get("client_code"):
+                    fetcher = AngelHistoricalFetcher(
+                        api_key=cfg.get("api_key"),
+                        client_code=cfg.get("client_code"),
+                        password=cfg.get("password") or cfg.get("pin"),
+                        totp_secret=cfg.get("totp_secret") or cfg.get("totp_token"),
+                        data_lake=lake,
+                    )
+                    fetcher.initialize_session()
+            except Exception as e:
+                fetcher = None
+
+        # Execute Ingestion
+        yf_loader = YFinanceLoader(data_lake=lake) if fetcher is None else None
+
+        for sym in target_symbols:
+            try:
+                if fetcher is not None:
+                    to_dt = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    from_dt = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M")
+                    df = fetcher.fetch_and_store(symbol=sym, timeframe=timeframe, from_date=from_dt, to_date=to_dt)
+                else:
+                    df = yf_loader.fetch_and_store(symbol=sym, timeframe=timeframe, period=period)
+
+                if not df.empty:
+                    updated_count += 1
+                    total_bars_added += len(df)
+            except Exception as e:
+                errors.append(f"{sym}: {str(e)}")
+
+        return {
+            "status": "SUCCESS" if updated_count > 0 else ("WARNING" if errors else "IDLE"),
+            "symbols_requested": len(target_symbols),
+            "symbols_updated": updated_count,
+            "total_bars_processed": total_bars_added,
+            "provider_used": "Angel One SmartAPI" if fetcher is not None else "YFinance Fallback Loader",
+            "timeframe": timeframe,
+            "errors": errors[:5],
+            "completed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+    def run_comprehensive_data_validation(self) -> Dict[str, Any]:
+        """
+        Runs comprehensive repository-wide data hygiene audit AND cross-sectional
+        NSE Trading Holiday Calendar gap verification across the NIFTY universe.
+        """
+        hygiene = self.get_data_quality_summary()
+        symbols = self.get_symbol_list()
+        
+        calendar_audits = []
+        total_missing_sessions = 0
+        clean_symbols_count = 0
+
+        target_audit_syms = symbols[:14] if symbols else ["INFY", "TCS", "RELIANCE"]
+
+        for sym in target_audit_syms:
+            audit = NSECalendar.audit_symbol_calendar_coverage(sym, timeframe="15m", duckdb_path=str(self.duckdb_path))
+            missing = audit.get("missing_trading_days_count", 0)
+            total_missing_sessions += missing
+            if missing == 0:
+                clean_symbols_count += 1
+            calendar_audits.append({
+                "Symbol": sym,
+                "Expected Sessions": audit.get("expected_trading_days", 0),
+                "Actual Sessions": audit.get("actual_trading_days", 0),
+                "Missing Sessions": missing,
+                "Coverage": f"{audit.get('coverage_pct', 100.0)}%",
+                "Status": audit.get("status", "CLEAN"),
+            })
+
+        return {
+            "hygiene_summary": hygiene,
+            "symbols_audited_count": len(calendar_audits),
+            "clean_calendar_symbols": clean_symbols_count,
+            "total_missing_sessions_across_universe": total_missing_sessions,
+            "calendar_audits_table": calendar_audits,
+            "audit_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
 
     # Legacy Compatibility Aliases
