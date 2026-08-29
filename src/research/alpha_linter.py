@@ -143,6 +143,12 @@ class AlphaLinter:
             if lookahead_violation:
                 violations.append(lookahead_violation)
 
+        # 6. Intraday 15:15 IST Square-Off Contract Check
+        if not violations and getattr(strat_obj.metadata, "horizon", None) == StrategyHorizon.INTRADAY:
+            square_off_violation = cls._test_1515_square_off(strat_obj, dummy_df)
+            if square_off_violation:
+                violations.append(square_off_violation)
+
         return violations
 
     @staticmethod
@@ -202,4 +208,19 @@ class AlphaLinter:
         except Exception as e:
             return f"Lookahead check failed with exception: {e}"
 
+        return None
+
+    @classmethod
+    def _test_1515_square_off(cls, strat_obj: Any, df: pd.DataFrame) -> Optional[str]:
+        """Ensures that all intraday signals square off and no trade spans past 15:15 IST."""
+        try:
+            sig_df = strat_obj.generate_signals(df.copy())
+            times = pd.to_datetime(sig_df.index).time
+            # Check if any signal remains non-zero after 15:15
+            for idx, (t, sig) in enumerate(zip(times, sig_df["signal"])):
+                if t >= pd.Timestamp("15:15:00").time() and sig != 0.0:
+                    # If signal is active past 15:15, flag violation
+                    return f"15:15 Square-Off Violation: Signal at {sig_df.index[idx]} is non-zero ({sig}). Intraday alphas must square off by 15:15."
+        except Exception as e:
+            return f"15:15 Square-off check error: {e}"
         return None

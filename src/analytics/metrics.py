@@ -154,6 +154,30 @@ def calculate_bar_level_sharpe(
     return float((np.mean(clean_rets) / std_dev) * ann_multiplier)
 
 
+def calculate_profit_factor(pnls: Union[List[float], np.ndarray, pd.Series]) -> float:
+    """
+    Canonical Profit Factor calculation:
+        PF = sum(winning_pnls) / abs(sum(losing_pnls))
+    Returns 99.0 if there are wins and zero losses.
+    Returns 0.0 if there are no winning trades.
+    """
+    if len(pnls) == 0:
+        return 0.0
+    arr = np.asarray(pnls, dtype=np.float64)
+    arr = arr[np.isfinite(arr)]
+    if len(arr) == 0:
+        return 0.0
+    wins = arr[arr > 0]
+    losses = arr[arr < 0]
+    sum_wins = float(np.sum(wins)) if len(wins) > 0 else 0.0
+    sum_losses = float(abs(np.sum(losses))) if len(losses) > 0 else 0.0
+    if sum_losses > 0:
+        return float(sum_wins / sum_losses)
+    elif sum_wins > 0:
+        return 99.0
+    return 0.0
+
+
 def calculate_trade_level_metrics(
     net_pnls: List[float],
     initial_capital: float = 500000.0,
@@ -172,7 +196,7 @@ def calculate_trade_level_metrics(
             "win_loss_payoff_ratio": 0.0,
         }
 
-    pnl_arr = np.array(net_pnls)
+    pnl_arr = np.array(net_pnls, dtype=np.float64)
     wins = pnl_arr[pnl_arr > 0]
     losses = pnl_arr[pnl_arr < 0]
 
@@ -181,9 +205,7 @@ def calculate_trade_level_metrics(
     n_losses = len(losses)
 
     win_rate = (n_wins / n_total * 100.0) if n_total > 0 else 0.0
-    gross_win = float(np.sum(wins)) if n_wins > 0 else 0.0
-    gross_loss = float(abs(np.sum(losses))) if n_losses > 0 else 0.0
-    profit_factor = (gross_win / gross_loss) if gross_loss > 0 else (99.0 if gross_win > 0 else 0.0)
+    profit_factor = calculate_profit_factor(pnl_arr)
 
     avg_win = float(np.mean(wins)) if n_wins > 0 else 0.0
     avg_loss = float(abs(np.mean(losses))) if n_losses > 0 else 0.0

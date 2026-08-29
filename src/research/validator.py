@@ -19,8 +19,10 @@ from scipy.stats import norm, skew, kurtosis
 
 from src.research.hypothesis import BaseHypothesis, HypothesisStatus, HypothesisValidationReport, StrategyHorizon
 from src.analytics.indian_costs import IndianCostModel, Segment
+from src.analytics.metrics import calculate_profit_factor, calculate_daily_mtm_sharpe, calculate_trade_level_metrics
 from src.backtest.engine import BacktestEngine
 from src.research.experiment_ledger import ResearchExperimentLedger, ExperimentRecord, get_current_git_sha
+from src.research.cpcv_engine import CPCVEngine, CPCVMode
 
 logger = logging.getLogger(__name__)
 
@@ -566,3 +568,173 @@ class StatisticalValidator:
             })
 
         return pd.DataFrame(rows)
+
+    def validate_panel_hypothesis(
+        self,
+        hypothesis: BaseHypothesis,
+        all_trades: List[Any],
+        symbol_metrics: List[Dict[str, Any]],
+        timeframe_comparison: Optional[Dict[str, Any]] = None,
+        parameter_grid: Optional[Dict[str, List[Any]]] = None,
+        tested_timeframes_count: int = 1,
+        initial_capital: float = 500000.0,
+        regime_breakdown: Optional[Dict[str, Any]] = None,
+        selected_timeframe: str = "15m",
+        symbol_universe: Optional[List[str]] = None,
+    ) -> HypothesisValidationReport:
+        """
+        True Cross-Sectional Panel Statistical Validation:
+        1. Aggregates all trade returns across the full multi-symbol panel.
+        2. Constructs canonical Daily Panel Trade-Return Series across calendar dates.
+        3. Computes True CPCV via CPCVEngine with temporal purging and post-test embargoing.
+        4. Calculates Deflated Sharpe Ratio (DSR) accounting for parameter search and timeframe search.
+        5. Runs 5,000 bootstrap simulations on the Daily Panel Returns to evaluate tail risk.
+        6. Computes canonical Post-Tax Net Profit Factor: sum(wins) / abs(sum(losses)).
+        7. Persists canonical experiment record to SQLite ledger.
+        """
+        rejection_reasons = []
+
+        strat_id = hypothesis.metadata.hypothesis_id
+        strat_name = hypothesis.metadata.name
+        universe_symbols = symbol_universe or [s["symbol"] for s in symbol_metrics if "symbol" in s]
+
+        # 1. Parameter & Search Space Accounting for DSR
+        grid = parameter_grid or getattr(hypothesis, "parameter_grid", {}) or (hypothesis.get_parameter_grid() if hasattr(hypothesis, "get_parameter_grid") else {})
+        grid_size = 1
+        if grid:
+            for p_vals in grid.values():
+                if isinstance(p_vals, (list, tuple)):
+                    grid_size *= max(1, len(p_vals))
+
+        trials_in_this_experiment = max(1, grid_size * max(1, tested_timeframes_count))
+        prior_trials = self.experiment_ledger.get_strategy_family_trials(strat_id)
+        effective_trials = prior_trials + trials_in_this_experiment
+
+        # 2. Extract Panel Trade Data & Daily Panel Trade-Return Series
+        total_trades = len(all_trades)
+        if total_trades == 0:
+            rejection_reasons.append("No trades generated across universe.")
+            return HypothesisValidationReport(
+                hypothesis_id=strat_id,
+                status=HypothesisStatus.REJECTED_AT_STAGE_0,
+                in_sample_sharpe=0.0,
+                out_of_sample_sharpe=0.0,
+                deflated_sharpe_p_value=1.0,
+                cpcv_mean_sharpe=0.0,
+                cpcv_degradation_pct=100.0,
+                monte_carlo_95_max_dd_pct=0.0,
+                net_profit_factor_post_tax=0.0,
+                rejection_reasons=rejection_reasons,
+                tested_trials_count=effective_trials,
+            )
+
+        trade_records = []
+        for t in all_trades:
+            trade_records.append({
+                "symbol": getattr(t, "symbol", "ASSET"),
+                "entry_time": pd.to_datetime(t.entry_time),
+                "exit_time": pd.to_datetime(t.exit_time),
+                "gross_pnl": float(t.gross_pnl),
+                "net_pnl": float(t.net_pnl),
+                "duration_bars": getattr(t, "duration_bars", 0),
+            })
+        trades_df = pd.DataFrame(trade_records).sort_values("entry_time").reset_index(drop=True)
+
+        # 3. Canonical Daily Panel Trade-Return Series
+        trades_df["date"] = trades_df["entry_time"].dt.date
+        daily_pnl = trades_df.groupby("date")["net_pnl"].sum()
+        daily_panel_returns = (daily_pnl / initial_capital).values
+
+        panel_is_sharpe = self.calculate_sharpe_ratio(daily_panel_returns)
+
+        # 4. Canonical CPCV via CPCVEngine
+        cpcv_engine = CPCVEngine(n_partitions=6, k_test_partitions=2, embargo_pct=0.01)
+        cpcv_res = cpcv_engine.evaluate_trades(trades_df, initial_capital=initial_capital)
+        panel_oos_sharpe = cpcv_res.get("mean_oos_sharpe", 0.0)
+        cpcv_pbo = cpcv_res.get("pbo", 1.0)
+        cpcv_degradation = cpcv_res.get("degradation_ratio", 0.0)
+
+        # 5. Deflated Sharpe Ratio (DSR)
+        dsr_stat, dsr_p_val = self.calculate_deflated_sharpe_ratio(
+            daily_panel_returns, num_trials=effective_trials
+        )
+
+        # 6. Monte Carlo Tail Risk on Daily Panel Returns (5,000 Bootstrap Paths)
+        mc_res = self.run_monte_carlo_drawdown_test(daily_panel_returns, num_simulations=5000)
+        panel_p95_max_dd = mc_res.get("p95_max_dd", 0.0)
+
+        # 7. Canonical Post-Tax Net Profit Factor
+        panel_net_pf = calculate_profit_factor([t["net_pnl"] for t in trade_records])
+
+        # 8. Institutional Qualification Gates
+        gate_1_dsr = dsr_p_val <= self.max_dsr_p_value
+        gate_2_cpcv = panel_oos_sharpe > 0.0 and (cpcv_degradation <= self.max_cpcv_degradation_pct or panel_is_sharpe <= 0.0)
+        gate_3_mc = panel_p95_max_dd <= self.max_monte_carlo_dd_pct
+        gate_4_pf = panel_net_pf >= self.min_net_profit_factor
+        gate_5_sample = total_trades >= self.min_trade_count
+
+        if not gate_1_dsr:
+            rejection_reasons.append(
+                f"Gate 1 Failed (DSR): p-value {dsr_p_val:.4f} > {self.max_dsr_p_value} across {effective_trials} trials."
+            )
+        if not gate_2_cpcv:
+            rejection_reasons.append(
+                f"Gate 2 Failed (CPCV): OOS Sharpe {panel_oos_sharpe:.2f} <= 0 or degradation {cpcv_degradation:.1f}% > {self.max_cpcv_degradation_pct}%."
+            )
+        if not gate_3_mc:
+            rejection_reasons.append(
+                f"Gate 3 Failed (Monte Carlo): 95th MaxDD {panel_p95_max_dd:.1f}% > {self.max_monte_carlo_dd_pct}%."
+            )
+        if not gate_4_pf:
+            rejection_reasons.append(
+                f"Gate 4 Failed (Net PF): Net Profit Factor {panel_net_pf:.2f} < {self.min_net_profit_factor}."
+            )
+        if not gate_5_sample:
+            rejection_reasons.append(
+                f"Gate 5 Failed (Sample Size): {total_trades} trades < minimum required {self.min_trade_count}."
+            )
+
+        is_accepted = len(rejection_reasons) == 0
+        final_status = HypothesisStatus.ACCEPTED if is_accepted else HypothesisStatus.REJECTED
+
+        # 9. Immutable SQLite Experiment Ledger Logging
+        exp_id = f"EXP_{strat_id.upper()}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        record = ExperimentRecord(
+            experiment_id=exp_id,
+            strategy_id=strat_id,
+            symbol_universe=",".join(universe_symbols),
+            timeframe=selected_timeframe,
+            parameters_json=json.dumps(getattr(hypothesis, "parameters", {})),
+            in_sample_sharpe=round(float(panel_is_sharpe), 3),
+            cpcv_oos_sharpe=round(float(panel_oos_sharpe), 3),
+            deflated_sharpe_p_value=round(float(dsr_p_val), 4),
+            net_profit_factor=round(float(panel_net_pf), 3),
+            monte_carlo_95_max_dd=round(float(panel_p95_max_dd), 2),
+            trials_in_experiment=trials_in_this_experiment,
+            total_trials_cumulative=effective_trials,
+            git_commit_sha=get_current_git_sha(),
+            status=final_status.value if hasattr(final_status, "value") else str(final_status),
+            rejection_reasons_json=json.dumps(rejection_reasons),
+            hypothesis_name=strat_name,
+            category=hypothesis.metadata.category if isinstance(hypothesis.metadata.category, str) else hypothesis.metadata.category.value,
+            economic_rationale=hypothesis.metadata.economic_rationale,
+            horizon=hypothesis.metadata.horizon.value if hasattr(hypothesis.metadata.horizon, "value") else str(hypothesis.metadata.horizon),
+            mechanism=hypothesis.metadata.mechanism.value if hasattr(hypothesis.metadata.mechanism, "value") else str(hypothesis.metadata.mechanism),
+            timeframe_comparison_json=json.dumps(timeframe_comparison) if timeframe_comparison else "",
+        )
+        self.experiment_ledger.log_experiment(record)
+
+        return HypothesisValidationReport(
+            hypothesis_id=strat_id,
+            status=final_status,
+            in_sample_sharpe=float(panel_is_sharpe),
+            out_of_sample_sharpe=float(panel_oos_sharpe),
+            deflated_sharpe_p_value=float(dsr_p_val),
+            cpcv_mean_sharpe=float(panel_oos_sharpe),
+            cpcv_degradation_pct=float(cpcv_degradation),
+            monte_carlo_95_max_dd_pct=float(panel_p95_max_dd),
+            net_profit_factor_post_tax=float(panel_net_pf),
+            rejection_reasons=rejection_reasons,
+            tested_trials_count=effective_trials,
+            evidence_tier="STRONG" if total_trades >= 100 else ("MODERATE" if total_trades >= 50 else "PRELIMINARY"),
+        )
