@@ -229,7 +229,10 @@ class NSECalendar:
             expected_count = len(expected_days)
             actual_count = len(df_dates)
 
-            coverage_pct = round((actual_count / expected_count) * 100.0, 2) if expected_count > 0 else 100.0
+            if expected_count > 0:
+                coverage_pct = round(max(0.0, min(100.0, ((expected_count - missing_count) / expected_count) * 100.0)), 2)
+            else:
+                coverage_pct = 100.0
 
             status_str = "PASS (100% Calendar Coverage)" if missing_count == 0 else f"GAPS DETECTED ({missing_count} missing trading sessions)"
 
