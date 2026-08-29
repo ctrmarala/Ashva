@@ -5,7 +5,9 @@ Unit Tests for TrendSurfer Pro Alpha Strategy Signal Generation
 import numpy as np
 import pandas as pd
 import pytest
-from src.strategies.alpha_trend_surfer import AlphaTrendSurfer
+
+alpha_ts = pytest.importorskip("src.strategies.alpha_trend_surfer", reason="alpha_trend_surfer archived in clean baseline")
+AlphaTrendSurfer = alpha_ts.AlphaTrendSurfer
 
 
 @pytest.fixture

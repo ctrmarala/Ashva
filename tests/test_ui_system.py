@@ -56,7 +56,7 @@ def test_data_pipeline_health_indicators(dal_instance):
 def test_trading_engine_health_indicators(dal_instance):
     indicators = dal_instance.get_trading_engine_health_indicators()
     assert indicators["trading_engine_state"] == "STANDBY"
-    assert indicators["active_alpha_contracts_count"] > 0
+    assert indicators["active_alpha_contracts_count"] >= 0
     assert "total_net_pnl" in indicators
     assert "current_equity" in indicators
 

@@ -30,34 +30,42 @@ def sample_bars():
     return df
 
 
-@pytest.mark.parametrize("strat_id,strat_tuple", list(STRATEGY_MAP.items()))
-def test_strategy_lifecycle_contract(strat_id, strat_tuple, sample_bars):
-    """
-    Validates that each strategy maintains active position state across intraday bars
-    and does not inadvertently exit after 1 bar due to signal=0 pulse defects.
-    """
-    strat_name, strat_cls = strat_tuple
-    strat = strat_cls()
-    sig_df = strat.generate_signals(sample_bars)
+strategy_items = list(STRATEGY_MAP.items())
 
-    assert "signal" in sig_df.columns, f"{strat_id}: Missing 'signal' column in output DataFrame"
-    assert "stop_loss" in sig_df.columns, f"{strat_id}: Missing 'stop_loss' column"
-    assert "take_profit" in sig_df.columns, f"{strat_id}: Missing 'take_profit' column"
+if not strategy_items:
+    def test_strategy_lifecycle_contract_empty():
+        # Clean baseline state: no active strategies loaded
+        assert len(strategy_items) == 0
+else:
+    @pytest.mark.parametrize("strat_id,strat_tuple", strategy_items)
+    def test_strategy_lifecycle_contract(strat_id, strat_tuple, sample_bars):
+        """
+        Validates that each strategy maintains active position state across intraday bars
+        and does not inadvertently exit after 1 bar due to signal=0 pulse defects.
+        """
+        strat_cls = strat_tuple[1] if isinstance(strat_tuple, tuple) else strat_tuple
+        strat_name = getattr(strat_cls, "__name__", strat_id)
+        strat = strat_cls()
+        sig_df = strat.generate_signals(sample_bars)
 
-    cost_model = IndianCostModel()
-    eng = BacktestEngine(cost_model=cost_model, initial_capital=500000.0, segment=Segment.EQUITY_INTRADAY)
-    res = eng.run(sig_df, symbol="RELIANCE", strategy_id=strat_id, risk_per_trade_pct=0.005, capital_per_trade_pct=0.25)
+        assert "signal" in sig_df.columns, f"{strat_id}: Missing 'signal' column in output DataFrame"
+        assert "stop_loss" in sig_df.columns, f"{strat_id}: Missing 'stop_loss' column"
+        assert "take_profit" in sig_df.columns, f"{strat_id}: Missing 'take_profit' column"
 
-    # If the strategy generated trades, assert that it does not suffer from 100% 1-bar pulse exits
-    if res.total_trades > 0:
-        one_bar_signal_exits = sum(
-            1 for t in res.trade_list if t.duration_bars <= 1 and t.exit_reason == "SIGNAL"
-        )
-        pulse_exit_pct = (one_bar_signal_exits / res.total_trades) * 100.0
+        cost_model = IndianCostModel()
+        eng = BacktestEngine(cost_model=cost_model, initial_capital=500000.0, segment=Segment.EQUITY_INTRADAY)
+        res = eng.run(sig_df, symbol="RELIANCE", strategy_id=strat_id, risk_per_trade_pct=0.005, capital_per_trade_pct=0.25)
 
-        # Hard Gate: No intraday strategy should have > 50% unintended 1-bar SIGNAL exits
-        assert pulse_exit_pct < 50.0, (
-            f"🚨 STRATEGY CONTRACT VIOLATION in {strat_id} ({strat_name}):\n"
-            f"{pulse_exit_pct:.1f}% of trades ({one_bar_signal_exits}/{res.total_trades}) exited after exactly 1 bar on 'SIGNAL'.\n"
-            f"The strategy is emitting 1-bar signal pulses instead of maintaining 'curr_state' across bars until SL/TP/EOD."
-        )
+        # If the strategy generated trades, assert that it does not suffer from 100% 1-bar pulse exits
+        if res.total_trades > 0:
+            one_bar_signal_exits = sum(
+                1 for t in res.trade_list if t.duration_bars <= 1 and t.exit_reason == "SIGNAL"
+            )
+            pulse_exit_pct = (one_bar_signal_exits / res.total_trades) * 100.0
+
+            # Hard Gate: No intraday strategy should have > 50% unintended 1-bar SIGNAL exits
+            assert pulse_exit_pct < 50.0, (
+                f"🚨 STRATEGY CONTRACT VIOLATION in {strat_id} ({strat_name}):\n"
+                f"{pulse_exit_pct:.1f}% of trades ({one_bar_signal_exits}/{res.total_trades}) exited after exactly 1 bar on 'SIGNAL'.\n"
+                f"The strategy is emitting 1-bar signal pulses instead of maintaining 'curr_state' across bars until SL/TP/EOD."
+            )

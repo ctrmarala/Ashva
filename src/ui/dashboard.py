@@ -253,12 +253,15 @@ def render_alpha_factory(dal: UIDataAccess):
     # 1. Section 1: Factory Summary KPI Metrics
     summary = dal.get_alpha_factory_summary()
     kpi1, kpi2, kpi3, kpi4, kpi5, kpi6 = st.columns(6)
-    kpi1.metric("Total Alphas", summary["total_alphas"])
-    kpi2.metric("Actually Tested", f"{summary['tested']} / {summary['total_alphas']}")
-    kpi3.metric("PROVEN (Capital)", summary["proven"])
-    kpi4.metric("FAILED (Rejected)", summary["failed"])
-    kpi5.metric("UNCERTAIN (Watchlist)", summary["uncertain"])
-    kpi6.metric("UNEXPLORED", summary["unexplored"])
+
+    total_alphas = summary.get("total_alphas", 0)
+    tested_alphas = summary.get("tested", 0)
+    kpi1.metric("Total Alphas", total_alphas)
+    kpi2.metric("Actually Tested", f"{tested_alphas} / {total_alphas}")
+    kpi3.metric("PROVEN (Capital)", summary.get("proven", 0))
+    kpi4.metric("FAILED (Rejected)", summary.get("failed", 0))
+    kpi5.metric("UNCERTAIN (Watchlist)", summary.get("uncertain", 0))
+    kpi6.metric("UNEXPLORED", summary.get("unexplored", 0))
 
     st.markdown("---")
 
@@ -278,60 +281,49 @@ def render_alpha_factory(dal: UIDataAccess):
 
     df_registry = dal.get_alpha_registry_table()
 
-    if not df_registry.empty:
+    if df_registry is not None and not df_registry.empty:
         df_disp = df_registry.copy()
         
-        if status_filter != "ALL":
+        if status_filter != "ALL" and "status" in df_disp.columns:
             df_disp = df_disp[df_disp["status"] == status_filter]
-        if tested_filter != "ALL":
+        if tested_filter != "ALL" and "tested" in df_disp.columns:
             df_disp = df_disp[df_disp["tested"] == tested_filter]
-        if category_filter != "ALL":
+        if category_filter != "ALL" and "category" in df_disp.columns:
             df_disp = df_disp[df_disp["category"].str.contains(category_filter, case=False, na=False)]
         if search_query:
-            df_disp = df_disp[
-                df_disp["alpha_id"].str.contains(search_query, case=False, na=False) |
-                df_disp["name"].str.contains(search_query, case=False, na=False) |
-                df_disp["category"].str.contains(search_query, case=False, na=False)
-            ]
+            match_mask = pd.Series(False, index=df_disp.index)
+            for c in ["alpha_id", "name", "category"]:
+                if c in df_disp.columns:
+                    match_mask = match_mask | df_disp[c].astype(str).str.contains(search_query, case=False, na=False)
+            df_disp = df_disp[match_mask]
 
         st.dataframe(
             df_disp,
             use_container_width=True,
             hide_index=True,
-            column_config={
-                "alpha_id": st.column_config.TextColumn("Alpha ID", width="small"),
-                "name": st.column_config.TextColumn("Strategy Name", width="medium"),
-                "status": st.column_config.TextColumn("Status", width="small"),
-                "tested": st.column_config.TextColumn("Tested", width="small"),
-                "category": st.column_config.TextColumn("Category", width="medium"),
-                "timeframe": st.column_config.TextColumn("Timeframe", width="small"),
-                "universe": st.column_config.TextColumn("Universe", width="small"),
-                "test_period": st.column_config.TextColumn("Test Period", width="small"),
-                "sharpe": st.column_config.TextColumn("Sharpe (IS)", width="small"),
-                "profit_factor": st.column_config.TextColumn("Net PF", width="small"),
-                "oos_sharpe": st.column_config.TextColumn("OOS Sharpe", width="small"),
-                "max_drawdown": st.column_config.TextColumn("Max DD", width="small"),
-                "positive_symbols": st.column_config.TextColumn("Positive Assets", width="medium"),
-                "last_tested": st.column_config.TextColumn("Last Tested", width="medium"),
-            }
         )
     else:
-        st.warning("No Alpha strategies discovered in registry.")
+        st.info("ℹ️ **Active Alpha Registry is clean & reset.** Ready to discover and validate new hypotheses across the dynamic 77-equity universe.")
 
     st.markdown("---")
 
     # 3. Section 3-12: Alpha Deep Dive Inspector
     st.subheader("Alpha Hypothesis Deep Dive & Audit Inspector")
-    colA, colB, colC = st.columns([1, 1, 1])
-    alpha_options = list(df_registry["alpha_id"].values) if not df_registry.empty else ["None"]
-    with colA:
-        selected_alpha = st.selectbox("Select Alpha ID for Full Quantitative Audit", alpha_options, index=0, key="select_alpha_detail")
+    alpha_options = list(df_registry["alpha_id"].values) if (df_registry is not None and not df_registry.empty and "alpha_id" in df_registry.columns) else []
+    
+    if alpha_options:
+        colA, colB, colC = st.columns([1, 1, 1])
+        with colA:
+            selected_alpha = st.selectbox("Select Alpha ID for Full Quantitative Audit", alpha_options, index=0, key="select_alpha_detail")
 
-    detail = dal.get_alpha_detail(selected_alpha)
+        detail = dal.get_alpha_detail(selected_alpha) if selected_alpha else {}
+    else:
+        selected_alpha = None
+        detail = {}
 
-    if detail:
-        st.markdown(f"### `{detail['alpha_id'].upper()}`: {detail['name']} — Status: `{detail['status']}`")
-        st.caption(f"Category: **{detail['category']}** | Timeframe: **{detail['timeframe']}** | Version: **{detail['version']}** | Tested: **{'YES' if detail['is_tested'] else 'NO'}**")
+    if detail and detail.get("alpha_id"):
+        st.markdown(f"### `{str(detail.get('alpha_id', '')).upper()}`: {detail.get('name', 'Strategy')} — Status: `{detail.get('status', 'UNEXPLORED')}`")
+        st.caption(f"Category: **{detail.get('category', 'UNKNOWN')}** | Timeframe: **{detail.get('timeframe', '15m')}** | Version: **{detail.get('version', 'v1.0.0')}** | Tested: **{'YES' if detail.get('is_tested') else 'NO'}**")
 
         detail_tabs = st.tabs([
             "🎯 Hypothesis & Parameters",
@@ -347,29 +339,31 @@ def render_alpha_factory(dal: UIDataAccess):
 
         with detail_tabs[0]:
             st.markdown("#### Economic Rationale & Mechanism")
-            st.write(detail["hypothesis"])
+            st.write(detail.get("hypothesis", "No hypothesis rationale registered."))
             
             st.markdown("#### Market Mechanism Description")
-            st.info(detail["mechanism"])
+            st.info(detail.get("mechanism", "Standard quantitative factor model."))
 
             col_p1, col_p2 = st.columns(2)
             with col_p1:
                 st.markdown("#### Entry, Exit & Holding Specifications")
-                st.write(f"**Entry Window**: `{detail['entry_window']}`")
-                st.write(f"**Entry Conditions**: `{detail['entry_conditions']}`")
-                st.write(f"**Exit Conditions**: `{detail['exit_conditions']}`")
-                st.write(f"**Holding Concept**: `{detail['holding_concept']}`")
-                st.write(f"**Research Universe**: `{', '.join(detail['target_instruments'][:8])}...`")
+                st.write(f"**Entry Window**: `{detail.get('entry_window', '09:30-14:30 IST')}`")
+                st.write(f"**Entry Conditions**: `{detail.get('entry_conditions', 'Alpha-specific threshold condition')}`")
+                st.write(f"**Exit Conditions**: `{detail.get('exit_conditions', 'Stop Loss / Target / Intraday Square-off')}`")
+                st.write(f"**Holding Concept**: `{detail.get('holding_concept', 'Intraday Horizon')}`")
+                targets = detail.get("target_instruments", [])
+                targets_disp = ", ".join(targets[:8]) + ("..." if len(targets) > 8 else "") if targets else "Dynamic Active Universe"
+                st.write(f"**Research Universe**: `{targets_disp}`")
             with col_p2:
                 st.markdown("#### Strategy Parameters")
-                if detail["parameters"]:
+                if detail.get("parameters"):
                     st.json(detail["parameters"])
                 else:
                     st.write("No parameters defined (Default baseline).")
 
         with detail_tabs[1]:
             st.markdown("#### Institutional Qualification Gates Evaluation")
-            gates = detail["qualification_gates"]
+            gates = detail.get("qualification_gates", {})
             
             g_col1, g_col2, g_col3, g_col4 = st.columns(4)
             
@@ -390,19 +384,23 @@ def render_alpha_factory(dal: UIDataAccess):
             g_col4.caption(f"Hurdle: {g4.get('threshold', 'N/A')}")
 
             st.markdown("#### Status Explanation & Quantitative Justification")
-            if detail["status"] == "PROVEN":
-                st.success(f"**PROVEN QUALIFICATION**: {detail['explanations']['status_reason']}")
-            elif detail["status"] == "FAILED":
-                st.error(f"**FAILED / REJECTED**: {detail['explanations']['status_reason']}")
-            elif detail["status"] == "UNCERTAIN":
-                st.warning(f"**UNCERTAIN**: {detail['explanations']['status_reason']}")
+            explanations = detail.get("explanations", {})
+            status_val = detail.get("status", "UNEXPLORED")
+            status_reason = explanations.get("status_reason", "Awaiting comprehensive backtest evaluation.")
+            
+            if status_val == "PROVEN":
+                st.success(f"**PROVEN QUALIFICATION**: {status_reason}")
+            elif status_val == "FAILED":
+                st.error(f"**FAILED / REJECTED**: {status_reason}")
+            elif status_val == "UNCERTAIN":
+                st.warning(f"**UNCERTAIN**: {status_reason}")
             else:
-                st.info(f"**UNEXPLORED**: {detail['explanations']['status_reason']}")
+                st.info(f"**UNEXPLORED**: {status_reason}")
 
-            if detail["explanations"]["failure_lessons"] != "NOT APPLICABLE" and detail["explanations"]["failure_lessons"]:
-                st.warning(f"**Empirical Failure Lessons & Friction Analysis**: {detail['explanations']['failure_lessons']}")
-            if detail["explanations"]["known_limitations"]:
-                st.write(f"**Known Regime Limitations**: {detail['explanations']['known_limitations']}")
+            if explanations.get("failure_lessons") and explanations["failure_lessons"] != "NOT APPLICABLE":
+                st.warning(f"**Empirical Failure Lessons & Friction Analysis**: {explanations['failure_lessons']}")
+            if explanations.get("known_limitations"):
+                st.write(f"**Known Regime Limitations**: {explanations['known_limitations']}")
 
         with detail_tabs[2]:
             st.markdown("#### Complete Quantitative Metrics Breakdown")
@@ -441,11 +439,12 @@ def render_alpha_factory(dal: UIDataAccess):
         with detail_tabs[3]:
             st.markdown("#### Cross-Sectional Asset Performance & Data Lake Status")
             st.caption("Distinguishes universal Alpha Logic from instrument-specific data coverage.")
-            sym_df = pd.DataFrame(detail["symbol_performance"])
-            if not sym_df.empty:
+            sym_perf = detail.get("symbol_performance", [])
+            if sym_perf:
+                sym_df = pd.DataFrame(sym_perf)
                 st.dataframe(sym_df, use_container_width=True, hide_index=True)
             else:
-                st.info("No symbol performance breakdown available.")
+                st.info("No symbol performance breakdown recorded for this alpha.")
 
         with detail_tabs[4]:
             st.markdown("#### 540-Day Research Horizon Compliance & Evidence Audit")
@@ -473,11 +472,12 @@ def render_alpha_factory(dal: UIDataAccess):
 
         with detail_tabs[5]:
             st.markdown("#### Chronological Research Trials Ledger (`experiment_ledger.db`)")
-            hist = detail["test_history"]
+            hist = detail.get("test_history", [])
             if hist:
                 df_hist = pd.DataFrame(hist)
+                cols = [c for c in ["experiment_id", "timestamp", "status", "in_sample_sharpe", "cpcv_oos_sharpe", "net_profit_factor", "monte_carlo_95_max_dd", "git_commit_sha"] if c in df_hist.columns]
                 st.dataframe(
-                    df_hist[["experiment_id", "timestamp", "status", "in_sample_sharpe", "cpcv_oos_sharpe", "net_profit_factor", "monte_carlo_95_max_dd", "git_commit_sha"]],
+                    df_hist[cols] if cols else df_hist,
                     use_container_width=True,
                     hide_index=True
                 )

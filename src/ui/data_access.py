@@ -639,9 +639,9 @@ class UIDataAccess:
 
             if raw_status in ["PROVEN", "CAPITAL_CANDIDATE", "ACCEPTED", "DEV_POSITIVE_QUALIFIED"]:
                 standard_status = "PROVEN"
-            elif raw_status in ["REJECTED", "REJECTED_AT_DEV", "EXPLORED_FAILED", "REJECTED_AT_STAGE_0"]:
+            elif raw_status in ["FAILED", "REJECTED", "REJECTED_AT_DEV", "EXPLORED_FAILED", "REJECTED_AT_STAGE_0"]:
                 standard_status = "FAILED"
-            elif raw_status in ["EXPLORED_UNCERTAIN", "LOW_FREQUENCY_WATCHLIST", "DECAYING_WATCHLIST", "RESEARCH_CANDIDATE", "FORWARD_PAPER"]:
+            elif raw_status in ["UNCERTAIN", "EXPLORED_UNCERTAIN", "LOW_FREQUENCY_WATCHLIST", "DECAYING_WATCHLIST", "RESEARCH_CANDIDATE", "FORWARD_PAPER"]:
                 standard_status = "UNCERTAIN"
             else:
                 standard_status = "UNEXPLORED"
@@ -720,13 +720,14 @@ class UIDataAccess:
                     matching_trials.append(row.to_dict())
 
         latest_exp = matching_trials[0] if matching_trials else matching_exp
+        strat_name = latest_exp.get("hypothesis_name") or latest_exp.get("strategy_id", strat_key)
 
         raw_status = latest_exp.get("status", "UNEXPLORED")
         if raw_status in ["PROVEN", "CAPITAL_CANDIDATE", "ACCEPTED", "DEV_POSITIVE_QUALIFIED"]:
             standard_status = "PROVEN"
-        elif raw_status in ["REJECTED", "REJECTED_AT_DEV", "EXPLORED_FAILED", "REJECTED_AT_STAGE_0"]:
+        elif raw_status in ["FAILED", "REJECTED", "REJECTED_AT_DEV", "EXPLORED_FAILED", "REJECTED_AT_STAGE_0"]:
             standard_status = "FAILED"
-        elif raw_status in ["EXPLORED_UNCERTAIN", "LOW_FREQUENCY_WATCHLIST", "DECAYING_WATCHLIST", "RESEARCH_CANDIDATE", "FORWARD_PAPER"]:
+        elif raw_status in ["UNCERTAIN", "EXPLORED_UNCERTAIN", "LOW_FREQUENCY_WATCHLIST", "DECAYING_WATCHLIST", "RESEARCH_CANDIDATE", "FORWARD_PAPER"]:
             standard_status = "UNCERTAIN"
         else:
             standard_status = "UNEXPLORED"

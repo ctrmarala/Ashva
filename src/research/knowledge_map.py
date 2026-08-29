@@ -171,3 +171,7 @@ class AlphaKnowledgeMap:
     def register_experiment_result(self, record: AlphaResearchRecord):
         """Adds a newly tested alpha to the knowledge base."""
         self.registry[record.alpha_id] = record
+
+    def register_mechanism(self, record: AlphaResearchRecord):
+        """Alias for register_experiment_result."""
+        self.register_experiment_result(record)

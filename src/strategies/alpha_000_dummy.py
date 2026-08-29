@@ -27,6 +27,8 @@ class Alpha000Dummy(BaseStrategy):
     def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
         df["signal"] = 0.0
+        df["stop_loss"] = df["close"] * 0.99
+        df["take_profit"] = df["close"] * 1.02
         
         # Simple dummy logic just to generate trades for the lab to process
         # Using a slight lag to generate some artificial edges or just naive mean reversion

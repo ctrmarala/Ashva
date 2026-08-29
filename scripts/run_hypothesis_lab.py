@@ -39,6 +39,7 @@ from src.research.hypothesis import HypothesisStatus, StrategyHorizon
 from src.strategies.registry import get_all_strategies
 from src.strategies.base import CrossSectionalHypothesis
 
+STRATEGY_MAP = get_all_strategies()
 
 from src.core.universe_manager import get_universe_symbols
 
