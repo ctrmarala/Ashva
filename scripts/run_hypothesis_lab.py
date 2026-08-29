@@ -3,308 +3,36 @@ Ashva Master Quantitative Research & Hypothesis Lab CLI
 Unified institutional entry-point for Alpha discovery, multi-regime backtesting,
 and statistical validation across Indian equity and derivative markets.
 
-Usage:
-    # 1. Master audit across all strategies & 14 blue chips (18-month historical data):
-    python scripts/run_hypothesis_lab.py --all
-
-    # 2. Test a specific strategy on a single symbol with multi-regime breakdown:
-    python scripts/run_hypothesis_lab.py --strategy alpha_02 --symbol TCS --regimes
-
-    # 3. Test a strategy across all 14 symbols with slippage stress test:
-    python scripts/run_hypothesis_lab.py --strategy alpha_04 --all-symbols --stress
-
-    # 4. Generate standalone dark-theme HTML tearsheets:
-    python scripts/run_hypothesis_lab.py --strategy alpha_02 --symbol TCS --tearsheet
+DEPRECATION NOTICE:
+This script has been deprecated in favor of `scripts/research_alpha.py` to enforce a single canonical
+research path for panel alphas. It now delegates all execution to `research_alpha.py`.
 """
 
-import argparse
 import sys
+import subprocess
 from pathlib import Path
-from typing import Dict, Any, Optional
-from typing import Dict, List, Tuple
-import pandas as pd
-import numpy as np
-
-# Add root directory to sys.path
-sys.path.append(str(Path(__file__).resolve().parent.parent))
-
-from src.data.data_lake import DataLake
-from src.research.validator import StatisticalValidator
-from src.analytics.indian_costs import IndianCostModel, Segment
-from src.backtest.engine import BacktestEngine
-from src.analytics.tearsheet import QuantTearsheetGenerator
-from src.research.hypothesis import HypothesisStatus, StrategyHorizon
-
-# Strategy Registry
-from src.strategies.registry import get_all_strategies
-from src.strategies.base import CrossSectionalHypothesis
-
-STRATEGY_MAP = get_all_strategies()
-
-from src.core.universe_manager import get_universe_symbols
-
-DEFAULT_UNIVERSE = get_universe_symbols()
-NIFTY_50_UNIVERSE = DEFAULT_UNIVERSE
-
-
-def run_strategy_backtest(
-    strat_id: str,
-    strat_obj,
-    symbols: List[str],
-    lake: DataLake,
-    engine: BacktestEngine,
-    validator: StatisticalValidator,
-    timeframe: str = "15m",
-    timeframe_comparison: Optional[Dict[str, Any]] = None,
-) -> List[Dict]:
-    results = []
-
-    # Configure Engine Segment & Timeframe based on Strategy Horizon
-    is_swing = False
-    if hasattr(strat_obj, "metadata"):
-        h = getattr(strat_obj.metadata, "horizon", None)
-        if h in [StrategyHorizon.SWING, StrategyHorizon.POSITIONAL] or str(h) in ["SWING", "POSITIONAL", "StrategyHorizon.SWING", "StrategyHorizon.POSITIONAL"]:
-            is_swing = True
-
-    engine.segment = Segment.EQUITY_DELIVERY if is_swing else Segment.EQUITY_INTRADAY
-    target_tf = getattr(strat_obj.metadata, "timeframe", timeframe) if hasattr(strat_obj, "metadata") else timeframe
-
-    is_cross_sectional = isinstance(strat_obj, CrossSectionalHypothesis)
-    panel_data = {}
-    panel_signals = {}
-
-    if is_cross_sectional:
-        # Load all symbols into a panel
-        for sym in symbols:
-            df = lake.load_bars(sym, target_tf, max_lookback_days=540)
-            if df.empty or len(df) < 50:
-                if target_tf != timeframe:
-                    df = lake.load_bars(sym, timeframe, max_lookback_days=540)
-            if not df.empty and len(df) >= 50:
-                panel_data[sym] = df
-        
-        # Generate signals for the entire panel simultaneously
-        if panel_data:
-            panel_signals = strat_obj.generate_panel_signals(panel_data)
-
-    for sym in symbols:
-        if is_cross_sectional:
-            if sym not in panel_data or sym not in panel_signals:
-                continue
-            df = panel_data[sym]
-            signals_df = panel_signals[sym]
-        else:
-            # Load bars enforcing 540-day research ceiling
-            df = lake.load_bars(sym, target_tf, max_lookback_days=540)
-            if df.empty or len(df) < 50:
-                # Fallback to default timeframe if daily bars not yet ingested
-                if target_tf != timeframe:
-                    df = lake.load_bars(sym, timeframe, max_lookback_days=540)
-                if df.empty or len(df) < 50:
-                    continue
-
-            # 1. Run Baseline Backtest
-            signals_df = strat_obj.generate_signals(df)
-
-        res = engine.run(signals_df, symbol=sym, strategy_id=strat_id, risk_per_trade_pct=0.005, capital_per_trade_pct=0.25)
-
-        # 2. Run Centralized Statistical Validation (Single Source of Truth with Explicit Symbol)
-        report = validator.validate_hypothesis(strat_obj, df, symbol=sym, timeframe_comparison=timeframe_comparison)
-
-        w60 = report.window_metrics.get("60d", {})
-        w180 = report.window_metrics.get("180d", {})
-        w365 = report.window_metrics.get("365d", {})
-        w540 = report.window_metrics.get("540d", {})
-
-        results.append({
-            "Strategy": strat_id,
-            "Symbol": sym,
-            "Net_PnL_INR": round(res.total_net_pnl, 2),
-            "Trades": res.total_trades,
-            "Tier": report.evidence_tier,
-            "Win_Rate": f"{res.win_rate_pct:.1f}%",
-            "IS_PF_540d": f"{w540.get('net_pf', res.net_profit_factor):.2f}",
-            "IS_PF_365d": f"{w365.get('net_pf', 0.0):.2f}",
-            "IS_PF_180d": f"{w180.get('net_pf', 0.0):.2f}",
-            "IS_PF_60d": f"{w60.get('net_pf', 0.0):.2f}",
-            "Stability": f"{report.regime_stability_score:.0f}%",
-            "Regime_60d": f"{report.current_regime_score:.0f}%",
-            "Recency_Q": f"{report.recency_weighted_score:+.2f}",
-            "IS_Sharpe": round(res.sharpe_ratio, 2),
-            "OOS_Sharpe": round(report.cpcv_mean_sharpe, 2),
-            "MaxDD": f"{res.max_drawdown_pct:.2f}%",
-            "Costs_INR": round(res.total_taxes_paid, 2),
-            "Verdict": f"[{report.status.value}]",
-            "_result_obj": res,
-            "_report": report,
-            "_df": df,
-            "_signals_df": signals_df,
-        })
-    return results
-
-
-def run_slippage_stress(strat_id: str, strat_obj, df: pd.DataFrame, symbol: str):
-    print(f"\n[+] 5-TIER SLIPPAGE STRESS MATRIX ({symbol} - 1 to 20 bps)")
-    stress_scenarios = [
-        ("Optimistic", 1.0),
-        ("Base", 3.0),
-        ("Conservative", 5.0),
-        ("Stress", 10.0),
-        ("Extreme", 20.0),
-    ]
-    signals_df = strat_obj.generate_signals(df)
-    rows = []
-    for sc_name, slip_bps in stress_scenarios:
-        c_model = IndianCostModel(default_slippage_bps=slip_bps)
-        eng = BacktestEngine(cost_model=c_model, initial_capital=500000.0)
-        r = eng.run(signals_df, symbol=symbol, strategy_id=strat_id, risk_per_trade_pct=0.005, capital_per_trade_pct=0.25)
-        rows.append({
-            "Scenario": sc_name,
-            "Slippage_Bps": slip_bps,
-            "Net_Pnl_INR": round(r.total_net_pnl, 2),
-            "Net_ROI_Pct": round(r.net_roi_pct, 2),
-            "Profit_Factor": round(r.net_profit_factor, 2) if r.net_profit_factor < 90 else 99.0,
-            "Sharpe": round(r.sharpe_ratio, 2),
-            "MaxDD_Pct": round(r.max_drawdown_pct, 2),
-            "Total_Taxes_INR": round(r.total_taxes_paid, 2),
-        })
-    print(pd.DataFrame(rows).to_string(index=False))
-
 
 def main():
-    parser = argparse.ArgumentParser(description="Ashva Quantitative Research & Hypothesis Lab")
-    parser.add_argument("--all", action="store_true", help="Run master backtest across all strategies and symbols")
-    parser.add_argument("--strategy", type=str, default="all", help="Strategy exact class name to test (or 'all')")
-    parser.add_argument("--symbol", type=str, default="TCS", help="Target symbol")
-    parser.add_argument("--all-symbols", action="store_true", help="Run across all 14 liquid blue chips")
-    parser.add_argument("--timeframe", type=str, default="15m", help="Candle timeframe")
-    parser.add_argument("--regimes", action="store_true", help="Run 3-Tier Multi-Regime Persistence Analysis (0-6m, 6-12m, 12-18m)")
-    parser.add_argument("--stress", action="store_true", help="Run 5-Tier Slippage Stress Matrix (1-20 bps)")
-    parser.add_argument("--discover-timeframes", action="store_true", help="Discover preferred timeframe across [1m, 5m, 15m, 30m, 60m]")
-    parser.add_argument("--no-tearsheet", action="store_true", help="Suppress HTML tearsheet generation")
-
-    args = parser.parse_args()
-
-    lake = DataLake(read_only=True)
-    cost_model = IndianCostModel(default_slippage_bps=3.0)
-    validator = StatisticalValidator(cost_model=cost_model)
-    engine = BacktestEngine(cost_model=cost_model, initial_capital=500000.0)
-    ts_gen = QuantTearsheetGenerator()
-
     print("=" * 135)
-    print("[*] ASHVA QUANTITATIVE RESEARCH LAB: 540-DAY RESEARCH CANVAS | RECENCY-WEIGHTED MULTI-WINDOW VALIDATION")
-    print(f"[*] Framework: 60d (50% Wt), 180d (25% Wt), 365d (15% Wt), 540d (10% Wt) | Regulatory Costs & 3.0 bps Slippage")
+    print("[!] DEPRECATION WARNING: scripts/run_hypothesis_lab.py is deprecated.")
+    print("[!] Delegating to scripts/research_alpha.py to ensure canonical 77-stock panel validation.")
     print("=" * 135)
-
-    registered_strategies = get_all_strategies()
     
-    if args.all or args.strategy == "all":
-        # Master Audit across all strategies & symbols
-        strategies_to_run = [(name, cls) for name, cls in registered_strategies.items()]
-        target_symbols = DEFAULT_UNIVERSE
+    # Forward the arguments as best effort
+    cmd = [sys.executable, "scripts/research_alpha.py"]
+    if "--all" in sys.argv:
+        cmd.append("--all")
     else:
-        if args.strategy not in registered_strategies:
-            print(f"[-] Strategy '{args.strategy}' not found in registry. Have you placed it in src/strategies/?")
-            sys.exit(1)
-        strategies_to_run = [(args.strategy, registered_strategies[args.strategy])]
-        target_symbols = DEFAULT_UNIVERSE if args.all_symbols else [args.symbol.upper()]
+        # Try to find strategy arg
+        try:
+            strat_idx = sys.argv.index("--strategy")
+            strat_val = sys.argv[strat_idx + 1]
+            cmd.extend(["--alpha-id", strat_val])
+        except (ValueError, IndexError):
+            pass
 
-    master_results = []
-    generated_tearsheets = []
-    pd.set_option('display.max_columns', None)
-    pd.set_option('display.width', 1000)
-
-    for strat_name, strat_cls in strategies_to_run:
-        strat_obj = strat_cls()
-        print(f"\n" + "#" * 135)
-        print(f"[+] MULTI-WINDOW RESEARCH VALIDATION: {strat_name}")
-        print("#" * 135)
-
-        timeframe_comparison = None
-        best_timeframe = args.timeframe
-        
-        if args.discover_timeframes:
-            print(f"[+] Discovering preferred timeframe across 1m, 5m, 15m, 30m, 60m...")
-            tf_metrics = {}
-            for tf in ["1m", "5m", "15m", "30m", "60m"]:
-                tf_res = run_strategy_backtest(strat_name, strat_obj, target_symbols, lake, engine, validator, tf)
-                if tf_res:
-                    # Pick metric from first symbol (or aggregate)
-                    total_pnl = sum(r["Net_PnL_INR"] for r in tf_res)
-                    total_trades = sum(r["Trades"] for r in tf_res)
-                    avg_sharpe = sum(r["IS_Sharpe"] for r in tf_res) / len(tf_res)
-                    tf_metrics[tf] = {
-                        "net_pnl": total_pnl,
-                        "trades": total_trades,
-                        "sharpe": avg_sharpe,
-                        "score": total_pnl * max(0, avg_sharpe) if total_trades > 25 else 0
-                    }
-                else:
-                    tf_metrics[tf] = {"net_pnl": 0, "trades": 0, "sharpe": 0, "score": 0}
-            
-            # Select best timeframe by score
-            best_timeframe = max(tf_metrics, key=lambda k: tf_metrics[k]["score"]) if any(m["score"] > 0 for m in tf_metrics.values()) else "15m"
-            timeframe_comparison = tf_metrics
-            print(f"[+] Preferred Timeframe Selected: {best_timeframe}")
-            
-        results = run_strategy_backtest(strat_name, strat_obj, target_symbols, lake, engine, validator, best_timeframe, timeframe_comparison)
-        if not results:
-            print("[-] No data found for specified symbols.")
-            continue
-
-        disp_df = pd.DataFrame([{k: v for k, v in r.items() if not k.startswith("_")} for r in results])
-        print(disp_df.to_string(index=False))
-
-        # Portfolio Aggregates
-        total_pnl = sum(r["Net_PnL_INR"] for r in results)
-        total_trades = sum(r["Trades"] for r in results)
-        total_taxes = sum(r["Costs_INR"] for r in results)
-        print("-" * 135)
-        print(f"[*] {strat_name} 540D PORTFOLIO TOTAL: Net P&L = Rs {total_pnl:+,.2f} | Trades = {total_trades} | Taxes Paid = Rs {total_taxes:,.2f}")
-
-        # Automated Tearsheet Generation is now decoupled
-        # Tearsheets are available via the Factory UI which reads from the Canonical Evidence ledger.
-        if not args.no_tearsheet:
-            print("[i] Tearsheets are now decoupled. Access them via the Factory UI -> Canonical Evidence.")
-
-        master_results.extend(results)
-
-        # Detailed Analysis for Single-Symbol Mode or explicit flags
-        if len(target_symbols) == 1 or args.regimes or args.stress:
-            for r in results:
-                sym = r["Symbol"]
-                df = r["_df"]
-
-                if args.stress:
-                    run_slippage_stress(strat_name, strat_obj, df, sym)
-
-                if args.regimes:
-                    print(f"\n--- REGIME PERSISTENCE ANALYSIS (0-6m Current | 6-12m Recent | 12-18m Older): {sym} ({strat_name}) ---")
-                    reg_df = validator.evaluate_multi_regime_persistence(strat_obj, df, symbol=sym)
-                    if not reg_df.empty:
-                        print(reg_df.to_string(index=False))
-
-    if args.all or (len(strategies_to_run) > 1 and len(target_symbols) > 1):
-        print("\n" + "=" * 115)
-        print("[*] 18-MONTH MASTER VALIDATION LEADERBOARD (SORTED BY NET P&L)")
-        print("=" * 115)
-        m_df = pd.DataFrame([{k: v for k, v in r.items() if not k.startswith("_")} for r in master_results])
-        m_df_sorted = m_df.sort_values(by="Net_PnL_INR", ascending=False)
-        print(m_df_sorted.to_string(index=False))
-        print("=" * 115)
-
-    if generated_tearsheets:
-        print("\n" + "=" * 115)
-        print(f"[*] AUTOMATED HTML QUANT TEARSHEETS GENERATED ({len(generated_tearsheets)} Total Saved to data_lake/tearsheets/)")
-        print("=" * 115)
-        # Sort by Net PnL descending
-        generated_tearsheets.sort(key=lambda x: x[3], reverse=True)
-        for s_name, sym, path, pnl in generated_tearsheets[:15]:
-            print(f"  [+] {s_name:<25} | {sym:<12} | Net P&L: Rs {pnl:+10,.2f} | File: {path}")
-        if len(generated_tearsheets) > 15:
-            print(f"  ... and {len(generated_tearsheets) - 15} more in data_lake/tearsheets/")
-        print("=" * 115)
-
+    print(f"[*] Running: {' '.join(cmd)}\n")
+    sys.exit(subprocess.call(cmd))
 
 if __name__ == "__main__":
     main()

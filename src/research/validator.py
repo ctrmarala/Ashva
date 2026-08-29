@@ -140,19 +140,19 @@ class StatisticalValidator:
     @classmethod
     def run_monte_carlo_drawdown_test(
         cls,
-        trade_returns: np.ndarray,
+        returns: np.ndarray,
         num_simulations: int = 5000,
     ) -> Dict[str, float]:
         """
-        Simulates 5,000+ random permutations of trade return sequences
+        Simulates 5,000+ random permutations of return sequences (e.g., daily panel returns)
         to evaluate the true tail risk and maximum drawdown distribution.
         """
-        if len(trade_returns) < 5:
+        if len(returns) < 5:
             return {"mean_max_dd": 0.0, "p95_max_dd": 0.0, "p99_max_dd": 0.0}
 
         max_drawdowns = []
         for _ in range(num_simulations):
-            shuffled = np.random.permutation(trade_returns)
+            shuffled = np.random.permutation(returns)
             equity_curve = np.cumprod(1.0 + shuffled)
             peak = np.maximum.accumulate(equity_curve)
             drawdowns = (peak - equity_curve) / peak
@@ -403,8 +403,7 @@ class StatisticalValidator:
             )
 
         # 8. Gate 3: 5,000-Run Monte Carlo Permutation Tail Risk
-        trade_returns = np.array([t.net_pnl / 250000.0 for t in full_result.trade_list]) if full_result.trade_list else np.array([])
-        mc_results = self.run_monte_carlo_drawdown_test(trade_returns, num_simulations=5000)
+        mc_results = self.run_monte_carlo_drawdown_test(daily_returns, num_simulations=5000)
         p95_dd = mc_results["p95_max_dd"]
         if p95_dd > self.max_monte_carlo_dd_pct:
             rejection_reasons.append(

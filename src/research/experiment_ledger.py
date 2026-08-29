@@ -137,6 +137,13 @@ class ResearchExperimentLedger:
 
     def log_experiment(self, record: ExperimentRecord) -> int:
         """Appends an experiment record immutably and returns updated global trial count."""
+        if record.git_commit_sha == "DEV_DIRTY" and record.status == "QUALIFIED":
+            record.status = "REJECTED"
+            import json
+            reasons = json.loads(record.rejection_reasons_json) if record.rejection_reasons_json else []
+            reasons.append("GATE_FAILURE: Dirty git working tree (DEV_DIRTY) blocks institutional qualification.")
+            record.rejection_reasons_json = json.dumps(reasons)
+
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 INSERT INTO experiment_journal (

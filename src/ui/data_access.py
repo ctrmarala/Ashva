@@ -943,7 +943,7 @@ class UIDataAccess:
             if match_n:
                 tot_trades = int(match_n.group(1))
             else:
-                tot_trades = getattr(k_rec, "oos_trades", None)
+                tot_trades = "NOT AVAILABLE"
 
         wr_val = latest_exp.get("win_rate_pct") or target_tf_data.get("win_rate_pct")
         win_rate_disp = f"{float(wr_val):.1f}%" if wr_val is not None else "NOT AVAILABLE"
