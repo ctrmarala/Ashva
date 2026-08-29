@@ -23,6 +23,7 @@ class QuantTearsheetGenerator:
     def generate_html_tearsheet(
         self,
         result: Any,
+        cpcv_sharpe: float = 0.0,
         benchmark_returns: Optional[pd.Series] = None,
     ) -> str:
         """
@@ -80,8 +81,12 @@ class QuantTearsheetGenerator:
             <div class="value {'pos' if result.total_net_pnl >= 0 else 'neg'}">₹{result.total_net_pnl:+,.2f}</div>
         </div>
         <div class="card">
-            <h4>Annualized Sharpe</h4>
+            <h4>Annualized Sharpe (IS)</h4>
             <div class="value">{result.sharpe_ratio:.2f}</div>
+        </div>
+        <div class="card">
+            <h4>OOS CPCV Sharpe</h4>
+            <div class="value">{cpcv_sharpe:.2f}</div>
         </div>
         <div class="card">
             <h4>Max Drawdown</h4>
@@ -92,7 +97,7 @@ class QuantTearsheetGenerator:
             <div class="value">{result.win_rate_pct:.1f}%</div>
         </div>
         <div class="card">
-            <h4>Net Profit Factor</h4>
+            <h4>Net Profit Factor (IS)</h4>
             <div class="value">{result.net_profit_factor:.2f}</div>
         </div>
     </div>

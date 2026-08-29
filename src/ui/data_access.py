@@ -47,7 +47,7 @@ class UIDataAccess:
 
     def _get_strategy_tuple_by_id(self, alpha_id: str) -> Optional[tuple]:
         strat_key = alpha_id.lower()
-        for _, cls_ref in get_all_strategies().items():
+        for _, cls_ref in get_all_strategies(reload=True).items():
             try:
                 inst = cls_ref()
                 if inst.metadata.hypothesis_id.lower() == strat_key:
@@ -625,7 +625,7 @@ class UIDataAccess:
                     latest_experiments[s_id] = row.to_dict()
 
         rows = []
-        for _, cls_ref in get_all_strategies().items():
+        for _, cls_ref in get_all_strategies(reload=True).items():
             try:
                 inst = cls_ref()
                 meta = inst.metadata
@@ -1091,7 +1091,7 @@ class UIDataAccess:
         # Fetch any active strategies dynamically from the registry.
         active_contract_ids = {}  # E.g., read from a manifest file if needed
         
-        strategy_registry = get_all_strategies()
+        strategy_registry = get_all_strategies(reload=True)
 
         for strat_key, (strat_name, ver, cat, act_state) in active_contract_ids.items():
             strat_obj = strategy_registry.get(strat_name)

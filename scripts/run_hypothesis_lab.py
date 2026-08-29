@@ -120,14 +120,15 @@ def run_strategy_backtest(
             "Trades": res.total_trades,
             "Tier": report.evidence_tier,
             "Win_Rate": f"{res.win_rate_pct:.1f}%",
-            "PF_540d": f"{w540.get('net_pf', res.net_profit_factor):.2f}",
-            "PF_365d": f"{w365.get('net_pf', 0.0):.2f}",
-            "PF_180d": f"{w180.get('net_pf', 0.0):.2f}",
-            "PF_60d": f"{w60.get('net_pf', 0.0):.2f}",
+            "IS_PF_540d": f"{w540.get('net_pf', res.net_profit_factor):.2f}",
+            "IS_PF_365d": f"{w365.get('net_pf', 0.0):.2f}",
+            "IS_PF_180d": f"{w180.get('net_pf', 0.0):.2f}",
+            "IS_PF_60d": f"{w60.get('net_pf', 0.0):.2f}",
             "Stability": f"{report.regime_stability_score:.0f}%",
             "Regime_60d": f"{report.current_regime_score:.0f}%",
             "Recency_Q": f"{report.recency_weighted_score:+.2f}",
-            "Sharpe": round(res.sharpe_ratio, 2),
+            "IS_Sharpe": round(res.sharpe_ratio, 2),
+            "OOS_Sharpe": round(report.cpcv_mean_sharpe, 2),
             "MaxDD": f"{res.max_drawdown_pct:.2f}%",
             "Costs_INR": round(res.total_taxes_paid, 2),
             "Verdict": f"[{report.status.value}]",
@@ -236,8 +237,9 @@ def main():
                 if r["Trades"] > 0:
                     sym = r["Symbol"]
                     res_obj = r["_result_obj"]
+                    cpcv_sharpe = r["OOS_Sharpe"]
                     try:
-                        ts_path = ts_gen.generate_html_tearsheet(res_obj)
+                        ts_path = ts_gen.generate_html_tearsheet(res_obj, cpcv_sharpe=cpcv_sharpe)
                         generated_tearsheets.append((strat_name, sym, ts_path, r["Net_PnL_INR"]))
                     except Exception as e:
                         print(f"[-] Tearsheet error for {strat_name} on {sym}: {e}")
