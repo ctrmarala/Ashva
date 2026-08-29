@@ -198,28 +198,23 @@ class UIDataAccess:
                 pass
 
         if latest_dt:
-            delta_days = (last_completed_day - latest_dt).days
-            if delta_days == 0:
+            if latest_dt >= last_completed_day:
                 if market_phase == "LIVE SESSION OPEN":
                     freshness_badge = "🟢 STREAMING LIVE"
                     freshness_detail = f"Real-time bars streaming for today's session ({latest_ts_str})"
                 else:
                     freshness_badge = "🟢 UP TO DATE"
-                    freshness_detail = f"Synchronized with {latest_dt.strftime('%b %d, %Y')} Market Close ({latest_ts_str})"
-                freshness_status = "CURRENT"
-            elif delta_days <= 3 and last_completed_day == latest_dt:
-                freshness_badge = "🟢 UP TO DATE"
-                freshness_detail = f"Synchronized with {latest_dt.strftime('%b %d, %Y')} Market Close"
+                    freshness_detail = f"Synchronized with {last_completed_day.strftime('%b %d, %Y')} Market Close ({latest_ts_str})"
                 freshness_status = "CURRENT"
             else:
                 missing_days = len(NSECalendar.get_trading_days(latest_dt + timedelta(days=1), last_completed_day))
                 if missing_days > 0:
                     freshness_badge = f"🔴 OUTDATED ({missing_days}d behind)"
-                    freshness_detail = f"Data Lake is {missing_days} trading session(s) behind. Last: {latest_ts_str}"
+                    freshness_detail = f"Data Lake is {missing_days} trading session(s) behind (Last: {latest_ts_str}, Expected: {last_completed_day})"
                     freshness_status = "STALE"
                 else:
                     freshness_badge = "🟢 UP TO DATE"
-                    freshness_detail = f"Synchronized with {latest_dt.strftime('%b %d, %Y')} Market Close"
+                    freshness_detail = f"Synchronized with {last_completed_day.strftime('%b %d, %Y')} Market Close"
                     freshness_status = "CURRENT"
         else:
             freshness_badge = "⚪ NO DATA"
@@ -1971,12 +1966,38 @@ class UIDataAccess:
                 "completed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             }
 
+        # Load token mapping if available
+        token_map = {}
+        settings_file = self.config_dir / "settings.yaml"
+        if settings_file.exists():
+            try:
+                with open(settings_file, "r") as sf:
+                    s_cfg = yaml.safe_load(sf) or {}
+                    tf_name = s_cfg.get("universe", {}).get("token_file", "config/nifty77_tokens.json")
+                    tf_path = Path(tf_name) if Path(tf_name).is_absolute() else self.config_dir.parent / tf_name
+                    if tf_path.exists():
+                        with open(tf_path, "r") as tf_f:
+                            token_map = json.load(tf_f)
+            except Exception:
+                pass
+        if not token_map:
+            for fallback_name in ["nifty77_tokens.json", "nifty75_tokens.json", "nifty50_tokens.json"]:
+                fb_path = self.config_dir / fallback_name
+                if fb_path.exists():
+                    try:
+                        with open(fb_path, "r") as tf_f:
+                            token_map = json.load(tf_f)
+                            break
+                    except Exception:
+                        pass
+
         # Execute Ingestion via Angel One SmartAPI
         for sym in target_symbols:
             try:
                 to_dt = datetime.now().strftime("%Y-%m-%d %H:%M")
                 from_dt = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M")
-                df = fetcher.fetch_and_store(symbol=sym, timeframe=timeframe, from_date=from_dt, to_date=to_dt)
+                token = token_map.get(sym.upper()) or fetcher.get_token_for_symbol(sym.upper())
+                df = fetcher.fetch_and_store(symbol=sym, timeframe=timeframe, from_date=from_dt, to_date=to_dt, token=token)
 
                 if not df.empty:
                     updated_count += 1

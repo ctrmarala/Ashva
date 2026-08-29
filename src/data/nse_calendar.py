@@ -125,7 +125,7 @@ class NSECalendar:
         s = cls.to_date(start_date)
         e = cls.to_date(end_date)
         if s > e:
-            s, e = e, s
+            return []
 
         trading_days = []
         cur = s

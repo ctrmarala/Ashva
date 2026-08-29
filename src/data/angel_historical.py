@@ -116,8 +116,22 @@ class AngelHistoricalFetcher:
         """
         Finds the Angel One instrument token for a given symbol.
         """
-        scrips = self.load_scrip_master()
         sym_clean = symbol.upper()
+        
+        # 1. Fast local token map lookup
+        for tok_file in ["config/nifty77_tokens.json", "config/nifty75_tokens.json", "config/nifty50_tokens.json"]:
+            p = Path(tok_file)
+            if p.exists():
+                try:
+                    import json as _json
+                    with open(p, "r") as f:
+                        t_map = _json.load(f)
+                    if sym_clean in t_map:
+                        return str(t_map[sym_clean])
+                except Exception:
+                    pass
+
+        scrips = self.load_scrip_master()
         # Aliases for renamed/demerged corporate actions
         alias_map = {
             "TATAMOTORS": "TMPV",
