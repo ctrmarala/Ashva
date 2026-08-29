@@ -959,17 +959,23 @@ class UIDataAccess:
         else:
             net_pnl_disp = "NOT AVAILABLE"
 
-        if net_pnl_raw is not None and tot_trades and int(tot_trades) > 0:
-            exp_val = float(net_pnl_raw) / int(tot_trades)
+        trades_count_int = None
+        if tot_trades is not None and str(tot_trades).isdigit():
+            trades_count_int = int(tot_trades)
+        elif isinstance(tot_trades, (int, float)) and not pd.isna(tot_trades):
+            trades_count_int = int(tot_trades)
+
+        if net_pnl_raw is not None and trades_count_int is not None and trades_count_int > 0:
+            exp_val = float(net_pnl_raw) / trades_count_int
             expectancy_disp = f"Rs {exp_val:+,.2f}"
         else:
             expectancy_disp = "NOT AVAILABLE"
 
-        win_trades_disp = f"{int(round(int(tot_trades) * float(wr_val) / 100.0)):,}" if (tot_trades and wr_val is not None) else "NOT AVAILABLE"
-        loss_trades_disp = f"{int(tot_trades) - int(round(int(tot_trades) * float(wr_val) / 100.0)):,}" if (tot_trades and wr_val is not None) else "NOT AVAILABLE"
+        win_trades_disp = f"{int(round(trades_count_int * float(wr_val) / 100.0)):,}" if (trades_count_int is not None and wr_val is not None) else "NOT AVAILABLE"
+        loss_trades_disp = f"{trades_count_int - int(round(trades_count_int * float(wr_val) / 100.0)):,}" if (trades_count_int is not None and wr_val is not None) else "NOT AVAILABLE"
 
         metrics_dict = {
-            "total_trades": f"{int(tot_trades):,}" if tot_trades is not None else "NOT AVAILABLE",
+            "total_trades": f"{trades_count_int:,}" if trades_count_int is not None else "NOT AVAILABLE",
             "winning_trades": win_trades_disp,
             "losing_trades": loss_trades_disp,
             "win_rate": win_rate_disp,
@@ -986,7 +992,7 @@ class UIDataAccess:
             "largest_win": "NOT IMPLEMENTED",
             "largest_loss": "NOT IMPLEMENTED",
             "avg_holding_time": "NOT IMPLEMENTED (Intraday 15:15 default)",
-            "oos_trades": f"{int(tot_trades):,}" if tot_trades is not None else "NOT AVAILABLE",
+            "oos_trades": f"{trades_count_int:,}" if trades_count_int is not None else "NOT AVAILABLE",
             "oos_pnl": net_pnl_disp,
             "oos_sharpe": round(oos_sharpe, 2) if oos_sharpe != 0 else "NOT AVAILABLE",
             "oos_win_rate": win_rate_disp,
@@ -1227,40 +1233,41 @@ class UIDataAccess:
         return True, f"Successfully promoted '{alpha_id}' (v{contract.alpha_version}) to Active Paper Trading Manifest."
 
     def run_alpha_backtest(self, alpha_id: str) -> Dict[str, Any]:
-        """Runs institutional backtest and records results into experiment_ledger.db."""
-        from scripts.run_hypothesis_lab import run_strategy_backtest
+        """Runs canonical institutional 77-stock panel research and records results into experiment_ledger.db."""
+        from scripts.research_alpha import research_single_alpha, DynamicMarketRegimeEngine
         from src.research.validator import StatisticalValidator
-        from src.backtest.engine import BacktestEngine
-        from src.analytics.indian_costs import IndianCostModel, Segment
+        from src.research.experiment_ledger import ResearchExperimentLedger
+        from src.analytics.indian_costs import IndianCostModel
         from src.data.data_lake import DataLake
 
         strat_registry = get_all_strategies(reload=True)
-        strat_cls = strat_registry.get(alpha_id)
-        if not strat_cls:
-            for k, v in strat_registry.items():
+        strat_key = alpha_id
+        if alpha_id not in strat_registry:
+            for k in strat_registry.keys():
                 if k.lower() == alpha_id.lower():
-                    strat_cls = v
+                    strat_key = k
                     break
 
-        if not strat_cls:
-            return {"status": "ERROR", "message": f"Strategy class '{alpha_id}' not found in registry."}
-
-        strat_obj = strat_cls()
-        symbols = get_universe_symbols()
         lake = DataLake(read_only=True)
+        symbols = get_universe_symbols()
         cost_model = IndianCostModel()
-        engine = BacktestEngine(cost_model=cost_model, initial_capital=500000.0, segment=Segment.EQUITY_INTRADAY)
-        validator = StatisticalValidator()
+        ledger = ResearchExperimentLedger()
+        validator = StatisticalValidator(cost_model=cost_model, experiment_ledger=ledger)
+        regime_engine = DynamicMarketRegimeEngine(lake)
 
-        res = run_strategy_backtest(
-            strat_id=alpha_id,
-            strat_obj=strat_obj,
-            symbols=symbols,
-            lake=lake,
-            engine=engine,
-            validator=validator,
-        )
-        return res
+        try:
+            decision = research_single_alpha(
+                strat_id=strat_key,
+                lake=lake,
+                symbols=symbols,
+                cost_model=cost_model,
+                ledger=ledger,
+                regime_engine=regime_engine,
+                validator=validator,
+            )
+            return {"status": "SUCCESS", "decision": decision}
+        except Exception as e:
+            return {"status": "ERROR", "message": str(e)}
 
     def get_alpha_symbol_evaluation_matrix(self) -> pd.DataFrame:
         """
