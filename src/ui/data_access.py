@@ -1234,6 +1234,15 @@ class UIDataAccess:
 
     def run_alpha_backtest(self, alpha_id: str) -> Dict[str, Any]:
         """Runs canonical institutional 77-stock panel research and records results into experiment_ledger.db."""
+        import importlib
+        import sys
+        for mod_name in ["src.analytics.metrics", "src.research.validator", "scripts.research_alpha"]:
+            if mod_name in sys.modules:
+                try:
+                    importlib.reload(sys.modules[mod_name])
+                except Exception:
+                    pass
+
         from scripts.research_alpha import research_single_alpha, DynamicMarketRegimeEngine
         from src.research.validator import StatisticalValidator
         from src.research.experiment_ledger import ResearchExperimentLedger
