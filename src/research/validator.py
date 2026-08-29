@@ -197,6 +197,7 @@ class StatisticalValidator:
         train_test_split: float = 0.70,
         symbol: Optional[str] = None,
         baseline_portfolio_returns: Optional[pd.DataFrame] = None,
+        timeframe_comparison: Optional[Dict[str, Any]] = None,
     ) -> HypothesisValidationReport:
         """
         Full 4-Gate Institutional Statistical Validation with Recency-Weighted Multi-Window Analysis:
@@ -472,7 +473,8 @@ class StatisticalValidator:
                 economic_rationale=getattr(meta, "economic_rationale", ""),
                 horizon=getattr(meta, "horizon", "INTRADAY") if isinstance(getattr(meta, "horizon", ""), str) else getattr(meta, "horizon", StrategyHorizon.INTRADAY).value,
                 mechanism=getattr(meta, "mechanism", "MOMENTUM") if isinstance(getattr(meta, "mechanism", ""), str) else getattr(meta, "mechanism", MarketMechanism.MOMENTUM).value,
-                artifact_path=artifact_path_str
+                artifact_path=artifact_path_str,
+                timeframe_comparison_json=json.dumps(timeframe_comparison) if timeframe_comparison else "{}"
             )
             self.experiment_ledger.log_experiment(exp_record)
         except Exception as e:

@@ -20,6 +20,7 @@ Usage:
 import argparse
 import sys
 from pathlib import Path
+from typing import Dict, Any, Optional
 from typing import Dict, List, Tuple
 import pandas as pd
 import numpy as np
@@ -53,6 +54,7 @@ def run_strategy_backtest(
     engine: BacktestEngine,
     validator: StatisticalValidator,
     timeframe: str = "15m",
+    timeframe_comparison: Optional[Dict[str, Any]] = None,
 ) -> List[Dict]:
     results = []
 
@@ -106,7 +108,7 @@ def run_strategy_backtest(
         res = engine.run(signals_df, symbol=sym, strategy_id=strat_id, risk_per_trade_pct=0.005, capital_per_trade_pct=0.25)
 
         # 2. Run Centralized Statistical Validation (Single Source of Truth with Explicit Symbol)
-        report = validator.validate_hypothesis(strat_obj, df, symbol=sym)
+        report = validator.validate_hypothesis(strat_obj, df, symbol=sym, timeframe_comparison=timeframe_comparison)
 
         w60 = report.window_metrics.get("60d", {})
         w180 = report.window_metrics.get("180d", {})
@@ -177,6 +179,7 @@ def main():
     parser.add_argument("--timeframe", type=str, default="15m", help="Candle timeframe")
     parser.add_argument("--regimes", action="store_true", help="Run 3-Tier Multi-Regime Persistence Analysis (0-6m, 6-12m, 12-18m)")
     parser.add_argument("--stress", action="store_true", help="Run 5-Tier Slippage Stress Matrix (1-20 bps)")
+    parser.add_argument("--discover-timeframes", action="store_true", help="Discover preferred timeframe across [1m, 5m, 15m, 30m, 60m]")
     parser.add_argument("--no-tearsheet", action="store_true", help="Suppress HTML tearsheet generation")
 
     args = parser.parse_args()
@@ -216,7 +219,34 @@ def main():
         print(f"[+] MULTI-WINDOW RESEARCH VALIDATION: {strat_name}")
         print("#" * 135)
 
-        results = run_strategy_backtest(strat_name, strat_obj, target_symbols, lake, engine, validator, args.timeframe)
+        timeframe_comparison = None
+        best_timeframe = args.timeframe
+        
+        if args.discover_timeframes:
+            print(f"[+] Discovering preferred timeframe across 1m, 5m, 15m, 30m, 60m...")
+            tf_metrics = {}
+            for tf in ["1m", "5m", "15m", "30m", "60m"]:
+                tf_res = run_strategy_backtest(strat_name, strat_obj, target_symbols, lake, engine, validator, tf)
+                if tf_res:
+                    # Pick metric from first symbol (or aggregate)
+                    total_pnl = sum(r["Net_PnL_INR"] for r in tf_res)
+                    total_trades = sum(r["Trades"] for r in tf_res)
+                    avg_sharpe = sum(r["IS_Sharpe"] for r in tf_res) / len(tf_res)
+                    tf_metrics[tf] = {
+                        "net_pnl": total_pnl,
+                        "trades": total_trades,
+                        "sharpe": avg_sharpe,
+                        "score": total_pnl * max(0, avg_sharpe) if total_trades > 25 else 0
+                    }
+                else:
+                    tf_metrics[tf] = {"net_pnl": 0, "trades": 0, "sharpe": 0, "score": 0}
+            
+            # Select best timeframe by score
+            best_timeframe = max(tf_metrics, key=lambda k: tf_metrics[k]["score"]) if any(m["score"] > 0 for m in tf_metrics.values()) else "15m"
+            timeframe_comparison = tf_metrics
+            print(f"[+] Preferred Timeframe Selected: {best_timeframe}")
+            
+        results = run_strategy_backtest(strat_name, strat_obj, target_symbols, lake, engine, validator, best_timeframe, timeframe_comparison)
         if not results:
             print("[-] No data found for specified symbols.")
             continue

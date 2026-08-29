@@ -693,6 +693,8 @@ class UIDataAccess:
     def get_alpha_detail(self, alpha_id: str) -> Dict[str, Any]:
         """Retrieves deep structured institutional evidence for a specific Alpha ID from Canonical Evidence."""
         strat_key = alpha_id.lower()
+        km_alphas = {r.alpha_id.lower(): r for r in self.knowledge_map.get_all_mechanisms()}
+        k_rec = km_alphas.get(strat_key)
         df_experiments = self._get_all_experiment_records()
         
         matching_exp = None
@@ -741,6 +743,14 @@ class UIDataAccess:
         oos_sharpe = float(latest_exp.get("cpcv_oos_sharpe", 0.0))
         dsr_pval = float(latest_exp.get("deflated_sharpe_p_value", 1.0))
         mc_dd = float(latest_exp.get("monte_carlo_95_max_dd", 0.0))
+
+        timeframe_comparison = {}
+        if latest_exp and latest_exp.get("timeframe_comparison_json"):
+            try:
+                timeframe_comparison = json.loads(latest_exp["timeframe_comparison_json"])
+            except Exception:
+                pass
+
 
         gate_dsr_pass = dsr_pval <= 0.05
         gate_cpcv_pass = oos_sharpe > 0.0 or standard_status == "PROVEN"
@@ -807,13 +817,13 @@ class UIDataAccess:
             status_reason = "UNEXPLORED: Theoretical candidate hypothesis on the research frontier. Not yet tested in backtest engine."
 
         metrics_dict = {
-            "total_trades": k_rec.oos_trades if k_rec else (latest_exp.get("trials_in_experiment", "NOT AVAILABLE") if latest_exp else "NOT AVAILABLE"),
+            "total_trades": latest_exp.get("total_trades", "NOT AVAILABLE") if latest_exp else "NOT AVAILABLE",
             "winning_trades": "NOT AVAILABLE (Aggregate trial storage)",
             "losing_trades": "NOT AVAILABLE (Aggregate trial storage)",
             "win_rate": "NOT AVAILABLE",
             "gross_profit": "NOT AVAILABLE (Stored post-tax)",
             "gross_loss": "NOT AVAILABLE (Stored post-tax)",
-            "net_pnl": f"Rs {k_rec.pnl_540d_inr:,.0f}" if (k_rec and k_rec.pnl_540d_inr is not None) else "NOT AVAILABLE",
+            "net_pnl": f"Rs {latest_exp.get('net_pnl_inr', 0):,.0f}" if latest_exp and latest_exp.get("net_pnl_inr") is not None else "NOT AVAILABLE",
             "expectancy": "NOT IMPLEMENTED",
             "profit_factor": round(net_pf, 2) if net_pf > 0 else "NOT AVAILABLE",
             "sharpe": round(is_sharpe, 2) if is_sharpe != 0 else "NOT AVAILABLE",
@@ -842,16 +852,16 @@ class UIDataAccess:
             "version": "v1.0.0",
             "status": standard_status,
             "raw_status": raw_status,
-            "category": meta.category.value if hasattr(meta.category, "value") else str(meta.category),
-            "hypothesis": meta.economic_rationale,
-            "mechanism": k_rec.mechanism_description if k_rec else meta.economic_rationale[:120],
-            "economic_rationale": meta.economic_rationale,
-            "timeframe": getattr(meta, "timeframe", "15m"),
-            "entry_window": getattr(k_rec, "entry_window", "09:15-15:00"),
-            "holding_concept": getattr(k_rec, "holding_concept", "Intraday 15:15 Square-off"),
+            "category": latest_exp.get("category", "UNKNOWN"),
+            "hypothesis": latest_exp.get("economic_rationale", "NOT AVAILABLE"),
+            "mechanism": k_rec.mechanism_description if k_rec else latest_exp.get("economic_rationale", "NOT AVAILABLE")[:120],
+            "economic_rationale": latest_exp.get("economic_rationale", "NOT AVAILABLE"),
+            "timeframe": latest_exp.get("timeframe", "15m"),
+            "entry_window": getattr(k_rec, "entry_window", "09:15-15:00") if k_rec else "09:15-15:00",
+            "holding_concept": getattr(k_rec, "holding_concept", "Intraday 15:15 Square-off") if k_rec else "Intraday 15:15 Square-off",
             "entry_conditions": "15m bar close confirmation under strict risk budget & volatility filters",
             "exit_conditions": "Intraday 15:15 IST Mandatory Square-off + Dynamic Trailing Stop",
-            "parameters": inst.parameters,
+            "parameters": {},
             "target_instruments": target_syms,
             "is_tested": len(matching_trials) > 0 or (k_rec is not None),
             "research_evidence": {
@@ -860,7 +870,7 @@ class UIDataAccess:
                 "calendar_days": total_calendar_days,
                 "trading_days": trading_days_est,
                 "data_source": "DuckDB + Apache Parquet (Hybrid Columnar)",
-                "timeframe": getattr(meta, "timeframe", "15m"),
+                "timeframe": latest_exp.get("timeframe", "15m"),
                 "universe": f"{get_universe_name()} Core Liquid Equities",
                 "symbols_tested": target_syms,
                 "horizon_compliance": "PASS (540d+)",
@@ -880,6 +890,7 @@ class UIDataAccess:
             },
             "symbol_performance": symbols_audit,
             "test_history": matching_trials[:10],
+            "timeframe_comparison": timeframe_comparison,
             "data_readiness": {
                 "timeframe": "15m",
                 "symbols_ready": sum(1 for s in symbols_audit if "QUALIFIED" in s["status"]),
@@ -894,14 +905,33 @@ class UIDataAccess:
                 "qualification_timestamp": test_ts,
             },
             "replay_context": {
-                "timeframe": getattr(meta, "timeframe", "15m"),
-                "entry_window": getattr(k_rec, "entry_window", "09:15-15:00"),
+                "timeframe": latest_exp.get("timeframe", "15m"),
+                "entry_window": getattr(k_rec, "entry_window", "09:15-15:00") if k_rec else "09:15-15:00",
                 "symbols_universe": target_syms,
-                "signal_mechanism": getattr(k_rec, "mechanism_description", meta.economic_rationale[:80]),
+                "signal_mechanism": getattr(k_rec, "mechanism_description", latest_exp.get("economic_rationale", "NOT AVAILABLE")[:80]) if k_rec else latest_exp.get("economic_rationale", "NOT AVAILABLE")[:80],
                 "trailing_stop_mode": "STEP_RATCHET",
                 "intraday_squareoff": "15:15 IST",
             }
         }
+
+    def get_knowledge_lineage(self) -> List[Dict[str, Any]]:
+        from src.research.knowledge_map import KnowledgeMap
+        km = KnowledgeMap()
+        km.load_archived_knowledge_from_ledger()
+        mechanisms = km.get_all_mechanisms()
+        lineage = []
+        for m in mechanisms:
+            lineage.append({
+                "strategy_id": m.strategy_id,
+                "category": m.category.value,
+                "status": m.status,
+                "timeframe": m.timeframe,
+                "universe": m.universe,
+                "sharpe": m.is_sharpe,
+                "oos_sharpe": m.oos_sharpe,
+                "profit_factor": m.net_profit_factor
+            })
+        return lineage
 
     # =========================================================================
     # TAB 3: TRADING OBSERVABILITY METHODS

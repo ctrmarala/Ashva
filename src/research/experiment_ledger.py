@@ -45,6 +45,7 @@ class ExperimentRecord:
     horizon: str = ""
     mechanism: str = ""
     artifact_path: str = ""
+    timeframe_comparison_json: str = "{}"
     supersedes_experiment_id: Optional[str] = None
     timestamp: str = ""
 
@@ -104,7 +105,8 @@ class ResearchExperimentLedger:
                 "economic_rationale": "TEXT",
                 "horizon": "TEXT",
                 "mechanism": "TEXT",
-                "artifact_path": "TEXT"
+                "artifact_path": "TEXT",
+                "timeframe_comparison_json": "TEXT"
             }
             for col, col_type in new_columns.items():
                 if col not in columns:
@@ -143,8 +145,8 @@ class ResearchExperimentLedger:
                     net_profit_factor, monte_carlo_95_max_dd, trials_in_experiment,
                     total_trials_cumulative, git_commit_sha, status, rejection_reasons_json,
                     supersedes_experiment_id, hypothesis_name, category,
-                    economic_rationale, horizon, mechanism, artifact_path
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    economic_rationale, horizon, mechanism, artifact_path, timeframe_comparison_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """, (
                 record.experiment_id,
                 record.timestamp,
@@ -168,7 +170,8 @@ class ResearchExperimentLedger:
                 record.economic_rationale,
                 record.horizon,
                 record.mechanism,
-                record.artifact_path
+                record.artifact_path,
+                record.timeframe_comparison_json
             ))
         return self.get_global_trials()
 

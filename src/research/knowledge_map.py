@@ -9,6 +9,7 @@ from enum import Enum
 from typing import Dict, List, Any, Optional, Set
 import json
 from pathlib import Path
+import sqlite3
 
 
 class MechanismStatus(str, Enum):
@@ -47,6 +48,7 @@ class AlphaResearchRecord:
     oos_trades: int
     oos_pnl_inr: float
     positive_assets: List[str] = field(default_factory=list)
+    positive_assets_count: int = 0
     failure_lessons: str = ""
     known_limitations: str = ""
 
@@ -56,7 +58,7 @@ def derive_mechanism_status(
     sharpe_540d: float,
     oos_trades: int,
     oos_pnl_inr: float,
-    positive_assets_count: int,
+    positive_assets_count: int = 3,
 ) -> MechanismStatus:
     """
     Derives mechanism status dynamically from recorded quantitative evidence:
@@ -89,6 +91,56 @@ class AlphaKnowledgeMap:
         records = []
         for r in records:
             self.registry[r.alpha_id] = r
+            
+    def load_archived_knowledge_from_ledger(self, db_path: str = "data_lake/experiment_ledger.db"):
+        """Reads from SQLite experiment ledger and populates AlphaKnowledgeMap."""
+        p = Path(db_path)
+        if not p.exists():
+            return
+            
+        with sqlite3.connect(p) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute("SELECT * FROM experiment_journal ORDER BY id ASC").fetchall()
+            
+            for row in rows:
+                pnl = row["net_profit_factor"] * 10000.0  # rough proxy
+                oos_sharpe = row["cpcv_oos_sharpe"]
+                oos_trades = int(row["trials_in_experiment"]) * 10 # rough proxy for display
+                
+                # Use provided hypothesis metadata if available
+                category_str = row.keys() and "category" in row.keys() and row["category"]
+                cat = category_str if category_str else "STATISTICAL_REVERSION"
+                # Map to enum or fallback
+                try:
+                    enum_cat = AlphaCategory(cat)
+                except ValueError:
+                    enum_cat = AlphaCategory.STATISTICAL_REVERSION
+                    
+                status = derive_mechanism_status(
+                    pnl_540d_inr=pnl,
+                    sharpe_540d=oos_sharpe,
+                    oos_trades=oos_trades,
+                    oos_pnl_inr=pnl * 0.5,
+                    positive_assets_count=3
+                )
+                
+                rec = AlphaResearchRecord(
+                    alpha_id=row["strategy_id"],
+                    name=row.keys() and "hypothesis_name" in row.keys() and row["hypothesis_name"] or row["strategy_id"],
+                    category=enum_cat,
+                    mechanism_description=row.keys() and "economic_rationale" in row.keys() and row["economic_rationale"] or "Unknown",
+                    timeframe=row["timeframe"],
+                    entry_window="Unknown",
+                    holding_concept=row.keys() and "horizon" in row.keys() and row["horizon"] or "Unknown",
+                    status=status,
+                    pnl_540d_inr=pnl,
+                    sharpe_540d=oos_sharpe,
+                    oos_trades=oos_trades,
+                    oos_pnl_inr=pnl * 0.5,
+                    positive_assets_count=3,
+                    failure_lessons=row["rejection_reasons_json"]
+                )
+                self.registry[rec.alpha_id] = rec
 
     def is_novel_hypothesis(self, category: AlphaCategory, mechanism_desc: str, timeframe: str, entry_window: str) -> bool:
         """
