@@ -8,6 +8,7 @@ import streamlit as st
 import pandas as pd
 import src.ui.data_access
 from src.ui.data_access import UIDataAccess
+from src.core.universe_manager import get_universe_symbols
 
 st.set_page_config(
     page_title="Ashva Observability Hub",
