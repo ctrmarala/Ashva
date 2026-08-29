@@ -50,10 +50,14 @@ class IntrabarSimulator:
         sym_clean = symbol.upper()
         if sym_clean not in self._cache_1m:
             df = self.lake.load_bars(sym_clean, "1m")
-            if not df.empty and not isinstance(df.index, pd.DatetimeIndex):
-                if "timestamp" in df.columns:
-                    df["timestamp"] = pd.to_datetime(df["timestamp"])
-                    df = df.set_index("timestamp").sort_index()
+            if not df.empty:
+                if not isinstance(df.index, pd.DatetimeIndex):
+                    if "timestamp" in df.columns:
+                        df["timestamp"] = pd.to_datetime(df["timestamp"])
+                        df = df.set_index("timestamp").sort_index()
+                # Precompute for fast numpy vectorization
+                df['is_eod'] = (df.index.hour >= 15) & (df.index.minute >= 15)
+                df['_timestamp_vals'] = df.index.values
             self._cache_1m[sym_clean] = df
         return self._cache_1m[sym_clean]
 
@@ -80,17 +84,26 @@ class IntrabarSimulator:
         if df_1m.empty:
             return self._missing_data_result(entry_time, entry_price, stop_loss)
 
-        # Slice 1m bars from entry_time
-        try:
-            trade_slice = df_1m.loc[entry_time:]
-        except Exception:
-            return self._missing_data_result(entry_time, entry_price, stop_loss)
-
+        # Slice 1m bars from entry_time using fast numpy binary search
+        timestamps = df_1m['_timestamp_vals'].values
+        entry_np = entry_time.to_numpy()
+        
+        idx_start = np.searchsorted(timestamps, entry_np)
         if max_exit_time is not None:
-            trade_slice = trade_slice.loc[:max_exit_time]
-
-        if trade_slice.empty:
+            max_np = max_exit_time.to_numpy()
+            idx_end = np.searchsorted(timestamps, max_np, side='right')
+        else:
+            idx_end = len(timestamps)
+            
+        if idx_start >= idx_end or idx_start >= len(timestamps):
             return self._missing_data_result(entry_time, entry_price, stop_loss)
+            
+        opens = df_1m['open'].values[idx_start:idx_end]
+        highs = df_1m['high'].values[idx_start:idx_end]
+        lows = df_1m['low'].values[idx_start:idx_end]
+        closes = df_1m['close'].values[idx_start:idx_end]
+        is_eod_arr = df_1m['is_eod'].values[idx_start:idx_end]
+        ts_slice = timestamps[idx_start:idx_end]
 
         is_buy = (side.upper() in ("BUY", "LONG"))
         initial_risk = max(1e-4, abs(entry_price - stop_loss))
@@ -101,16 +114,18 @@ class IntrabarSimulator:
         mae_price = entry_price
 
         bars_count = 0
-        exit_time = trade_slice.index[-1]
-        exit_price = trade_slice.iloc[-1]["close"]
+        exit_time = pd.Timestamp(ts_slice[-1])
+        exit_price = closes[-1]
         exit_reason = "TIME_EXIT"
 
-        for idx, bar in trade_slice.iterrows():
+        for i in range(len(ts_slice)):
             bars_count += 1
-            bar_high = bar["high"]
-            bar_low = bar["low"]
-            bar_close = bar["close"]
-            bar_open = bar["open"]
+            bar_open = opens[i]
+            bar_high = highs[i]
+            bar_low = lows[i]
+            bar_close = closes[i]
+            bar_is_eod = is_eod_arr[i]
+            idx = pd.Timestamp(ts_slice[i])
 
             if is_buy:
                 # 1. Check Open Gap below existing SL
@@ -153,7 +168,7 @@ class IntrabarSimulator:
                     break
 
                 # 4. Mandatory 15:15 EOD Square-Off
-                if idx.hour >= 15 and idx.minute >= 15:
+                if bar_is_eod:
                     exit_time = idx
                     exit_price = bar_close
                     exit_reason = "TIME_EXIT"
@@ -219,7 +234,7 @@ class IntrabarSimulator:
                     break
 
                 # 4. Mandatory 15:15 EOD Square-Off
-                if idx.hour >= 15 and idx.minute >= 15:
+                if bar_is_eod:
                     exit_time = idx
                     exit_price = bar_close
                     exit_reason = "TIME_EXIT"

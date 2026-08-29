@@ -92,7 +92,7 @@ def run_full_timeframe_discovery(
     lake: DataLake,
     symbols: List[str],
     cost_model: IndianCostModel,
-    timeframes: List[str] = ["15m", "5m", "30m", "1m"]
+    timeframes: List[str] = ["30m", "15m", "5m", "1m"]
 ) -> Tuple[Dict[str, Any], str]:
     """
     Evaluates strategy across all symbols for all candidate timeframes.
@@ -106,7 +106,7 @@ def run_full_timeframe_discovery(
     for tf in timeframes:
         print(f"\n[>] Backtesting Full Universe ({len(symbols)} stocks) on Candidate Timeframe: {tf}...")
         strat = strat_cls({"timeframe": tf})
-        engine = BacktestEngine(cost_model=cost_model, initial_capital=500000.0, segment=Segment.EQUITY_INTRADAY)
+        engine = BacktestEngine(cost_model=cost_model, initial_capital=500000.0, segment=Segment.EQUITY_INTRADAY, use_1m_intrabar=False)
 
         tf_bars = 0
         tf_trades = 0
@@ -174,6 +174,12 @@ def run_full_timeframe_discovery(
 
         print(f"    TF: {tf:4s} | Stocks: {syms_evaluated:2d} | Bars: {tf_bars:7d} | Trades: {tf_trades:5d} | WR: {win_rate:4.1f}% | Gross: Rs {tf_gross:+10.0f} | Costs: Rs {tf_costs:9.0f} | Net: Rs {tf_net:+10.0f} | Net PF: {net_pf:.2f} | Score: {empirical_score:.4f}")
 
+        # Early Stopping Heuristic: If higher timeframes fail badly, skip lower resolution
+        if tf in ["15m", "30m"]:
+            if empirical_score <= 0.05 and win_rate < 35.0:
+                print(f"[!] Early Stopping Triggered: '{tf}' performed poorly. Pruning lower timeframes to save compute.")
+                break
+
     best_tf = max(tf_results.keys(), key=lambda k: tf_results[k]["empirical_timeframe_score"])
     print(f"\n[+] Empirical Selection Algorithm Result: Preferred Timeframe = '{best_tf}' (Score: {tf_results[best_tf]['empirical_timeframe_score']:.4f})")
     return tf_results, best_tf
@@ -204,7 +210,7 @@ def research_single_alpha(strat_id: str, lake: DataLake, symbols: List[str], cos
     print("[PASS] PRE-FLIGHT PASSED: Zero lookahead, dynamic universe binding, and parameter grid verified.")
 
     # 2. Full Universe Timeframe Discovery
-    candidate_timeframes = ["15m", "5m", "30m", "1m"]
+    candidate_timeframes = ["30m", "15m", "5m", "1m"]
     tf_results, preferred_tf = run_full_timeframe_discovery(strat_cls, lake, symbols, cost_model, candidate_timeframes)
 
     # 3. Full 77-Stock Panel Backtest on Preferred Timeframe
