@@ -144,6 +144,126 @@ class UIDataAccess:
         finally:
             conn.close()
 
+    def get_live_market_data_status(self) -> Dict[str, Any]:
+        """
+        Computes real-time operational status for live trading days, market clock phase,
+        data lake freshness vs official NSE calendar, and Angel One SmartAPI feed state.
+        """
+        now = datetime.now()
+        today = now.date()
+        current_time = now.time()
+
+        # 1. Market Phase / Clock
+        is_trading_day = NSECalendar.is_trading_day(today)
+        if not is_trading_day:
+            if today.weekday() in (5, 6):
+                market_phase = "WEEKEND CLOSED"
+                market_phase_detail = "NSE Cash Market Closed for Weekend (Reopens Monday 09:15 IST)"
+            else:
+                market_phase = "EXCHANGE HOLIDAY"
+                market_phase_detail = f"NSE Market Closed for Official Exchange Holiday ({today})"
+        else:
+            if current_time < time(9, 0):
+                market_phase = "PRE-MARKET"
+                market_phase_detail = "Pre-market standing by (Opens at 09:00 IST)"
+            elif time(9, 0) <= current_time < time(9, 15):
+                market_phase = "PRE-OPEN AUCTION"
+                market_phase_detail = "NSE Pre-Open Price Discovery Session (09:00 - 09:15 IST)"
+            elif time(9, 15) <= current_time <= time(15, 30):
+                market_phase = "LIVE SESSION OPEN"
+                market_phase_detail = "Continuous Intraday Trading Session (09:15 - 15:30 IST)"
+            else:
+                market_phase = "POST-CLOSE / EOD"
+                market_phase_detail = "Market Session Closed (Settlement & Post-Market Routine)"
+
+        # 2. Database Freshness vs Expected Sessions
+        overview = self.get_data_overview()
+        latest_ts_str = overview.get("latest_timestamp", "")
+
+        expected_trading_days = NSECalendar.get_trading_days(date(2025, 2, 24), today)
+        if is_trading_day and current_time < time(9, 15):
+            past_days = [d for d in expected_trading_days if d < today]
+            last_completed_day = past_days[-1] if past_days else today
+        elif is_trading_day and time(9, 15) <= current_time:
+            last_completed_day = today
+        else:
+            past_days = [d for d in expected_trading_days if d <= today]
+            last_completed_day = past_days[-1] if past_days else today
+
+        latest_dt = None
+        if latest_ts_str and latest_ts_str != "NOT AVAILABLE":
+            try:
+                latest_dt = datetime.strptime(latest_ts_str[:10], "%Y-%m-%d").date()
+            except Exception:
+                pass
+
+        if latest_dt:
+            delta_days = (last_completed_day - latest_dt).days
+            if delta_days == 0:
+                if market_phase == "LIVE SESSION OPEN":
+                    freshness_badge = "🟢 STREAMING LIVE"
+                    freshness_detail = f"Real-time bars streaming for today's session ({latest_ts_str})"
+                else:
+                    freshness_badge = "🟢 UP TO DATE"
+                    freshness_detail = f"Synchronized with {latest_dt.strftime('%b %d, %Y')} Market Close ({latest_ts_str})"
+                freshness_status = "CURRENT"
+            elif delta_days <= 3 and last_completed_day == latest_dt:
+                freshness_badge = "🟢 UP TO DATE"
+                freshness_detail = f"Synchronized with {latest_dt.strftime('%b %d, %Y')} Market Close"
+                freshness_status = "CURRENT"
+            else:
+                missing_days = len(NSECalendar.get_trading_days(latest_dt + timedelta(days=1), last_completed_day))
+                if missing_days > 0:
+                    freshness_badge = f"🔴 OUTDATED ({missing_days}d behind)"
+                    freshness_detail = f"Data Lake is {missing_days} trading session(s) behind. Last: {latest_ts_str}"
+                    freshness_status = "STALE"
+                else:
+                    freshness_badge = "🟢 UP TO DATE"
+                    freshness_detail = f"Synchronized with {latest_dt.strftime('%b %d, %Y')} Market Close"
+                    freshness_status = "CURRENT"
+        else:
+            freshness_badge = "⚪ NO DATA"
+            freshness_detail = "No OHLCV bars stored in Data Lake"
+            freshness_status = "EMPTY"
+
+        # 3. Angel One SmartAPI Feed State
+        angel_cfg = self.config_dir / "angel_one.yaml"
+        feed_configured = angel_cfg.exists()
+
+        if not feed_configured:
+            feed_status = "🔴 UNCONFIGURED"
+            feed_detail = "Missing config/angel_one.yaml credentials"
+        elif market_phase == "LIVE SESSION OPEN":
+            feed_status = "🟢 ACTIVE / STREAMING"
+            feed_detail = "SmartAPI WebSocket / Polling stream active for live trading"
+        elif market_phase in ("WEEKEND CLOSED", "EXCHANGE HOLIDAY", "POST-CLOSE / EOD"):
+            feed_status = "⚪ IDLE (Market Closed)"
+            feed_detail = "Live feed paused outside trading hours. Historical store intact."
+        else:
+            feed_status = "🟡 STANDING BY"
+            feed_detail = "Broker session ready for market open (09:15 IST)"
+
+        symbols = self.get_symbol_list()
+        ready_symbols_count = len(symbols)
+
+        return {
+            "market_phase": market_phase,
+            "market_phase_detail": market_phase_detail,
+            "is_trading_day": is_trading_day,
+            "freshness_badge": freshness_badge,
+            "freshness_detail": freshness_detail,
+            "freshness_status": freshness_status,
+            "latest_bar_timestamp": latest_ts_str,
+            "latest_session_date": str(latest_dt) if latest_dt else "N/A",
+            "last_expected_trading_day": str(last_completed_day),
+            "feed_status": feed_status,
+            "feed_detail": feed_detail,
+            "total_symbols": overview.get("total_symbols", 0),
+            "ready_symbols": ready_symbols_count,
+            "database_size_mb": overview.get("db_size_mb", 0.0),
+            "current_time_ist": now.strftime("%Y-%m-%d %H:%M:%S IST"),
+        }
+
     def get_coverage_matrix(self) -> pd.DataFrame:
         """Builds the Symbol x Timeframe coverage matrix with bar counts and 540-day horizon status."""
         conn = self._get_duckdb_conn()

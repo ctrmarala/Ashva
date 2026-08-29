@@ -163,3 +163,14 @@ def test_missing_data_lake(tmp_path):
     
     q = dal.get_data_quality_summary()
     assert q["quality_status"] == "NO DATA"
+
+
+def test_live_market_data_status(mock_dbs):
+    dal = mock_dbs
+    status = dal.get_live_market_data_status()
+    assert "market_phase" in status
+    assert "freshness_badge" in status
+    assert "feed_status" in status
+    assert "ready_symbols" in status
+    assert status["total_symbols"] >= 1
+    assert "current_time_ist" in status

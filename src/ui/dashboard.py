@@ -28,17 +28,47 @@ def get_dal() -> UIDataAccess:
 
 def render_data_observability(dal: UIDataAccess):
     st.title("Data Lake Observability")
-    st.caption("Authoritative inspection of raw market data, timeframe coverage, 540-day research horizon, and data hygiene.")
+    st.caption("Point-in-time market data feed health, NSE session synchronization, timeframe matrix, and repository hygiene.")
 
     overview = dal.get_data_overview()
     quality = dal.get_data_quality_summary()
+    live_status = dal.get_live_market_data_status()
 
+    # 1. Actionable Operational KPIs (Replacing raw bar counts)
     col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("Universe Symbols", f"{overview['total_symbols']} Equities")
-    col2.metric("Total OHLCV Bars", f"{overview['total_bars']:,}")
-    col3.metric("Available Timeframes", f"{len(overview['available_timeframes'])} TFs", help=", ".join(overview['available_timeframes']))
-    col4.metric("Research Horizon (540d)", f"{quality['symbols_with_540d_coverage']}/{overview['total_symbols']} Symbols", help="Symbols with >= 540 calendar days of 15m data")
-    col5.metric("Data Quality Status", quality['quality_status'])
+    col1.metric(
+        "Active Universe", 
+        f"{overview['universe_name']} ({overview['total_symbols']})", 
+        help=f"Active universe resolution: {overview['universe_name']} with {overview['total_symbols']} total equities"
+    )
+    col2.metric(
+        "Data Freshness", 
+        live_status["freshness_badge"], 
+        help=live_status["freshness_detail"]
+    )
+    col3.metric(
+        "Market Phase", 
+        live_status["market_phase"], 
+        help=live_status["market_phase_detail"]
+    )
+    col4.metric(
+        "Angel One Feed", 
+        live_status["feed_status"], 
+        help=live_status["feed_detail"]
+    )
+    col5.metric(
+        "Trading Readiness", 
+        f"{quality['symbols_with_540d_coverage']}/{overview['total_symbols']} Equities", 
+        help=f"{quality['symbols_with_540d_coverage']} symbols satisfy the 18-month statistical warmup horizon. Quality: {quality['quality_status']}"
+    )
+
+    # Operational Feed & Heartbeat Alert Banner
+    if live_status["freshness_status"] == "STALE":
+        st.warning(f"⚠️ **Data Lake Outdated**: {live_status['freshness_detail']}. Click **'Sync Missing Data'** below to backfill to today's session.")
+    elif live_status["market_phase"] == "LIVE SESSION OPEN":
+        st.info(f"🔴 **LIVE TRADING SESSION ACTIVE** | Current IST Time: `{live_status['current_time_ist']}` | Feed State: `{live_status['feed_status']}` | Latest Bar: `{live_status['latest_bar_timestamp']}`")
+    else:
+        st.success(f"✓ **Data Lake Synchronized**: {live_status['freshness_detail']} | Timeframes: `{', '.join(overview['available_timeframes'])}` | Storage: `{overview['db_size_mb']} MB`")
 
     st.markdown("---")
 
@@ -190,14 +220,17 @@ def render_data_observability(dal: UIDataAccess):
 
         c_ing1, c_ing2 = st.columns(2)
         c_ing1.write(f"**Data Lake File**: `{overview['db_path']}`")
+        c_ing1.write(f"**Total Stored OHLCV Bars**: `{overview['total_bars']:,}`")
         c_ing1.write(f"**Database Size**: `{overview['db_size_mb']} MB`")
         c_ing1.write(f"**Last File Modification**: `{overview['last_updated']}`")
         c_ing1.write(f"**Earliest Global Timestamp**: `{overview['earliest_timestamp']}`")
         c_ing1.write(f"**Latest Global Timestamp**: `{overview['latest_timestamp']}`")
 
-        c_ing2.write("**Ingestion Provider**: Angel One SmartAPI / DuckDB Historical Store")
+        c_ing2.write(f"**Ingestion Provider**: Angel One SmartAPI ({live_status['feed_status']})")
+        c_ing2.write(f"**Market Phase**: `{live_status['market_phase']}` ({live_status['market_phase_detail']})")
+        c_ing2.write(f"**Data Freshness**: `{live_status['freshness_badge']}`")
         c_ing2.write("**Parquet Mirror Directory**: `data_lake/parquet/`")
-        c_ing2.write("**Incremental Ingestion Engine**: `scripts/ingest_nifty50_to_today.py` (Available)")
+        c_ing2.write("**Incremental Ingestion Engine**: `scripts/ingest_all_nifty50_timeframes.py`")
 
         st.write("#### Discovered Session Logs (`logs/`)")
         df_logs = dal.get_ingestion_log_summary()
