@@ -7,12 +7,13 @@ Implements:
 4. Exact trade-by-trade Indian Regulatory Cost Modeling (STT, GST, SEBI, ₹20 Brokerage) via BacktestEngine.
 """
 
+from dataclasses import dataclass, field
 from datetime import datetime
 import logging
 import json
 from math import comb
 from itertools import combinations
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any, Tuple, Optional, Union
 import numpy as np
 import pandas as pd
 from scipy.stats import norm, skew, kurtosis
@@ -25,6 +26,25 @@ from src.research.experiment_ledger import ResearchExperimentLedger, ExperimentR
 from src.research.cpcv_engine import CPCVEngine, CPCVMode
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class PanelResearchResult:
+    """
+    Canonical container for 77-stock cross-sectional alpha research evidence.
+    Encapsulates all trade-level, symbol-level, and configuration data
+    before passing to StatisticalValidator.validate_panel().
+    """
+    hypothesis: BaseHypothesis
+    all_trades: List[Any]
+    symbol_metrics: List[Dict[str, Any]]
+    timeframe_comparison: Optional[Dict[str, Any]] = None
+    parameter_grid: Optional[Dict[str, List[Any]]] = None
+    tested_timeframes_count: int = 1
+    initial_capital: float = 500000.0
+    regime_breakdown: Optional[Dict[str, Any]] = None
+    selected_timeframe: str = "15m"
+    symbol_universe: Optional[List[str]] = None
 
 
 class StatisticalValidator:
@@ -569,7 +589,56 @@ class StatisticalValidator:
 
         return pd.DataFrame(rows)
 
-    def validate_panel_hypothesis(
+    def validate_panel(
+        self,
+        hypothesis_or_result: Union[BaseHypothesis, PanelResearchResult],
+        all_trades: Optional[List[Any]] = None,
+        symbol_metrics: Optional[List[Dict[str, Any]]] = None,
+        timeframe_comparison: Optional[Dict[str, Any]] = None,
+        parameter_grid: Optional[Dict[str, List[Any]]] = None,
+        tested_timeframes_count: int = 1,
+        initial_capital: float = 500000.0,
+        regime_breakdown: Optional[Dict[str, Any]] = None,
+        selected_timeframe: str = "15m",
+        symbol_universe: Optional[List[str]] = None,
+    ) -> HypothesisValidationReport:
+        """
+        Official Alpha Factory Panel Validation Entrypoint.
+        Accepts either a PanelResearchResult dataclass or individual parameter arguments.
+        """
+        if isinstance(hypothesis_or_result, PanelResearchResult):
+            res = hypothesis_or_result
+            return self._execute_panel_validation(
+                hypothesis=res.hypothesis,
+                all_trades=res.all_trades,
+                symbol_metrics=res.symbol_metrics,
+                timeframe_comparison=res.timeframe_comparison,
+                parameter_grid=res.parameter_grid,
+                tested_timeframes_count=res.tested_timeframes_count,
+                initial_capital=res.initial_capital,
+                regime_breakdown=res.regime_breakdown,
+                selected_timeframe=res.selected_timeframe,
+                symbol_universe=res.symbol_universe,
+            )
+        else:
+            return self._execute_panel_validation(
+                hypothesis=hypothesis_or_result,
+                all_trades=all_trades or [],
+                symbol_metrics=symbol_metrics or [],
+                timeframe_comparison=timeframe_comparison,
+                parameter_grid=parameter_grid,
+                tested_timeframes_count=tested_timeframes_count,
+                initial_capital=initial_capital,
+                regime_breakdown=regime_breakdown,
+                selected_timeframe=selected_timeframe,
+                symbol_universe=symbol_universe,
+            )
+
+    def validate_panel_hypothesis(self, *args, **kwargs) -> HypothesisValidationReport:
+        """Backward-compatible alias for validate_panel."""
+        return self.validate_panel(*args, **kwargs)
+
+    def _execute_panel_validation(
         self,
         hypothesis: BaseHypothesis,
         all_trades: List[Any],

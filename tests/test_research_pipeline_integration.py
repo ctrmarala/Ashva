@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from src.strategies.alpha_001_opening_gap_continuation import Alpha1OpeningGapContinuation
-from src.research.validator import StatisticalValidator
+from src.research.validator import StatisticalValidator, PanelResearchResult
 from src.analytics.indian_costs import IndianCostModel
 from src.backtest.engine import BacktestTrade
 from src.research.experiment_ledger import ResearchExperimentLedger
@@ -93,7 +93,7 @@ def test_research_pipeline_end_to_end(tmp_path, synthetic_panel_backtest_trades)
         "5m": {"timeframe": "5m", "net_profit_factor": 1.10, "empirical_timeframe_score": 0.42},
     }
 
-    report = validator.validate_panel_hypothesis(
+    panel_evidence = PanelResearchResult(
         hypothesis=strat,
         all_trades=synthetic_panel_backtest_trades,
         symbol_metrics=symbol_metrics,
@@ -104,6 +104,8 @@ def test_research_pipeline_end_to_end(tmp_path, synthetic_panel_backtest_trades)
         selected_timeframe="15m",
         symbol_universe=symbols,
     )
+
+    report = validator.validate_panel(panel_evidence)
 
     # 1. Assert Valid Statistical Report
     assert report.hypothesis_id == "1_alpha"

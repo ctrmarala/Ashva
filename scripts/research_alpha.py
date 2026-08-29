@@ -33,7 +33,7 @@ from src.core.universe_manager import get_universe_symbols
 from src.analytics.indian_costs import IndianCostModel, Segment
 from src.analytics.metrics import calculate_profit_factor, calculate_trade_level_metrics
 from src.backtest.engine import BacktestEngine, BacktestTrade
-from src.research.validator import StatisticalValidator
+from src.research.validator import StatisticalValidator, PanelResearchResult
 from src.research.experiment_ledger import ResearchExperimentLedger, ExperimentRecord, get_current_git_sha
 from src.research.alpha_linter import AlphaLinter, AlphaLinterError
 
@@ -291,12 +291,12 @@ def research_single_alpha(strat_id: str, lake: DataLake, symbols: List[str], cos
         pf = calculate_profit_factor(stats["pnls"])
         print(f"    Regime: {reg_name:5s} | Trades: {stats['trades']:5d} | Win Rate: {wr:5.1f}% | Gross: Rs {stats['gross']:+9.0f} | Costs: Rs {stats['costs']:8.0f} | Net: Rs {stats['net']:+9.0f} | Net PF: {pf:.2f}")
 
-    # 5. Canonical Statistical Validation via StatisticalValidator.validate_panel_hypothesis
+    # 5. Canonical Statistical Validation via StatisticalValidator.validate_panel
     print("\n" + "=" * 80)
     print("STEP 5: TRUE 77-STOCK PANEL CPCV & STATISTICAL QUALIFICATION")
     print("=" * 80)
 
-    report = validator.validate_panel_hypothesis(
+    panel_evidence = PanelResearchResult(
         hypothesis=strat_pref,
         all_trades=all_trades,
         symbol_metrics=symbol_breakdown,
@@ -309,11 +309,13 @@ def research_single_alpha(strat_id: str, lake: DataLake, symbols: List[str], cos
         symbol_universe=symbols,
     )
 
+    report = validator.validate_panel(panel_evidence)
+
     print(f"[+] Panel In-Sample Sharpe: {report.in_sample_sharpe:+.2f}")
-    print(f"[+] Panel CPCV Out-Of-Sample Sharpe: {report.cpcv_oos_sharpe:+.2f}")
+    print(f"[+] Panel CPCV Out-Of-Sample Sharpe: {report.cpcv_mean_sharpe:+.2f}")
     print(f"[+] Panel Deflated Sharpe Ratio (DSR) p-value: {report.deflated_sharpe_p_value:.4f}")
-    print(f"[+] Panel Monte Carlo 95th Percentile Max Drawdown: {report.monte_carlo_95_max_dd:.2f}%")
-    print(f"[+] Panel Post-Tax Net Profit Factor: {report.net_profit_factor:.2f}")
+    print(f"[+] Panel Monte Carlo 95th Percentile Max Drawdown: {report.monte_carlo_95_max_dd_pct:.2f}%")
+    print(f"[+] Panel Post-Tax Net Profit Factor: {report.net_profit_factor_post_tax:.2f}")
     print(f"[+] Institutional Qualification Decision: {report.status.value}")
 
     if report.rejection_reasons:
