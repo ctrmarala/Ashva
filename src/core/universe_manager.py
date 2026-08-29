@@ -59,8 +59,8 @@ class UniverseManager:
         cfg = self.load_config().get("universe", {})
 
         # 1. Explicit list in settings.yaml
-        if "symbols" in cfg and isinstance(cfg["symbols"], list) and cfg["symbols"]:
-            return sorted([s.upper() for s in cfg["symbols"]])
+        if "primary_tickers" in cfg and isinstance(cfg["primary_tickers"], list) and cfg["primary_tickers"]:
+            return sorted([s.upper() for s in cfg["primary_tickers"]])
 
         # 2. Token mapping file
         token_file = cfg.get("token_file", "config/nifty50_tokens.json")

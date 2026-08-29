@@ -19,7 +19,7 @@ import pandas as pd
 import yaml
 
 from src.research.knowledge_map import AlphaKnowledgeMap
-from scripts.run_hypothesis_lab import STRATEGY_MAP
+from src.strategies.registry import get_all_strategies
 from src.data.nse_calendar import NSECalendar
 from src.data.data_lake import DataLake
 from src.data.angel_historical import AngelHistoricalFetcher
@@ -44,6 +44,17 @@ class UIDataAccess:
         self.logs_dir = Path(logs_dir)
         self.config_dir = Path(config_dir)
         self.knowledge_map = AlphaKnowledgeMap()
+
+    def _get_strategy_tuple_by_id(self, alpha_id: str) -> Optional[tuple]:
+        strat_key = alpha_id.lower()
+        for _, cls_ref in get_all_strategies().items():
+            try:
+                inst = cls_ref()
+                if inst.metadata.hypothesis_id.lower() == strat_key:
+                    return (inst.metadata.name, cls_ref)
+            except Exception:
+                continue
+        return None
 
     def _get_duckdb_conn(self) -> Optional[duckdb.DuckDBPyConnection]:
         if not self.duckdb_path.exists():
@@ -614,10 +625,12 @@ class UIDataAccess:
                     latest_experiments[s_id] = row.to_dict()
 
         rows = []
-        for strat_key, (strat_name, cls_ref) in STRATEGY_MAP.items():
+        for _, cls_ref in get_all_strategies().items():
             try:
                 inst = cls_ref()
                 meta = inst.metadata
+                strat_key = meta.hypothesis_id.lower()
+                strat_name = meta.name
             except Exception:
                 continue
 
@@ -680,7 +693,7 @@ class UIDataAccess:
                 "tested": "YES" if is_tested else "NO",
                 "category": category_str,
                 "timeframe": getattr(meta, "timeframe", "15m"),
-                "universe": f"{len(meta.target_instruments)} Symbols" if meta.target_instruments else "NIFTY-14",
+                "universe": f"{len(meta.target_instruments)} Symbols" if meta.target_instruments else get_universe_name(),
                 "test_period": "540 Days (18M)",
                 "trades": getattr(k_rec, "oos_trades", "NOT AVAILABLE") if k_rec else "NOT AVAILABLE",
                 "win_rate": "NOT AVAILABLE",
@@ -702,7 +715,7 @@ class UIDataAccess:
     def get_alpha_detail(self, alpha_id: str) -> Dict[str, Any]:
         """Retrieves deep structured institutional evidence for a specific Alpha ID."""
         strat_key = alpha_id.lower()
-        strat_tuple = STRATEGY_MAP.get(strat_key)
+        strat_tuple = self._get_strategy_tuple_by_id(strat_key)
 
         if not strat_tuple:
             for u in self.knowledge_map.get_unexplored_mechanisms():
@@ -723,7 +736,7 @@ class UIDataAccess:
                         "entry_conditions": "Theoretical Entry Conditions (Unexplored)",
                         "exit_conditions": "Intraday 15:15 IST Mandatory Square-Off",
                         "parameters": {},
-                        "target_instruments": ["NIFTY-14"],
+                        "target_instruments": [get_universe_name()],
                         "is_tested": False,
                         "metrics": {
                             "total_trades": "NOT AVAILABLE (Untested)",
@@ -766,7 +779,7 @@ class UIDataAccess:
                         "data_readiness": {
                             "timeframe": "15m",
                             "symbols_ready": 0,
-                            "symbols_total": 14,
+                            "symbols_total": len(get_universe_symbols()),
                             "horizon_compliance": "NOT AUDITED (Untested)",
                         },
                         "provenance": {
@@ -944,7 +957,7 @@ class UIDataAccess:
                 "trading_days": trading_days_est,
                 "data_source": "DuckDB + Apache Parquet (Hybrid Columnar)",
                 "timeframe": getattr(meta, "timeframe", "15m"),
-                "universe": "NIFTY-14 Core Liquid Equities",
+                "universe": f"{get_universe_name()} Core Liquid Equities",
                 "symbols_tested": target_syms,
                 "horizon_compliance": "PASS (540d+)",
             },
@@ -1074,27 +1087,19 @@ class UIDataAccess:
         """
         active_list = []
         
-        active_contract_ids = {
-            "alpha_56": ("ALPHA_56_NR4_MODERATE_GAP_SHOCK", "1.0.0", "MOMENTUM", "ACTIVE"),
-            "alpha_81": ("ALPHA_81_DOUBLE_INSIDE_2R_EXPANSION", "1.0.0", "VOLATILITY_EXPANSION", "ACTIVE"),
-            "alpha_67": ("ALPHA_67_TEN_DAY_MAX_VOL_GAP", "1.0.0", "GAP_MOMENTUM", "ACTIVE"),
-            "alpha_54": ("ALPHA_54_GAP_MARUBOZU_MOMENTUM", "1.0.0", "MOMENTUM", "ACTIVE"),
-            "alpha_86": ("ALPHA_86_THREE_DAY_TREND_SURGE_2R", "1.0.0", "MOMENTUM", "ACTIVE"),
-            "alpha_87": ("ALPHA_87_TWO_DAY_TREND_SURGE_2R", "1.0.0", "MOMENTUM", "ACTIVE"),
-            "alpha_88": ("ALPHA_88_THREE_DAY_TREND_SURGE_175R", "1.0.0", "MOMENTUM", "ACTIVE"),
-            "alpha_70": ("ALPHA_70_TWO_DAY_MOMENTUM_SURGE", "1.0.0", "MOMENTUM", "ACTIVE"),
-            "alpha_73": ("ALPHA_73_INSIDE_DAY_MOMENTUM_2R", "1.0.0", "VOLATILITY_EXPANSION", "ACTIVE"),
-            "alpha_77": ("ALPHA_77_NR7_INSIDE_MOMENTUM_SURGE", "1.0.0", "VOLATILITY_EXPANSION", "ACTIVE"),
-            "alpha_85": ("ALPHA_85_DOUBLE_INSIDE_225R_EXPANSION", "1.0.0", "VOLATILITY_EXPANSION", "ACTIVE"),
-        }
+        # NOTE: Legacy alphas have been archived.
+        # Fetch any active strategies dynamically from the registry.
+        active_contract_ids = {}  # E.g., read from a manifest file if needed
+        
+        strategy_registry = get_all_strategies()
 
         for strat_key, (strat_name, ver, cat, act_state) in active_contract_ids.items():
-            strat_tuple = STRATEGY_MAP.get(strat_key)
-            universe = ["NIFTY-14 Core Equities"]
+            strat_obj = strategy_registry.get(strat_name)
+            universe = get_universe_symbols()
             tf = "15m"
-            if strat_tuple:
+            if strat_obj:
                 try:
-                    meta = strat_tuple[1]().metadata
+                    meta = strat_obj().metadata
                     universe = meta.target_instruments or universe
                     tf = getattr(meta, "timeframe", "15m")
                 except Exception:
@@ -1120,16 +1125,12 @@ class UIDataAccess:
         Shows which symbols each active Alpha contract is actually evaluating/trading in the engine.
         """
         active_alphas = self.get_active_trading_alphas()
-        target_symbols = [
-            "INFY", "TCS", "ICICIBANK", "HDFCBANK", "SBIN", "AXISBANK",
-            "KOTAKBANK", "RELIANCE", "LT", "TATASTEEL", "BHARTIARTL",
-            "BAJFINANCE", "MARUTI", "SUNPHARMA"
-        ]
+        target_symbols = get_universe_symbols()
 
         matrix_rows = []
         for a in active_alphas:
             row = {"Alpha ID": a["alpha_id"], "Strategy Name": a["name"], "Timeframe": a["timeframe"]}
-            strat_tuple = STRATEGY_MAP.get(a["alpha_id"])
+            strat_tuple = self._get_strategy_tuple_by_id(a["alpha_id"])
             tgt_syms = target_symbols
             if strat_tuple:
                 try:
@@ -1364,7 +1365,7 @@ class UIDataAccess:
                 "win_rate": round(win_rate, 1),
                 "net_pf": round(pf, 2),
                 "period_tested": "August 24 - 28, 2026 (Recent Week)",
-                "universe": "NIFTY-14 Core Equities (14 Symbols)",
+                "universe": f"{get_universe_name()} Core Equities ({len(get_universe_symbols())} Symbols)",
                 "timeframe": "15m",
             }
         except Exception as e:
@@ -1663,7 +1664,7 @@ class UIDataAccess:
         return {
             "trading_engine_state": "STANDBY",
             "active_alpha_contracts_count": len(active_alphas),
-            "evaluated_universe_symbols": 14,
+            "evaluated_universe_symbols": len(get_universe_symbols()),
             "open_positions": port["open_positions"],
             "total_net_pnl": f"₹{port['total_pnl']:+,.2f}",
             "current_equity": f"₹{port['current_equity']:,.2f}",

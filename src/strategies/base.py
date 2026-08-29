@@ -32,3 +32,25 @@ class BaseStrategy(ABC):
         Real-time event handler called on each incoming BarEvent.
         """
         pass
+
+
+class CrossSectionalHypothesis(BaseStrategy):
+    """
+    Interface for cross-sectional and statistical arbitrage strategies that process 
+    a panel of multiple instruments simultaneously.
+    """
+    
+    @abstractmethod
+    def generate_panel_signals(self, panel_data: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
+        """
+        Processes a panel of historical DataFrames simultaneously.
+        Returns a dictionary of signal DataFrames mapped by symbol.
+        """
+        pass
+        
+    def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Fallback implementation for BaseStrategy compatibility.
+        Should not be used for true cross-sectional evaluation.
+        """
+        raise NotImplementedError("Use generate_panel_signals() for CrossSectionalHypothesis")

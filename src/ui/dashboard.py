@@ -18,6 +18,8 @@ st.set_page_config(
 
 # Initialize Data Access Layer
 def get_dal() -> UIDataAccess:
+    import src.research.knowledge_map
+    importlib.reload(src.research.knowledge_map)
     importlib.reload(src.ui.data_access)
     return src.ui.data_access.UIDataAccess()
 
@@ -271,7 +273,8 @@ def render_alpha_factory(dal: UIDataAccess):
     with col_f3:
         category_filter = st.selectbox("Category Filter", ["ALL", "MOMENTUM", "VOLATILITY_EXPANSION", "OPENING_AUCTION", "ORDER_FLOW_IMBALANCE", "STATISTICAL_REVERSION"], index=0, key="filter_alpha_category")
     with col_f4:
-        search_query = st.text_input("Search Alpha ID / Name / Rationale", placeholder="e.g. alpha_86, DOUBLE_INSIDE, ORB...", key="search_alpha_registry")
+        st.markdown('<div class="stat-value" style="font-size: 1.1rem; color: #b0b0b0;">Global Discovery Registry</div>', unsafe_allow_html=True)
+        search_query = st.text_input("Search Alpha ID / Name / Rationale", placeholder="e.g. DOUBLE_INSIDE, ORB...", key="search_alpha_registry")
 
     df_registry = dal.get_alpha_registry_table()
 
@@ -319,9 +322,10 @@ def render_alpha_factory(dal: UIDataAccess):
 
     # 3. Section 3-12: Alpha Deep Dive Inspector
     st.subheader("Alpha Hypothesis Deep Dive & Audit Inspector")
-    
-    alpha_options = list(df_registry["alpha_id"].values) if not df_registry.empty else ["alpha_86"]
-    selected_alpha = st.selectbox("Select Alpha ID for Full Quantitative Audit", alpha_options, index=0, key="select_alpha_detail")
+    colA, colB, colC = st.columns([1, 1, 1])
+    alpha_options = list(df_registry["alpha_id"].values) if not df_registry.empty else ["None"]
+    with colA:
+        selected_alpha = st.selectbox("Select Alpha ID for Full Quantitative Audit", alpha_options, index=0, key="select_alpha_detail")
 
     detail = dal.get_alpha_detail(selected_alpha)
 
@@ -623,7 +627,8 @@ def render_trading_observability(dal: UIDataAccess):
         r4.metric("Net P&L Generated", f"₹{replay_summary.get('net_pnl', 0.0):+,.2f}")
         r5.metric("Net Profit Factor", f"{replay_summary.get('net_pf', 0.0):.2f}")
 
-        st.markdown(f"**Replay Scope**: `{replay_summary.get('period_tested', 'August 24 - 28, 2026')}` | Universe: `{replay_summary.get('universe', 'NIFTY-14')}` | Timeframe: `{replay_summary.get('timeframe', '15m')}`")
+        from src.core.universe_manager import get_universe_name
+        st.markdown(f"**Replay Scope**: `{replay_summary.get('period_tested', 'August 24 - 28, 2026')}` | Universe: `{replay_summary.get('universe', get_universe_name())}` | Timeframe: `{replay_summary.get('timeframe', '15m')}`")
 
         st.markdown("---")
 

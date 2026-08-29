@@ -9,6 +9,7 @@ import pandas as pd
 
 from src.research.hypothesis import BaseHypothesis, HypothesisMetadata, HypothesisStatus, HypothesisValidationReport
 from src.research.validator import StatisticalValidator
+from src.research.cpcv_engine import CPCVEngine, CPCVMode
 
 
 class HypothesisFactory:
@@ -16,8 +17,9 @@ class HypothesisFactory:
     Automated factory to instantiate, parameterize, test, and filter hypotheses.
     """
 
-    def __init__(self, validator: StatisticalValidator = None, baseline_portfolio_returns: pd.DataFrame = None):
+    def __init__(self, validator: StatisticalValidator = None, baseline_portfolio_returns: pd.DataFrame = None, cpcv_engine: CPCVEngine = None):
         self.validator = validator or StatisticalValidator()
+        self.cpcv_engine = cpcv_engine
         self.accepted_hypotheses: List[Dict[str, Any]] = []
         self.rejected_hypotheses: List[Dict[str, Any]] = []
         self.baseline_portfolio_returns = baseline_portfolio_returns if baseline_portfolio_returns is not None else pd.DataFrame()
@@ -46,6 +48,41 @@ class HypothesisFactory:
         # Create prototype instance to extract default param grid
         proto = hypothesis_cls(metadata=metadata)
         param_grid = custom_param_grid or proto.get_parameter_grid()
+        
+        # If CPCV Engine is provided and in Parameter Selection mode, use it for OOS Optimization
+        if self.cpcv_engine and self.cpcv_engine.mode == CPCVMode.PARAMETER_SELECTION:
+            cpcv_res = self.cpcv_engine.evaluate_parameter_selection_cpcv(
+                df_bars=df,
+                strategy_class=hypothesis_cls,
+                param_grid=param_grid
+            )
+            
+            reports = []
+            if not cpcv_res.get("is_overfitted", True) and "optimal_parameters" in cpcv_res:
+                # Retest optimal parameters through the strict Statistical Validator
+                best_params = cpcv_res["optimal_parameters"]
+                hyp_instance = hypothesis_cls(metadata=metadata, parameters=best_params)
+                
+                # We still validate to generate a HypothesisValidationReport
+                report = self.validator.validate_hypothesis(
+                    hypothesis=hyp_instance,
+                    df=df,
+                    num_trials=len(self.generate_parameter_combinations(param_grid)),
+                    baseline_portfolio_returns=self.baseline_portfolio_returns,
+                )
+                
+                # Update report with actual CPCV results from the engine
+                report.cpcv_mean_sharpe = cpcv_res.get("mean_oos_sharpe", 0.0)
+                
+                record = {"instance": hyp_instance, "parameters": best_params, "report": report}
+                if report.is_accepted():
+                    self.accepted_hypotheses.append(record)
+                else:
+                    self.rejected_hypotheses.append(record)
+                reports.append(report)
+            return reports
+        
+        # Fallback to standard in-sample grid permutation
         combinations = self.generate_parameter_combinations(param_grid)
         num_trials = len(combinations)
 

@@ -35,177 +35,9 @@ from src.analytics.tearsheet import QuantTearsheetGenerator
 from src.research.hypothesis import HypothesisStatus, StrategyHorizon
 
 # Strategy Registry
-from src.strategies.alpha_trend_surfer import AlphaTrendSurfer
-from src.strategies.alpha_orb_pro import AlphaAuctionORBPro
-from src.strategies.alpha_03_vwap_reversion import Alpha03VWAPReversion
-from src.strategies.alpha_04_gap_and_go import Alpha04GapAndGo
-from src.strategies.alpha_05_opening_drive_pullback import Alpha05OpeningDrivePullback
-from src.strategies.alpha_06_pdh_pdl_sweep import Alpha06PDHPDLSweep
-from src.strategies.alpha_07_opening_volatility_expansion import Alpha07OpeningVolatilityExpansion
-from src.strategies.alpha_08_opening_imbalance import Alpha08OpeningImbalance
-from src.strategies.alpha_09_opening_relative_strength import Alpha09OpeningRelativeStrength
-from src.strategies.alpha_10_statistical_range_reversion import Alpha10StatisticalRangeReversion
-from src.strategies.alpha_11_donchian_breakout import Alpha11DonchianBreakout
-from src.strategies.alpha_12_european_open_momentum import Alpha12EuropeanOpenMomentum
-from src.strategies.alpha_13_htf_aligned_orb import Alpha13HTFAlignedORB
-from src.strategies.alpha_14_gap_momentum_drift import Alpha14GapMomentumDrift
-from src.strategies.alpha_15_nr7_volatility_expansion import Alpha15NR7VolatilityExpansion
-from src.strategies.alpha_16_inside_day_breakout import Alpha16InsideDayBreakout
-from src.strategies.alpha_17_volume_shock_momentum import Alpha17VolumeShockMomentum
-from src.strategies.alpha_18_three_day_trend_orb import Alpha18ThreeDayTrendORB
-from src.strategies.alpha_19_power_hour_momentum import Alpha19PowerHourMomentum
-from src.strategies.alpha_20_vwap_trend_continuation import Alpha20VWAPTrendContinuation
-from src.strategies.alpha_21_high_velocity_momentum import Alpha21HighVelocityMomentum
-from src.strategies.alpha_22_apex_momentum import Alpha22ApexMomentum
-from src.strategies.alpha_23_velocity_50_scanner import Alpha23Velocity50Scanner
-from src.strategies.alpha_24_volatility_vacuum_release import Alpha24VolatilityVacuumRelease
-from src.strategies.alpha_25_cross_sectional_residual_reversion import Alpha25CrossSectionalResidualReversion
-from src.strategies.alpha_27_sector_momentum_drift import Alpha27SectorMomentumDrift
-from src.strategies.alpha_28_value_area_expansion import Alpha28ValueAreaExpansion
-from src.strategies.alpha_29_trend_exhaustion_climax import Alpha29TrendExhaustionClimax
-from src.strategies.alpha_30_midday_squeeze_trend import Alpha30MiddaySqueezeTrend
-from src.strategies.alpha_31_failed_opening_drive_fade import Alpha31FailedOpeningDriveFade
-from src.strategies.alpha_35_nr4_opening_expansion import Alpha35NR4OpeningExpansion
-from src.strategies.alpha_36_inside_day_expansion import Alpha36InsideDayExpansion
-from src.strategies.alpha_37_gap_volume_shock_drift import Alpha37GapVolumeShockDrift
-from src.strategies.alpha_38_three_day_trend_expansion import Alpha38ThreeDayTrendExpansion
-from src.strategies.alpha_39_open_equals_extreme_drive import Alpha39OpenEqualsExtremeDrive
-from src.strategies.alpha_40_double_inside_expansion import Alpha40DoubleInsideExpansion
-from src.strategies.alpha_41_opening_marubozu_expansion import Alpha41OpeningMarubozuExpansion
-from src.strategies.alpha_42_nr2_gap_breakout import Alpha42NR2GapBreakout
-from src.strategies.alpha_43_nr3_gap_breakout import Alpha43NR3GapBreakout
-from src.strategies.alpha_44_contraction_open_drive import Alpha44ContractionOpenDrive
-from src.strategies.alpha_45_inside_day_gap_momentum import Alpha45InsideDayGapMomentum
-from src.strategies.alpha_46_high_conviction_gap_drift import Alpha46HighConvictionGapDrift
-from src.strategies.alpha_47_orb30_gap_expansion import Alpha47ORB30GapExpansion
-from src.strategies.alpha_48_nr7_gap_breakout import Alpha48NR7GapBreakout
-from src.strategies.alpha_49_moderate_gap_volume_shock import Alpha49ModerateGapVolumeShock
-from src.strategies.alpha_50_outlier_volume_opening_drive import Alpha50OutlierVolumeOpeningDrive
-from src.strategies.alpha_51_trend_aligned_gap_shock import Alpha51TrendAlignedGapShock
-from src.strategies.alpha_52_nr5_gap_breakout import Alpha52NR5GapBreakout
-from src.strategies.alpha_53_nr7_extreme_gap_expansion import Alpha53NR7ExtremeGapExpansion
-from src.strategies.alpha_54_gap_marubozu_momentum import Alpha54GapMarubozuMomentum
-from src.strategies.alpha_55_two_day_trend_gap import Alpha55TwoDayTrendGap
-from src.strategies.alpha_56_nr4_moderate_gap_shock import Alpha56NR4ModerateGapShock
-from src.strategies.alpha_57_nr3_moderate_gap_shock import Alpha57NR3ModerateGapShock
-from src.strategies.alpha_58_gap_vwap_momentum import Alpha58GapVWAPMomentum
-from src.strategies.alpha_59_nr6_gap_breakout import Alpha59NR6GapBreakout
-from src.strategies.alpha_60_ema3_aligned_moderate_gap import Alpha60EMA3AlignedModerateGap
-from src.strategies.alpha_61_five_day_hl_moderate_gap import Alpha61FiveDayHLModerateGap
-from src.strategies.alpha_62_nr5_moderate_gap_expansion import Alpha62NR5ModerateGapExpansion
-from src.strategies.alpha_63_daily_squeeze_gap_expansion import Alpha63DailySqueezeGapExpansion
-from src.strategies.alpha_64_opening_range_atr_surge import Alpha64OpeningRangeATRSurge
-from src.strategies.alpha_65_nr4_high_volume_gap import Alpha65NR4HighVolumeGap
-from src.strategies.alpha_66_two_day_trend_high_vol_gap import Alpha66TwoDayTrendHighVolGap
-from src.strategies.alpha_67_ten_day_max_vol_gap import Alpha67TenDayMaxVolGap
-from src.strategies.alpha_68_nr5_high_conviction_gap import Alpha68NR5HighConvictionGap
-from src.strategies.alpha_69_sub_atr_contraction_gap import Alpha69SubATRContractionGap
-from src.strategies.alpha_70_double_inside_target_expansion import Alpha70DoubleInsideTargetExpansion
-from src.strategies.alpha_71_outlier_volume_drive import Alpha71OutlierVolumeDrive
-from src.strategies.alpha_72_nr3_volatility_expansion import Alpha72NR3VolatilityExpansion
-from src.strategies.alpha_73_inside_day_expansion import Alpha73InsideDayExpansion
-from src.strategies.alpha_74_gap_marubozu_momentum import Alpha74GapMarubozuMomentum
-from src.strategies.alpha_75_morning_drive_continuation import Alpha75MorningDriveContinuation
-from src.strategies.alpha_76_two_day_momentum_gap_surge import Alpha76TwoDayMomentumGapSurge
-from src.strategies.alpha_77_nr4_shock_expansion import Alpha77NR4ShockExpansion
-from src.strategies.alpha_78_double_inside_momentum import Alpha78DoubleInsideMomentum
-from src.strategies.alpha_79_high_rr_opening_drive import Alpha79HighRROpeningDrive
-from src.strategies.alpha_80_nr7_volatility_expansion import Alpha80NR7VolatilityExpansion
-from src.strategies.alpha_81_double_inside_2r_expansion import Alpha81DoubleInside2RExpansion
-from src.strategies.alpha_82_double_inside_volume_shock import Alpha82DoubleInsideVolumeShock
-from src.strategies.alpha_83_double_inside_gap_drift import Alpha83DoubleInsideGapDrift
-from src.strategies.alpha_84_triple_inside_expansion import Alpha84TripleInsideExpansion
-from src.strategies.alpha_85_double_inside_225r_expansion import Alpha85DoubleInside225RExpansion
-from src.strategies.alpha_86_three_day_trend_surge_2r import Alpha86ThreeDayTrendSurge2R
-from src.strategies.alpha_87_two_day_trend_surge_2r import Alpha87TwoDayTrendSurge2R
-from src.strategies.alpha_88_three_day_trend_surge_175r import Alpha88ThreeDayTrendSurge175R
+from src.strategies.registry import get_all_strategies
+from src.strategies.base import CrossSectionalHypothesis
 
-STRATEGY_MAP = {
-    "alpha_01": ("ALPHA_01_TRENDSURFER", AlphaTrendSurfer),
-    "alpha_02": ("ALPHA_02_AUCTION_ORB", AlphaAuctionORBPro),
-    "alpha_03": ("ALPHA_03_VWAP_REVERSION", Alpha03VWAPReversion),
-    "alpha_04": ("ALPHA_04_GAP_AND_GO", Alpha04GapAndGo),
-    "alpha_05": ("ALPHA_05_OPENING_DRIVE_PULLBACK", Alpha05OpeningDrivePullback),
-    "alpha_06": ("ALPHA_06_PDH_PDL_SWEEP", Alpha06PDHPDLSweep),
-    "alpha_07": ("ALPHA_07_OPENING_VOLATILITY_EXPANSION", Alpha07OpeningVolatilityExpansion),
-    "alpha_08": ("ALPHA_08_OPENING_IMBALANCE", Alpha08OpeningImbalance),
-    "alpha_09": ("ALPHA_09_OPENING_RELATIVE_STRENGTH", Alpha09OpeningRelativeStrength),
-    "alpha_10": ("ALPHA_10_STATISTICAL_RANGE_REVERSION", Alpha10StatisticalRangeReversion),
-    "alpha_11": ("ALPHA_11_DONCHIAN_BREAKOUT", Alpha11DonchianBreakout),
-    "alpha_12": ("ALPHA_12_EUROPEAN_OPEN_MOMENTUM", Alpha12EuropeanOpenMomentum),
-    "alpha_13": ("ALPHA_13_HTF_ALIGNED_ORB", Alpha13HTFAlignedORB),
-    "alpha_14": ("ALPHA_14_GAP_MOMENTUM_DRIFT", Alpha14GapMomentumDrift),
-    "alpha_15": ("ALPHA_15_NR7_VOLATILITY_EXPANSION", Alpha15NR7VolatilityExpansion),
-    "alpha_16": ("ALPHA_16_INSIDE_DAY_BREAKOUT", Alpha16InsideDayBreakout),
-    "alpha_17": ("ALPHA_17_VOLUME_SHOCK_MOMENTUM", Alpha17VolumeShockMomentum),
-    "alpha_18": ("ALPHA_18_THREE_DAY_TREND_ORB", Alpha18ThreeDayTrendORB),
-    "alpha_19": ("ALPHA_19_POWER_HOUR_MOMENTUM", Alpha19PowerHourMomentum),
-    "alpha_20": ("ALPHA_20_VWAP_TREND_CONTINUATION", Alpha20VWAPTrendContinuation),
-    "alpha_21": ("ALPHA_21_HIGH_VELOCITY_MOMENTUM", Alpha21HighVelocityMomentum),
-    "alpha_22": ("ALPHA_22_APEX_MOMENTUM", Alpha22ApexMomentum),
-    "alpha_23": ("ALPHA_23_VELOCITY_50_SCANNER", Alpha23Velocity50Scanner),
-    "alpha_24": ("ALPHA_24_VOLATILITY_VACUUM_RELEASE", Alpha24VolatilityVacuumRelease),
-    "alpha_25": ("ALPHA_25_CROSS_SECTIONAL_RESIDUAL_REVERSION", Alpha25CrossSectionalResidualReversion),
-    "alpha_27": ("ALPHA_27_SECTOR_MOMENTUM_DRIFT", Alpha27SectorMomentumDrift),
-    "alpha_28": ("ALPHA_28_VALUE_AREA_EXPANSION", Alpha28ValueAreaExpansion),
-    "alpha_29": ("ALPHA_29_TREND_EXHAUSTION_CLIMAX", Alpha29TrendExhaustionClimax),
-    "alpha_30": ("ALPHA_30_MIDDAY_SQUEEZE_TREND", Alpha30MiddaySqueezeTrend),
-    "alpha_31": ("ALPHA_31_FAILED_OPENING_DRIVE_FADE", Alpha31FailedOpeningDriveFade),
-    "alpha_35": ("ALPHA_35_NR4_OPENING_EXPANSION", Alpha35NR4OpeningExpansion),
-    "alpha_36": ("ALPHA_36_INSIDE_DAY_EXPANSION", Alpha36InsideDayExpansion),
-    "alpha_37": ("ALPHA_37_GAP_VOLUME_SHOCK_DRIFT", Alpha37GapVolumeShockDrift),
-    "alpha_38": ("ALPHA_38_THREE_DAY_TREND_EXPANSION", Alpha38ThreeDayTrendExpansion),
-    "alpha_39": ("ALPHA_39_OPEN_EQUALS_EXTREME_DRIVE", Alpha39OpenEqualsExtremeDrive),
-    "alpha_40": ("ALPHA_40_DOUBLE_INSIDE_EXPANSION", Alpha40DoubleInsideExpansion),
-    "alpha_41": ("ALPHA_41_OPENING_MARUBOZU_EXPANSION", Alpha41OpeningMarubozuExpansion),
-    "alpha_42": ("ALPHA_42_NR2_GAP_BREAKOUT", Alpha42NR2GapBreakout),
-    "alpha_43": ("ALPHA_43_NR3_GAP_BREAKOUT", Alpha43NR3GapBreakout),
-    "alpha_44": ("ALPHA_44_CONTRACTION_OPEN_DRIVE", Alpha44ContractionOpenDrive),
-    "alpha_45": ("ALPHA_45_INSIDE_DAY_GAP_MOMENTUM", Alpha45InsideDayGapMomentum),
-    "alpha_46": ("ALPHA_46_HIGH_CONVICTION_GAP_DRIFT", Alpha46HighConvictionGapDrift),
-    "alpha_47": ("ALPHA_47_ORB30_GAP_EXPANSION", Alpha47ORB30GapExpansion),
-    "alpha_48": ("ALPHA_48_NR7_GAP_BREAKOUT", Alpha48NR7GapBreakout),
-    "alpha_49": ("ALPHA_49_MODERATE_GAP_VOLUME_SHOCK", Alpha49ModerateGapVolumeShock),
-    "alpha_50": ("ALPHA_50_OUTLIER_VOLUME_OPENING_DRIVE", Alpha50OutlierVolumeOpeningDrive),
-    "alpha_51": ("ALPHA_51_TREND_ALIGNED_GAP_SHOCK", Alpha51TrendAlignedGapShock),
-    "alpha_52": ("ALPHA_52_NR5_GAP_BREAKOUT", Alpha52NR5GapBreakout),
-    "alpha_53": ("ALPHA_53_NR7_EXTREME_GAP_EXPANSION", Alpha53NR7ExtremeGapExpansion),
-    "alpha_54": ("ALPHA_54_GAP_MARUBOZU_MOMENTUM", Alpha54GapMarubozuMomentum),
-    "alpha_55": ("ALPHA_55_TWO_DAY_TREND_GAP", Alpha55TwoDayTrendGap),
-    "alpha_56": ("ALPHA_56_NR4_MODERATE_GAP_SHOCK", Alpha56NR4ModerateGapShock),
-    "alpha_57": ("ALPHA_57_NR3_MODERATE_GAP_SHOCK", Alpha57NR3ModerateGapShock),
-    "alpha_58": ("ALPHA_58_GAP_VWAP_MOMENTUM", Alpha58GapVWAPMomentum),
-    "alpha_59": ("ALPHA_59_NR6_GAP_BREAKOUT", Alpha59NR6GapBreakout),
-    "alpha_60": ("ALPHA_60_EMA3_ALIGNED_MODERATE_GAP", Alpha60EMA3AlignedModerateGap),
-    "alpha_61": ("ALPHA_61_FIVE_DAY_HL_MODERATE_GAP", Alpha61FiveDayHLModerateGap),
-    "alpha_62": ("ALPHA_62_NR5_MODERATE_GAP_EXPANSION", Alpha62NR5ModerateGapExpansion),
-    "alpha_63": ("ALPHA_63_DAILY_SQUEEZE_GAP_EXPANSION", Alpha63DailySqueezeGapExpansion),
-    "alpha_64": ("ALPHA_64_OPENING_RANGE_ATR_SURGE", Alpha64OpeningRangeATRSurge),
-    "alpha_65": ("ALPHA_65_NR4_HIGH_VOLUME_GAP", Alpha65NR4HighVolumeGap),
-    "alpha_66": ("ALPHA_66_TWO_DAY_TREND_HIGH_VOL_GAP", Alpha66TwoDayTrendHighVolGap),
-    "alpha_67": ("ALPHA_67_TEN_DAY_MAX_VOL_GAP", Alpha67TenDayMaxVolGap),
-    "alpha_68": ("ALPHA_68_NR5_HIGH_CONVICTION_GAP", Alpha68NR5HighConvictionGap),
-    "alpha_69": ("ALPHA_69_SUB_ATR_CONTRACTION_GAP", Alpha69SubATRContractionGap),
-    "alpha_70": ("ALPHA_70_DOUBLE_INSIDE_TARGET_EXPANSION", Alpha70DoubleInsideTargetExpansion),
-    "alpha_71": ("ALPHA_71_OUTLIER_VOLUME_DRIVE", Alpha71OutlierVolumeDrive),
-    "alpha_72": ("ALPHA_72_NR3_VOLATILITY_EXPANSION", Alpha72NR3VolatilityExpansion),
-    "alpha_73": ("ALPHA_73_INSIDE_DAY_EXPANSION", Alpha73InsideDayExpansion),
-    "alpha_74": ("ALPHA_74_GAP_MARUBOZU_MOMENTUM", Alpha74GapMarubozuMomentum),
-    "alpha_75": ("ALPHA_75_MORNING_DRIVE_CONTINUATION", Alpha75MorningDriveContinuation),
-    "alpha_76": ("ALPHA_76_TWO_DAY_MOMENTUM_GAP_SURGE", Alpha76TwoDayMomentumGapSurge),
-    "alpha_77": ("ALPHA_77_NR4_SHOCK_EXPANSION", Alpha77NR4ShockExpansion),
-    "alpha_78": ("ALPHA_78_DOUBLE_INSIDE_MOMENTUM", Alpha78DoubleInsideMomentum),
-    "alpha_79": ("ALPHA_79_HIGH_RR_OPENING_DRIVE", Alpha79HighRROpeningDrive),
-    "alpha_80": ("ALPHA_80_NR7_VOLATILITY_EXPANSION", Alpha80NR7VolatilityExpansion),
-    "alpha_81": ("ALPHA_81_DOUBLE_INSIDE_2R_EXPANSION", Alpha81DoubleInside2RExpansion),
-    "alpha_82": ("ALPHA_82_DOUBLE_INSIDE_VOLUME_SHOCK", Alpha82DoubleInsideVolumeShock),
-    "alpha_83": ("ALPHA_83_DOUBLE_INSIDE_GAP_DRIFT", Alpha83DoubleInsideGapDrift),
-    "alpha_84": ("ALPHA_84_TRIPLE_INSIDE_EXPANSION", Alpha84TripleInsideExpansion),
-    "alpha_85": ("ALPHA_85_DOUBLE_INSIDE_225R_EXPANSION", Alpha85DoubleInside225RExpansion),
-    "alpha_86": ("ALPHA_86_THREE_DAY_TREND_SURGE_2R", Alpha86ThreeDayTrendSurge2R),
-    "alpha_87": ("ALPHA_87_TWO_DAY_TREND_SURGE_2R", Alpha87TwoDayTrendSurge2R),
-    "alpha_88": ("ALPHA_88_THREE_DAY_TREND_SURGE_175R", Alpha88ThreeDayTrendSurge175R),
-}
 
 from src.core.universe_manager import get_universe_symbols
 
@@ -234,18 +66,43 @@ def run_strategy_backtest(
     engine.segment = Segment.EQUITY_DELIVERY if is_swing else Segment.EQUITY_INTRADAY
     target_tf = getattr(strat_obj.metadata, "timeframe", timeframe) if hasattr(strat_obj, "metadata") else timeframe
 
-    for sym in symbols:
-        # Load bars enforcing 540-day research ceiling
-        df = lake.load_bars(sym, target_tf, max_lookback_days=540)
-        if df.empty or len(df) < 50:
-            # Fallback to default timeframe if daily bars not yet ingested
-            if target_tf != timeframe:
-                df = lake.load_bars(sym, timeframe, max_lookback_days=540)
-            if df.empty or len(df) < 50:
-                continue
+    is_cross_sectional = isinstance(strat_obj, CrossSectionalHypothesis)
+    panel_data = {}
+    panel_signals = {}
 
-        # 1. Run Baseline Backtest
-        signals_df = strat_obj.generate_signals(df)
+    if is_cross_sectional:
+        # Load all symbols into a panel
+        for sym in symbols:
+            df = lake.load_bars(sym, target_tf, max_lookback_days=540)
+            if df.empty or len(df) < 50:
+                if target_tf != timeframe:
+                    df = lake.load_bars(sym, timeframe, max_lookback_days=540)
+            if not df.empty and len(df) >= 50:
+                panel_data[sym] = df
+        
+        # Generate signals for the entire panel simultaneously
+        if panel_data:
+            panel_signals = strat_obj.generate_panel_signals(panel_data)
+
+    for sym in symbols:
+        if is_cross_sectional:
+            if sym not in panel_data or sym not in panel_signals:
+                continue
+            df = panel_data[sym]
+            signals_df = panel_signals[sym]
+        else:
+            # Load bars enforcing 540-day research ceiling
+            df = lake.load_bars(sym, target_tf, max_lookback_days=540)
+            if df.empty or len(df) < 50:
+                # Fallback to default timeframe if daily bars not yet ingested
+                if target_tf != timeframe:
+                    df = lake.load_bars(sym, timeframe, max_lookback_days=540)
+                if df.empty or len(df) < 50:
+                    continue
+
+            # 1. Run Baseline Backtest
+            signals_df = strat_obj.generate_signals(df)
+
         res = engine.run(signals_df, symbol=sym, strategy_id=strat_id, risk_per_trade_pct=0.005, capital_per_trade_pct=0.25)
 
         # 2. Run Centralized Statistical Validation (Single Source of Truth with Explicit Symbol)
@@ -313,7 +170,7 @@ def run_slippage_stress(strat_id: str, strat_obj, df: pd.DataFrame, symbol: str)
 def main():
     parser = argparse.ArgumentParser(description="Ashva Quantitative Research & Hypothesis Lab")
     parser.add_argument("--all", action="store_true", help="Run master backtest across all strategies and symbols")
-    parser.add_argument("--strategy", type=str, choices=list(STRATEGY_MAP.keys()) + ["all"], default="alpha_02", help="Strategy to test")
+    parser.add_argument("--strategy", type=str, default="all", help="Strategy exact class name to test (or 'all')")
     parser.add_argument("--symbol", type=str, default="TCS", help="Target symbol")
     parser.add_argument("--all-symbols", action="store_true", help="Run across all 14 liquid blue chips")
     parser.add_argument("--timeframe", type=str, default="15m", help="Candle timeframe")
@@ -334,12 +191,17 @@ def main():
     print(f"[*] Framework: 60d (50% Wt), 180d (25% Wt), 365d (15% Wt), 540d (10% Wt) | Regulatory Costs & 3.0 bps Slippage")
     print("=" * 135)
 
+    registered_strategies = get_all_strategies()
+    
     if args.all or args.strategy == "all":
         # Master Audit across all strategies & symbols
-        strategies_to_run = list(STRATEGY_MAP.values())
+        strategies_to_run = [(name, cls) for name, cls in registered_strategies.items()]
         target_symbols = DEFAULT_UNIVERSE
     else:
-        strategies_to_run = [STRATEGY_MAP[args.strategy]]
+        if args.strategy not in registered_strategies:
+            print(f"[-] Strategy '{args.strategy}' not found in registry. Have you placed it in src/strategies/?")
+            sys.exit(1)
+        strategies_to_run = [(args.strategy, registered_strategies[args.strategy])]
         target_symbols = DEFAULT_UNIVERSE if args.all_symbols else [args.symbol.upper()]
 
     master_results = []

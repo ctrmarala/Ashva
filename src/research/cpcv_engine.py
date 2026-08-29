@@ -273,6 +273,7 @@ class CPCVEngine:
             "mean_oos_sharpe": round(float(np.mean(oos_arr)), 2),
             "median_oos_sharpe": round(float(np.median(oos_arr)), 2),
             "is_overfitted": bool(pbo > 0.30 or np.mean(oos_arr) < 0.30),
+            "optimal_parameters": best_params,  # Return the last fold's best params as a proxy
         }
 
     def _compute_calendar_daily_sharpe(self, trades_df: pd.DataFrame, initial_capital: float = 500000.0) -> float:
