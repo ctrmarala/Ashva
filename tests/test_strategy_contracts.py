@@ -21,6 +21,9 @@ from src.analytics.indian_costs import IndianCostModel, Segment
 from src.backtest.engine import BacktestEngine
 
 
+from src.research.alpha_linter import AlphaLinter
+
+
 @pytest.fixture(scope="module")
 def sample_bars():
     lake = DataLake(read_only=True)
@@ -37,6 +40,21 @@ if not strategy_items:
         # Clean baseline state: no active strategies loaded
         assert len(strategy_items) == 0
 else:
+    @pytest.mark.parametrize("strat_id,strat_tuple", strategy_items)
+    def test_strategy_alpha_linter_compliance(strat_id, strat_tuple):
+        """
+        Validates that every strategy strictly satisfies AlphaLinter static & runtime rules:
+        - No hardcoded tickers
+        - Non-empty parameter grid
+        - Metadata completeness
+        - Zero lookahead perturbation invariance
+        - Output column contracts (signal, stop_loss, take_profit)
+        """
+        strat_cls = strat_tuple[1] if isinstance(strat_tuple, tuple) else strat_tuple
+        strat = strat_cls()
+        violations = AlphaLinter.lint_strategy_instance(strat)
+        assert len(violations) == 0, f"AlphaLinter violations in {strat_id}: {violations}"
+
     @pytest.mark.parametrize("strat_id,strat_tuple", strategy_items)
     def test_strategy_lifecycle_contract(strat_id, strat_tuple, sample_bars):
         """
