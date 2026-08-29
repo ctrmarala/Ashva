@@ -95,6 +95,7 @@ class UIDataAccess:
         conn = self._get_duckdb_conn()
         if conn is None:
             return {
+                "universe_name": self.get_active_universe_name(),
                 "total_symbols": 0,
                 "total_bars": 0,
                 "available_timeframes": [],

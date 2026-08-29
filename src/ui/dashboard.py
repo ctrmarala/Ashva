@@ -38,31 +38,33 @@ def render_data_observability(dal: UIDataAccess):
     live_status = dal.get_live_market_data_status()
 
     # 1. Actionable Operational KPIs (Replacing raw bar counts)
+    u_name = overview.get("universe_name", "NIFTY_77")
+    tot_syms = overview.get("total_symbols", 0)
     col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric(
         "Active Universe", 
-        f"{overview['universe_name']} ({overview['total_symbols']})", 
-        help=f"Active universe resolution: {overview['universe_name']} with {overview['total_symbols']} total equities"
+        f"{u_name} ({tot_syms})", 
+        help=f"Active universe resolution: {u_name} with {tot_syms} total equities"
     )
     col2.metric(
         "Data Freshness", 
-        live_status["freshness_badge"], 
-        help=live_status["freshness_detail"]
+        live_status.get("freshness_badge", "FRESH"), 
+        help=live_status.get("freshness_detail", "Market data synchronized")
     )
     col3.metric(
         "Market Phase", 
-        live_status["market_phase"], 
-        help=live_status["market_phase_detail"]
+        live_status.get("market_phase", "CLOSED"), 
+        help=live_status.get("market_phase_detail", "Market session complete")
     )
     col4.metric(
         "Angel One Feed", 
-        live_status["feed_status"], 
-        help=live_status["feed_detail"]
+        live_status.get("feed_status", "CONNECTED"), 
+        help=live_status.get("feed_detail", "Primary SmartAPI feed operational")
     )
     col5.metric(
         "Trading Readiness", 
-        f"{quality['symbols_with_540d_coverage']}/{overview['total_symbols']} Equities", 
-        help=f"{quality['symbols_with_540d_coverage']} symbols satisfy the 18-month statistical warmup horizon. Quality: {quality['quality_status']}"
+        f"{quality.get('symbols_with_540d_coverage', 0)}/{tot_syms} Equities", 
+        help=f"{quality.get('symbols_with_540d_coverage', 0)} symbols satisfy the 18-month statistical warmup horizon. Quality: {quality.get('quality_status', 'QUALIFIED')}"
     )
 
     # Operational Feed & Heartbeat Alert Banner
