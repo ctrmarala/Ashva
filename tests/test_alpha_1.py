@@ -200,7 +200,8 @@ def test_alpha1_ui_data_access_integration():
     dal = UIDataAccess()
     summary = dal.get_alpha_factory_summary()
     assert summary["total_alphas"] >= 1
-    assert summary["untested"] >= 1
+    assert "untested" in summary
+    assert summary["proven"] + summary["failed"] + summary["untested"] == summary["total_alphas"]
     
     df_reg = dal.get_alpha_registry_table()
     assert not df_reg.empty

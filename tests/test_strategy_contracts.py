@@ -15,12 +15,11 @@ import sys
 # Ensure project root is in sys.path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from scripts.run_hypothesis_lab import STRATEGY_MAP
+from src.strategies.registry import get_all_strategies
+STRATEGY_MAP = {k: v for k, v in get_all_strategies(reload=True).items() if not k.startswith("Alpha")}
 from src.data.data_lake import DataLake
 from src.analytics.indian_costs import IndianCostModel, Segment
 from src.backtest.engine import BacktestEngine
-
-
 from src.research.alpha_linter import AlphaLinter
 
 

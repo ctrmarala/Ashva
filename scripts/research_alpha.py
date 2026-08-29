@@ -174,12 +174,6 @@ def run_full_timeframe_discovery(
 
         print(f"    TF: {tf:4s} | Stocks: {syms_evaluated:2d} | Bars: {tf_bars:7d} | Trades: {tf_trades:5d} | WR: {win_rate:4.1f}% | Gross: Rs {tf_gross:+10.0f} | Costs: Rs {tf_costs:9.0f} | Net: Rs {tf_net:+10.0f} | Net PF: {net_pf:.2f} | Score: {empirical_score:.4f}")
 
-        # Early Stopping Heuristic: If higher timeframes fail badly, skip lower resolution
-        if tf in ["15m", "30m"]:
-            if empirical_score <= 0.05 and win_rate < 35.0:
-                print(f"[!] Early Stopping Triggered: '{tf}' performed poorly. Pruning lower timeframes to save compute.")
-                break
-
     best_tf = max(tf_results.keys(), key=lambda k: tf_results[k]["empirical_timeframe_score"])
     print(f"\n[+] Empirical Selection Algorithm Result: Preferred Timeframe = '{best_tf}' (Score: {tf_results[best_tf]['empirical_timeframe_score']:.4f})")
     return tf_results, best_tf
