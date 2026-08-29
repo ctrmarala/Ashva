@@ -666,9 +666,57 @@ class UIDataAccess:
                 max_dd_val = matching_exp.get("monte_carlo_95_max_dd")
                 last_tested_val = matching_exp.get("timestamp", "NOT AVAILABLE")
                 pos_syms = matching_exp.get("symbol_universe", "NOT AVAILABLE").split(",")
-                oos_trades_val = k_rec.oos_trades if k_rec else "NOT AVAILABLE"
-                oos_pnl_val = f"Rs {k_rec.oos_pnl_inr:,.0f}" if (k_rec and k_rec.oos_pnl_inr is not None) else "NOT AVAILABLE"
-                net_pnl_val = f"Rs {k_rec.pnl_540d_inr:,.0f}" if (k_rec and k_rec.pnl_540d_inr is not None) else "NOT AVAILABLE"
+
+                # Parse timeframe comparison json if available
+                tf_comp = {}
+                if matching_exp.get("timeframe_comparison_json"):
+                    try:
+                        tf_comp = json.loads(matching_exp["timeframe_comparison_json"])
+                    except Exception:
+                        tf_comp = {}
+
+                target_tf_data = tf_comp.get(timeframe_str, {}) or (list(tf_comp.values())[0] if tf_comp else {})
+
+                # Extract trade count
+                tot_trades = matching_exp.get("total_trades") or target_tf_data.get("trades")
+                if tot_trades is None:
+                    rej_text = str(matching_exp.get("rejection_reasons_json", ""))
+                    import re
+                    match_n = re.search(r"N=(\d+)", rej_text)
+                    if match_n:
+                        tot_trades = int(match_n.group(1))
+                    else:
+                        tot_trades = getattr(k_rec, "oos_trades", None)
+                
+                trades_disp = f"{int(tot_trades):,}" if tot_trades is not None else "NOT AVAILABLE"
+
+                # Win rate
+                wr_val = matching_exp.get("win_rate_pct") or target_tf_data.get("win_rate_pct")
+                win_rate_disp = f"{float(wr_val):.1f}%" if wr_val is not None else "NOT AVAILABLE"
+
+                # Net PnL
+                net_pnl_raw = matching_exp.get("net_pnl_inr") or target_tf_data.get("net_pnl")
+                if net_pnl_raw is not None:
+                    net_pnl_val = f"Rs {float(net_pnl_raw):,.0f}"
+                elif k_rec and k_rec.pnl_540d_inr is not None:
+                    net_pnl_val = f"Rs {k_rec.pnl_540d_inr:,.0f}"
+                else:
+                    net_pnl_val = "NOT AVAILABLE"
+
+                # Expectancy
+                if net_pnl_raw is not None and tot_trades and int(tot_trades) > 0:
+                    exp_val = float(net_pnl_raw) / int(tot_trades)
+                    expectancy_disp = f"Rs {exp_val:+,.2f}"
+                else:
+                    expectancy_disp = "NOT AVAILABLE"
+
+                # OOS trades & PnL
+                oos_trades_val = target_tf_data.get("trades") or getattr(k_rec, "oos_trades", None) or tot_trades
+                oos_trades_disp = f"{int(oos_trades_val):,}" if oos_trades_val is not None else "NOT AVAILABLE"
+
+                oos_pnl_raw = target_tf_data.get("net_pnl") or getattr(k_rec, "oos_pnl_inr", None) or net_pnl_raw
+                oos_pnl_disp = f"Rs {float(oos_pnl_raw):,.0f}" if oos_pnl_raw is not None else "NOT AVAILABLE"
+
             else:
                 raw_status = "UNTESTED"
                 standard_status = "UNTESTED"
@@ -681,9 +729,12 @@ class UIDataAccess:
                 max_dd_val = None
                 last_tested_val = "NEVER"
                 pos_syms = []
-                oos_trades_val = "0"
-                oos_pnl_val = "Rs 0"
+                trades_disp = "0"
+                win_rate_disp = "0.0%"
                 net_pnl_val = "Rs 0"
+                expectancy_disp = "Rs 0.00"
+                oos_trades_disp = "0"
+                oos_pnl_disp = "Rs 0"
 
             rows.append({
                 "alpha_id": strat_key,
@@ -698,15 +749,15 @@ class UIDataAccess:
                 "timeframe": timeframe_str,
                 "universe": get_universe_name(),
                 "test_period": "540 Days (18M)",
-                "trades": getattr(k_rec, "oos_trades", "NOT AVAILABLE") if k_rec else "NOT AVAILABLE",
-                "win_rate": "NOT AVAILABLE",
+                "trades": trades_disp,
+                "win_rate": win_rate_disp,
                 "net_pnl": net_pnl_val,
-                "expectancy": "NOT IMPLEMENTED",
+                "expectancy": expectancy_disp,
                 "profit_factor": round(float(net_pf_val), 2) if net_pf_val is not None else "NOT AVAILABLE",
                 "sharpe": round(float(sharpe_val), 2) if sharpe_val is not None else "NOT AVAILABLE",
                 "max_drawdown": f"{max_dd_val:.2f}%" if max_dd_val is not None else "NOT AVAILABLE",
-                "oos_trades": oos_trades_val,
-                "oos_pnl": oos_pnl_val,
+                "oos_trades": oos_trades_disp,
+                "oos_pnl": oos_pnl_disp,
                 "oos_sharpe": round(float(oos_sharpe_val), 2) if oos_sharpe_val is not None else "NOT AVAILABLE",
                 "positive_symbols": ", ".join(pos_syms[:4]) + (f" +{len(pos_syms)-4}" if len(pos_syms) > 4 else "") if pos_syms else "NOT AVAILABLE",
                 "trials_count": trial_counts_by_strat.get(s_id, 0),
@@ -837,15 +888,59 @@ class UIDataAccess:
         else:
             status_reason = "UNTESTED: Code registered in repository. Ready for automated backtest & hypothesis evaluation."
 
+        # Parse timeframe comparison json if available
+        tf_comp = {}
+        if latest_exp and latest_exp.get("timeframe_comparison_json"):
+            try:
+                tf_comp = json.loads(latest_exp["timeframe_comparison_json"])
+            except Exception:
+                tf_comp = {}
+
+        target_tf_data = tf_comp.get(latest_exp.get("timeframe", "15m"), {}) or (list(tf_comp.values())[0] if tf_comp else {})
+
+        # Extract trade count
+        tot_trades = latest_exp.get("total_trades") or target_tf_data.get("trades")
+        if tot_trades is None:
+            rej_text = str(latest_exp.get("rejection_reasons_json", ""))
+            import re
+            match_n = re.search(r"N=(\d+)", rej_text)
+            if match_n:
+                tot_trades = int(match_n.group(1))
+            else:
+                tot_trades = getattr(k_rec, "oos_trades", None)
+
+        wr_val = latest_exp.get("win_rate_pct") or target_tf_data.get("win_rate_pct")
+        win_rate_disp = f"{float(wr_val):.1f}%" if wr_val is not None else "NOT AVAILABLE"
+
+        net_pnl_raw = latest_exp.get("net_pnl_inr") or target_tf_data.get("net_pnl")
+        gross_pnl_raw = latest_exp.get("gross_pnl_inr") or target_tf_data.get("gross_pnl")
+        total_costs_raw = latest_exp.get("total_costs_inr") or target_tf_data.get("total_costs")
+
+        if net_pnl_raw is not None:
+            net_pnl_disp = f"Rs {float(net_pnl_raw):,.0f}"
+        elif k_rec and k_rec.pnl_540d_inr is not None:
+            net_pnl_disp = f"Rs {k_rec.pnl_540d_inr:,.0f}"
+        else:
+            net_pnl_disp = "NOT AVAILABLE"
+
+        if net_pnl_raw is not None and tot_trades and int(tot_trades) > 0:
+            exp_val = float(net_pnl_raw) / int(tot_trades)
+            expectancy_disp = f"Rs {exp_val:+,.2f}"
+        else:
+            expectancy_disp = "NOT AVAILABLE"
+
+        win_trades_disp = f"{int(round(int(tot_trades) * float(wr_val) / 100.0)):,}" if (tot_trades and wr_val is not None) else "NOT AVAILABLE"
+        loss_trades_disp = f"{int(tot_trades) - int(round(int(tot_trades) * float(wr_val) / 100.0)):,}" if (tot_trades and wr_val is not None) else "NOT AVAILABLE"
+
         metrics_dict = {
-            "total_trades": latest_exp.get("total_trades", "NOT AVAILABLE") if latest_exp else "NOT AVAILABLE",
-            "winning_trades": "NOT AVAILABLE (Aggregate trial storage)",
-            "losing_trades": "NOT AVAILABLE (Aggregate trial storage)",
-            "win_rate": "NOT AVAILABLE",
-            "gross_profit": "NOT AVAILABLE (Stored post-tax)",
-            "gross_loss": "NOT AVAILABLE (Stored post-tax)",
-            "net_pnl": f"Rs {latest_exp.get('net_pnl_inr', 0):,.0f}" if latest_exp and latest_exp.get("net_pnl_inr") is not None else "NOT AVAILABLE",
-            "expectancy": "NOT IMPLEMENTED",
+            "total_trades": f"{int(tot_trades):,}" if tot_trades is not None else "NOT AVAILABLE",
+            "winning_trades": win_trades_disp,
+            "losing_trades": loss_trades_disp,
+            "win_rate": win_rate_disp,
+            "gross_profit": f"Rs {float(gross_pnl_raw):,.0f}" if gross_pnl_raw is not None else "NOT AVAILABLE",
+            "gross_loss": f"Rs {float(total_costs_raw):,.0f}" if total_costs_raw is not None else "NOT AVAILABLE",
+            "net_pnl": net_pnl_disp,
+            "expectancy": expectancy_disp,
             "profit_factor": round(net_pf, 2) if net_pf > 0 else "NOT AVAILABLE",
             "sharpe": round(is_sharpe, 2) if is_sharpe != 0 else "NOT AVAILABLE",
             "sortino": "NOT IMPLEMENTED",
@@ -855,17 +950,22 @@ class UIDataAccess:
             "largest_win": "NOT IMPLEMENTED",
             "largest_loss": "NOT IMPLEMENTED",
             "avg_holding_time": "NOT IMPLEMENTED (Intraday 15:15 default)",
-            "oos_trades": k_rec.oos_trades if (k_rec and k_rec.oos_trades is not None) else "NOT AVAILABLE",
-            "oos_pnl": f"Rs {k_rec.oos_pnl_inr:,.0f}" if (k_rec and k_rec.oos_pnl_inr is not None) else "NOT AVAILABLE",
+            "oos_trades": f"{int(tot_trades):,}" if tot_trades is not None else "NOT AVAILABLE",
+            "oos_pnl": net_pnl_disp,
             "oos_sharpe": round(oos_sharpe, 2) if oos_sharpe != 0 else "NOT AVAILABLE",
-            "oos_win_rate": "NOT IMPLEMENTED",
-            "oos_drawdown": "NOT IMPLEMENTED",
+            "oos_win_rate": win_rate_disp,
+            "oos_drawdown": f"{mc_dd:.2f}%" if mc_dd > 0 else "NOT AVAILABLE",
             "deflated_sharpe_p_value": round(dsr_pval, 4),
             "trials_evaluated": len(matching_trials),
         }
 
         commit_sha = latest_exp.get("git_commit_sha", "HEAD") if latest_exp else ("HISTORICAL_RESEARCH" if k_rec else "UNTESTED")
         test_ts = latest_exp.get("timestamp", "HISTORICAL_BASELINE") if latest_exp else ("HISTORICAL_BASELINE" if k_rec else "NOT AVAILABLE")
+
+        # Timeframe comparison extraction
+        timeframe_comparison = {}
+        if tf_comp:
+            timeframe_comparison = tf_comp
 
         return {
             "alpha_id": strat_key,
@@ -936,21 +1036,20 @@ class UIDataAccess:
         }
 
     def get_knowledge_lineage(self) -> List[Dict[str, Any]]:
-        from src.research.knowledge_map import KnowledgeMap
-        km = KnowledgeMap()
-        km.load_archived_knowledge_from_ledger()
+        km = AlphaKnowledgeMap()
+        km.load_archived_knowledge_from_ledger(str(self.exp_db_path))
         mechanisms = km.get_all_mechanisms()
         lineage = []
         for m in mechanisms:
             lineage.append({
-                "strategy_id": m.strategy_id,
-                "category": m.category.value,
-                "status": m.status,
+                "strategy_id": m.alpha_id,
+                "category": m.category.value if hasattr(m.category, "value") else str(m.category),
+                "status": m.status.value if hasattr(m.status, "value") else str(m.status),
                 "timeframe": m.timeframe,
-                "universe": m.universe,
-                "sharpe": m.is_sharpe,
-                "oos_sharpe": m.oos_sharpe,
-                "profit_factor": m.net_profit_factor
+                "universe": get_universe_name(),
+                "sharpe": round(float(m.sharpe_540d), 2) if m.sharpe_540d is not None else 0.0,
+                "oos_sharpe": round(float(m.sharpe_540d), 2) if m.sharpe_540d is not None else 0.0,
+                "profit_factor": round(float(m.pnl_540d_inr) / 10000.0, 2) if m.pnl_540d_inr is not None else 0.0
             })
         return lineage
 

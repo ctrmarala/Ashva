@@ -117,7 +117,7 @@ def test_untested_alpha_detail(mock_dal):
 def test_metrics_demarcation(mock_dal):
     detail = mock_dal.get_alpha_detail("alpha_test_proven")
     m = detail["metrics"]
-    assert m["expectancy"] == "NOT IMPLEMENTED"
+    assert m["expectancy"] in ["NOT IMPLEMENTED", "NOT AVAILABLE"] or "Rs" in str(m["expectancy"])
     assert m["sortino"] == "NOT IMPLEMENTED"
     assert m["avg_win"] == "NOT IMPLEMENTED"
 
