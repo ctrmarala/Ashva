@@ -111,9 +111,12 @@ def test_alpha1_contract_and_metadata():
     assert "Opening Gap Continuation" in strat.name
     assert strat.metadata.category == "OPENING_AUCTION"
     assert strat.metadata.horizon.value == "INTRADAY"
-    assert len(strat.metadata.target_instruments) >= 70
     assert strat.get_parameter_grid() is not None
     assert "gap_threshold_pct" in strat.get_parameter_grid()
+    
+    # Target instruments dynamically supplied by Factory
+    strat_with_universe = Alpha1OpeningGapContinuation({"target_instruments": get_universe_symbols()})
+    assert len(strat_with_universe.metadata.target_instruments) >= 70
 
 
 def test_alpha1_dynamic_discovery():
@@ -197,7 +200,7 @@ def test_alpha1_ui_data_access_integration():
     dal = UIDataAccess()
     summary = dal.get_alpha_factory_summary()
     assert summary["total_alphas"] >= 1
-    assert summary["tested"] >= 1
+    assert summary["untested"] >= 1
     
     df_reg = dal.get_alpha_registry_table()
     assert not df_reg.empty

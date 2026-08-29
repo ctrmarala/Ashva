@@ -73,7 +73,7 @@ class Alpha1OpeningGapContinuation(BaseHypothesis, BaseStrategy):
                 "confirms acceptance of the gap direction rather than rejecting it, the initial inventory "
                 "and informational imbalance may persist and drive intraday continuation."
             ),
-            target_instruments=get_universe_symbols(),
+            target_instruments=merged_params.get("target_instruments", []),
             timeframe=merged_params.get("timeframe", "15m"),
             horizon=StrategyHorizon.INTRADAY,
             mechanism=MarketMechanism.MOMENTUM,

@@ -641,7 +641,14 @@ class UIDataAccess:
                     strat_obj = cls_obj
                     break
 
-            meta = getattr(strat_obj, "metadata", None) if strat_obj else None
+            strat_inst = None
+            if strat_obj is not None:
+                try:
+                    strat_inst = strat_obj()
+                except Exception:
+                    strat_inst = None
+
+            meta = getattr(strat_inst, "metadata", None) if strat_inst else getattr(strat_obj, "metadata", None)
             strat_name = exp_data.get("hypothesis_name") if exp_data else (getattr(meta, "name", None) or (strat_obj.__name__ if strat_obj else s_id))
             economic_rationale = exp_data.get("economic_rationale", "") if exp_data else (getattr(meta, "economic_rationale", "") if meta else "")
 
@@ -780,8 +787,37 @@ class UIDataAccess:
                     matching_exp = row.to_dict()
                     break
 
-        if not matching_exp:
+        strategy_classes = get_all_strategies(reload=True)
+        strat_obj = None
+        for name, cls_obj in strategy_classes.items():
+            if name.lower() == strat_key or getattr(cls_obj, "strategy_id", "").lower() == strat_key:
+                strat_obj = cls_obj
+                break
+
+        if not matching_exp and not strat_obj:
             return {}
+
+        strat_inst = None
+        if strat_obj is not None:
+            try:
+                strat_inst = strat_obj()
+            except Exception:
+                strat_inst = None
+
+        meta = getattr(strat_inst, "metadata", None) if strat_inst else getattr(strat_obj, "metadata", None)
+
+        if not matching_exp:
+            matching_exp = {
+                "strategy_id": strat_key,
+                "hypothesis_name": getattr(meta, "name", strat_key),
+                "status": "UNTESTED",
+                "category": str(getattr(meta, "category", "QUANTITATIVE_FACTOR")),
+                "economic_rationale": getattr(meta, "economic_rationale", "Strategy registered. Pending empirical validation."),
+                "timeframe": getattr(meta, "timeframe", "15m"),
+                "symbol_universe": ",".join(get_universe_symbols()),
+                "timestamp": "NEVER",
+                "git_commit_sha": "HEAD",
+            }
 
         target_syms = [sym.strip() for sym in matching_exp.get("symbol_universe", "RELIANCE").split(",")]
 

@@ -87,3 +87,37 @@ else:
                 f"{pulse_exit_pct:.1f}% of trades ({one_bar_signal_exits}/{res.total_trades}) exited after exactly 1 bar on 'SIGNAL'.\n"
                 f"The strategy is emitting 1-bar signal pulses instead of maintaining 'curr_state' across bars until SL/TP/EOD."
             )
+
+
+def test_signal_timing_next_bar_open_fill():
+    """
+    Engine Verification Test: Proves that when a signal is emitted at the close of Bar t (e.g. 09:30),
+    BacktestEngine enters the position strictly at Bar t+1 Open (09:45) with zero lookahead at Bar t.
+    """
+    timestamps = [
+        pd.Timestamp("2026-08-28 09:15:00"),
+        pd.Timestamp("2026-08-28 09:30:00"), # Signal fires at close of this bar
+        pd.Timestamp("2026-08-28 09:45:00"), # Entry MUST fill at Open of this bar
+        pd.Timestamp("2026-08-28 10:00:00"),
+        pd.Timestamp("2026-08-28 15:15:00"),
+    ]
+    df = pd.DataFrame({
+        "open": [100.0, 102.0, 108.0, 110.0, 112.0],
+        "high": [103.0, 105.0, 110.0, 112.0, 114.0],
+        "low": [99.0, 101.0, 107.0, 109.0, 110.0],
+        "close": [102.0, 104.0, 109.0, 111.0, 113.0],
+        "volume": [1000, 1000, 1000, 1000, 1000],
+        "signal": [0.0, 1.0, 1.0, 1.0, 0.0], # Signal triggers on bar 1 (09:30)
+        "stop_loss": [0.0, 95.0, 95.0, 95.0, 0.0],
+        "take_profit": [0.0, 120.0, 120.0, 120.0, 0.0],
+    }, index=pd.DatetimeIndex(timestamps))
+
+    cost_model = IndianCostModel()
+    engine = BacktestEngine(cost_model=cost_model, initial_capital=500000.0, segment=Segment.EQUITY_INTRADAY)
+    res = engine.run(df, symbol="RELIANCE", strategy_id="test_timing")
+
+    assert res.total_trades == 1
+    trade = res.trade_list[0]
+    # Signal emitted at 09:30 -> Fill must be 09:45 at Open price 108.0
+    assert trade.entry_time == pd.Timestamp("2026-08-28 09:45:00")
+    assert trade.entry_price == 108.0

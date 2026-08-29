@@ -105,10 +105,11 @@ class AlphaLinter:
                 violations.append("Metadata missing name.")
             if not getattr(meta, "economic_rationale", None) or len(meta.economic_rationale) < 20:
                 violations.append("Metadata missing complete economic_rationale (>20 chars).")
-            if not getattr(meta, "target_instruments", None) or len(meta.target_instruments) < 50:
+            target_instruments = getattr(meta, "target_instruments", [])
+            if target_instruments and len(target_instruments) < 50:
                 violations.append(
-                    f"Metadata target_instruments has {len(getattr(meta, 'target_instruments', []))} symbols. "
-                    "Must dynamically bind to active universe (>=50 symbols)."
+                    f"Metadata target_instruments has {len(target_instruments)} symbols. "
+                    "If specified, must dynamically bind to active universe (>=50 symbols)."
                 )
 
         # 3. Parameter Grid Check

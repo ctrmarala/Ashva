@@ -305,8 +305,14 @@ def research_single_alpha(strat_id: str, lake: DataLake, symbols: List[str], cos
     else:
         panel_oos_sharpe = 0.0
 
-    # DSR
-    total_trials = len(symbols) * len(tf_results)
+    # DSR - Multiple testing burden across parameter grid (e.g. 81 combos) x dynamic symbols (77 assets)
+    grid = strat_inst.get_parameter_grid() if hasattr(strat_inst, "get_parameter_grid") else {}
+    param_combinations = 1
+    if grid:
+        for vals in grid.values():
+            if isinstance(vals, (list, tuple)):
+                param_combinations *= len(vals)
+    total_trials = max(1, param_combinations * len(symbols))
     dsr_stat, dsr_p_val = StatisticalValidator.calculate_deflated_sharpe_ratio(daily_returns, num_trials=total_trials)
 
     # Monte Carlo 5,000 Tail Risk
