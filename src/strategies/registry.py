@@ -24,18 +24,25 @@ def get_all_strategies(reload: bool = False) -> Dict[str, Type[Any]]:
     strategies = {}
     strat_dir = Path(__file__).parent
 
-    for p in sorted(strat_dir.glob("alpha_*.py")):
+    for p in sorted(strat_dir.glob("*.py")):
+        if p.name in ["base.py", "registry.py", "__init__.py"]:
+            continue
         mod_name = f"src.strategies.{p.stem}"
         try:
             mod = importlib.import_module(mod_name)
+            if reload:
+                importlib.reload(mod)
             for attr in dir(mod):
                 obj = getattr(mod, attr)
                 if (
                     isinstance(obj, type)
-                    and attr.startswith("Alpha")
                     and hasattr(obj, "generate_signals")
+                    and obj.__name__ not in ["BaseStrategy", "BaseHypothesis", "CrossSectionalHypothesis"]
                 ):
                     strategies[attr] = obj
+                    strat_id = getattr(obj, "strategy_id", None)
+                    if strat_id and strat_id != attr:
+                        strategies[strat_id] = obj
                     break
         except Exception as e:
             print(f"[!] Warning: Could not auto-load strategy module {p.name}: {e}")

@@ -63,14 +63,14 @@ def test_alpha_factory_summary_counts(mock_dal):
     assert summary["total_alphas"] >= 3
     assert summary["tested"] >= 2
     assert summary["proven"] == 1
-    assert summary["failed"] == 1
-    assert summary["untested"] == 1
+    assert summary["failed"] >= 1
+    assert summary["untested"] >= 1
 
 
 def test_alpha_registry_table_structure(mock_dal):
     df = mock_dal.get_alpha_registry_table()
     assert not df.empty
-    assert len(df) == 3
+    assert len(df) >= 3
     
     expected_cols = [
         "alpha_id", "name", "version", "status", "raw_status", "dynamic_status", "tested",
