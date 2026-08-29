@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 import numpy as np
 import pandas as pd
+import duckdb
+import pickle
 
 
 class QuantTearsheetGenerator:
@@ -177,3 +179,35 @@ class QuantTearsheetGenerator:
             f.write(html)
 
         return str(filepath)
+
+    def generate_from_evidence(self, experiment_id: str, db_path: str = "data_lake/experiment_ledger.db") -> Optional[str]:
+        """
+        Generates a tearsheet by hydrating a BacktestResult directly from Canonical Evidence.
+        """
+        conn = duckdb.connect(db_path)
+        try:
+            row = conn.execute(
+                "SELECT artifact_path, cpcv_oos_sharpe FROM experiment_journal WHERE experiment_id = ?", 
+                [experiment_id]
+            ).fetchone()
+            
+            if not row:
+                print(f"[-] No canonical evidence found for experiment {experiment_id}")
+                return None
+                
+            artifact_path, cpcv_sharpe = row
+            
+            if not artifact_path or not Path(artifact_path).exists():
+                print(f"[-] Artifact missing at {artifact_path}")
+                return None
+                
+            with open(artifact_path, "rb") as f:
+                result = pickle.load(f)
+                
+            return self.generate_html_tearsheet(result, cpcv_sharpe=float(cpcv_sharpe) if cpcv_sharpe else 0.0)
+        except Exception as e:
+            print(f"[-] Failed to generate from evidence: {e}")
+            return None
+        finally:
+            conn.close()
+

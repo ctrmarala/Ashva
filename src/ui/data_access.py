@@ -625,39 +625,17 @@ class UIDataAccess:
                     latest_experiments[s_id] = row.to_dict()
 
         rows = []
-        for _, cls_ref in get_all_strategies(reload=True).items():
-            try:
-                inst = cls_ref()
-                meta = inst.metadata
-                strat_key = meta.hypothesis_id.lower()
-                strat_name = meta.name
-            except Exception:
-                continue
+        for s_id, exp_data in latest_experiments.items():
+            strat_key = exp_data.get("strategy_id", s_id).lower()
+            strat_name = exp_data.get("hypothesis_name") or exp_data.get("strategy_id", s_id)
+            meta = exp_data
 
-            k_rec = km_alphas.get(strat_key.lower())
+            k_rec = km_alphas.get(strat_key)
 
-            matching_exp = None
-            total_trials_for_strat = 0
-            for cand in [strat_key.lower(), strat_name.lower(), meta.hypothesis_id.lower()]:
-                if cand in latest_experiments:
-                    matching_exp = latest_experiments[cand]
-                    total_trials_for_strat = trial_counts_by_strat.get(cand, 1)
-                    break
+            matching_exp = exp_data
+            total_trials_for_strat = trial_counts_by_strat.get(s_id, 1)
 
-            if matching_exp is None and not df_experiments.empty:
-                for s_key, exp_data in latest_experiments.items():
-                    if s_key.startswith(f"{strat_key.lower()}_") or s_key.startswith(f"{strat_key.lower()} "):
-                        matching_exp = exp_data
-                        total_trials_for_strat = trial_counts_by_strat.get(s_key, 1)
-                        break
-
-            raw_status = None
-            if matching_exp:
-                raw_status = matching_exp.get("status")
-            elif k_rec:
-                raw_status = k_rec.status.value if hasattr(k_rec.status, "value") else str(k_rec.status)
-            else:
-                raw_status = "UNEXPLORED"
+            raw_status = matching_exp.get("status", "UNEXPLORED")
 
             if raw_status in ["PROVEN", "CAPITAL_CANDIDATE", "ACCEPTED", "DEV_POSITIVE_QUALIFIED"]:
                 standard_status = "PROVEN"
@@ -668,16 +646,16 @@ class UIDataAccess:
             else:
                 standard_status = "UNEXPLORED"
 
-            is_tested = (matching_exp is not None) or (k_rec is not None and getattr(k_rec, "oos_trades", 0) > 0)
-            category_str = str(meta.category.value if hasattr(meta.category, "value") else meta.category)
+            is_tested = True
+            category_str = exp_data.get("category", "UNKNOWN")
 
-            sharpe_val = matching_exp.get("in_sample_sharpe") if matching_exp else (k_rec.sharpe_540d if k_rec else None)
-            net_pf_val = matching_exp.get("net_profit_factor") if matching_exp else None
-            oos_sharpe_val = matching_exp.get("cpcv_oos_sharpe") if matching_exp else None
-            max_dd_val = matching_exp.get("monte_carlo_95_max_dd") if matching_exp else None
-            last_tested_val = matching_exp.get("timestamp") if matching_exp else ("HISTORICAL_BASELINE" if k_rec else "NOT AVAILABLE")
-
-            pos_syms = k_rec.positive_assets if (k_rec and k_rec.positive_assets) else meta.target_instruments
+            sharpe_val = matching_exp.get("in_sample_sharpe")
+            net_pf_val = matching_exp.get("net_profit_factor")
+            oos_sharpe_val = matching_exp.get("cpcv_oos_sharpe")
+            max_dd_val = matching_exp.get("monte_carlo_95_max_dd")
+            last_tested_val = matching_exp.get("timestamp", "NOT AVAILABLE")
+            
+            pos_syms = matching_exp.get("symbol_universe", "NOT AVAILABLE").split(",")
 
             oos_trades_val = k_rec.oos_trades if k_rec else "NOT AVAILABLE"
             oos_pnl_val = f"Rs {k_rec.oos_pnl_inr:,.0f}" if (k_rec and k_rec.oos_pnl_inr is not None) else "NOT AVAILABLE"
@@ -692,8 +670,8 @@ class UIDataAccess:
                 "dynamic_status": raw_status,
                 "tested": "YES" if is_tested else "NO",
                 "category": category_str,
-                "timeframe": getattr(meta, "timeframe", "15m"),
-                "universe": f"{len(meta.target_instruments)} Symbols" if meta.target_instruments else get_universe_name(),
+                "timeframe": matching_exp.get("timeframe", "15m"),
+                "universe": get_universe_name(),
                 "test_period": "540 Days (18M)",
                 "trades": getattr(k_rec, "oos_trades", "NOT AVAILABLE") if k_rec else "NOT AVAILABLE",
                 "win_rate": "NOT AVAILABLE",
@@ -706,96 +684,28 @@ class UIDataAccess:
                 "oos_pnl": oos_pnl_val,
                 "oos_sharpe": round(float(oos_sharpe_val), 2) if oos_sharpe_val is not None else "NOT AVAILABLE",
                 "positive_symbols": ", ".join(pos_syms[:4]) + (f" +{len(pos_syms)-4}" if len(pos_syms) > 4 else "") if pos_syms else "NOT AVAILABLE",
-                "trials_count": total_trials_for_strat,
+                "trials_count": trial_counts_by_strat.get(s_id, 1),
                 "last_tested": str(last_tested_val)[:19] if len(str(last_tested_val)) >= 19 else str(last_tested_val),
             })
 
         return pd.DataFrame(rows)
 
     def get_alpha_detail(self, alpha_id: str) -> Dict[str, Any]:
-        """Retrieves deep structured institutional evidence for a specific Alpha ID."""
+        """Retrieves deep structured institutional evidence for a specific Alpha ID from Canonical Evidence."""
         strat_key = alpha_id.lower()
-        strat_tuple = self._get_strategy_tuple_by_id(strat_key)
+        df_experiments = self._get_all_experiment_records()
+        
+        matching_exp = None
+        if not df_experiments.empty:
+            for _, row in df_experiments.iterrows():
+                if str(row["strategy_id"]).lower() == strat_key:
+                    matching_exp = row.to_dict()
+                    break
 
-        if not strat_tuple:
-            for u in self.knowledge_map.get_unexplored_mechanisms():
-                if u["proposed_id"].lower() == strat_key:
-                    return {
-                        "alpha_id": u["proposed_id"],
-                        "name": u["name"],
-                        "version": "v0.1.0-UNEXPLORED",
-                        "status": "UNEXPLORED",
-                        "raw_status": "UNEXPLORED",
-                        "category": u["category"].value if hasattr(u["category"], "value") else str(u["category"]),
-                        "hypothesis": u["economic_rationale"],
-                        "mechanism": u["mechanism_description"],
-                        "economic_rationale": u["economic_rationale"],
-                        "timeframe": u["timeframe"],
-                        "entry_window": u["entry_window"],
-                        "holding_concept": u["holding_concept"],
-                        "entry_conditions": "Theoretical Entry Conditions (Unexplored)",
-                        "exit_conditions": "Intraday 15:15 IST Mandatory Square-Off",
-                        "parameters": {},
-                        "target_instruments": [get_universe_name()],
-                        "is_tested": False,
-                        "metrics": {
-                            "total_trades": "NOT AVAILABLE (Untested)",
-                            "winning_trades": "NOT AVAILABLE",
-                            "losing_trades": "NOT AVAILABLE",
-                            "win_rate": "NOT AVAILABLE",
-                            "gross_profit": "NOT AVAILABLE",
-                            "gross_loss": "NOT AVAILABLE",
-                            "net_pnl": "NOT AVAILABLE",
-                            "expectancy": "NOT IMPLEMENTED",
-                            "profit_factor": "NOT AVAILABLE",
-                            "sharpe": "NOT AVAILABLE",
-                            "sortino": "NOT IMPLEMENTED",
-                            "max_drawdown": "NOT AVAILABLE",
-                            "avg_win": "NOT IMPLEMENTED",
-                            "avg_loss": "NOT IMPLEMENTED",
-                            "largest_win": "NOT IMPLEMENTED",
-                            "largest_loss": "NOT IMPLEMENTED",
-                            "avg_holding_time": "NOT IMPLEMENTED (Intraday 15:15 default)",
-                            "oos_trades": "NOT AVAILABLE",
-                            "oos_pnl": "NOT AVAILABLE",
-                            "oos_sharpe": "NOT AVAILABLE",
-                            "oos_win_rate": "NOT IMPLEMENTED",
-                            "oos_drawdown": "NOT IMPLEMENTED",
-                        },
-                        "qualification_gates": {
-                            "gate_1_dsr": {"name": "Deflated Sharpe Ratio (DSR)", "value": "NOT TESTED", "threshold": "p <= 0.05", "passed": False},
-                            "gate_2_cpcv": {"name": "CPCV Out-of-Sample Quality", "value": "NOT TESTED", "threshold": "Sharpe > 0.0", "passed": False},
-                            "gate_3_mc_tail": {"name": "Monte Carlo 5000 Tail Risk", "value": "NOT TESTED", "threshold": "DD <= 15.0%", "passed": False},
-                            "gate_4_net_pf": {"name": "Post-Tax Net Profit Factor", "value": "NOT TESTED", "threshold": "Net PF >= 1.08", "passed": False},
-                            "rejection_reasons": ["Unexplored mechanism candidate. Awaiting empirical backtest execution."],
-                        },
-                        "explanations": {
-                            "status_reason": "UNEXPLORED: Theoretical candidate hypothesis on the research frontier. Not yet tested in backtest engine.",
-                            "failure_lessons": "NOT APPLICABLE",
-                            "known_limitations": "Unexplored mechanism territory.",
-                        },
-                        "symbol_performance": [],
-                        "test_history": [],
-                        "data_readiness": {
-                            "timeframe": "15m",
-                            "symbols_ready": 0,
-                            "symbols_total": len(get_universe_symbols()),
-                            "horizon_compliance": "NOT AUDITED (Untested)",
-                        },
-                        "provenance": {
-                            "research_commit": "UNEXPLORED",
-                            "code_commit": "UNEXPLORED",
-                            "qualification_version": "v0.1.0",
-                            "research_timestamp": "NOT AVAILABLE",
-                            "qualification_timestamp": "NOT AVAILABLE",
-                        }
-                    }
+        if not matching_exp:
             return {}
 
-        strat_name, cls_ref = strat_tuple
-        inst = cls_ref()
-        meta = inst.metadata
-        k_rec = self.knowledge_map.registry.get(strat_key)
+        target_syms = [sym.strip() for sym in matching_exp.get("symbol_universe", "RELIANCE").split(",")]
 
         df_all_exp = self._get_all_experiment_records()
         matching_trials = []
@@ -803,14 +713,13 @@ class UIDataAccess:
             for _, row in df_all_exp.iterrows():
                 s_id = str(row["strategy_id"]).lower()
                 if (s_id == strat_key or 
-                    s_id == strat_name.lower() or 
-                    s_id == meta.hypothesis_id.lower() or 
+                    s_id == matching_exp.get("hypothesis_name", "").lower() or 
                     s_id.startswith(f"{strat_key}_")):
                     matching_trials.append(row.to_dict())
 
-        latest_exp = matching_trials[0] if matching_trials else None
+        latest_exp = matching_trials[0] if matching_trials else matching_exp
 
-        raw_status = latest_exp.get("status") if latest_exp else (k_rec.status.value if k_rec else "UNEXPLORED")
+        raw_status = latest_exp.get("status", "UNEXPLORED")
         if raw_status in ["PROVEN", "CAPITAL_CANDIDATE", "ACCEPTED", "DEV_POSITIVE_QUALIFIED"]:
             standard_status = "PROVEN"
         elif raw_status in ["REJECTED", "REJECTED_AT_DEV", "EXPLORED_FAILED", "REJECTED_AT_STAGE_0"]:
@@ -827,11 +736,11 @@ class UIDataAccess:
             except Exception:
                 rejection_reasons = [str(latest_exp["rejection_reasons_json"])]
 
-        net_pf = float(latest_exp.get("net_profit_factor", 0.0)) if latest_exp else (99.0 if standard_status == "PROVEN" else 0.0)
-        is_sharpe = float(latest_exp.get("in_sample_sharpe", 0.0)) if latest_exp else (k_rec.sharpe_540d if k_rec else 0.0)
-        oos_sharpe = float(latest_exp.get("cpcv_oos_sharpe", 0.0)) if latest_exp else 0.0
-        dsr_pval = float(latest_exp.get("deflated_sharpe_p_value", 1.0)) if latest_exp else 0.05
-        mc_dd = float(latest_exp.get("monte_carlo_95_max_dd", 0.0)) if latest_exp else 0.0
+        net_pf = float(latest_exp.get("net_profit_factor", 0.0))
+        is_sharpe = float(latest_exp.get("in_sample_sharpe", 0.0))
+        oos_sharpe = float(latest_exp.get("cpcv_oos_sharpe", 0.0))
+        dsr_pval = float(latest_exp.get("deflated_sharpe_p_value", 1.0))
+        mc_dd = float(latest_exp.get("monte_carlo_95_max_dd", 0.0))
 
         gate_dsr_pass = dsr_pval <= 0.05
         gate_cpcv_pass = oos_sharpe > 0.0 or standard_status == "PROVEN"
@@ -840,11 +749,6 @@ class UIDataAccess:
 
         conn = self._get_duckdb_conn()
         symbols_audit = []
-        target_syms = meta.target_instruments or [
-            "INFY", "TCS", "ICICIBANK", "HDFCBANK", "SBIN", "AXISBANK",
-            "KOTAKBANK", "RELIANCE", "LT", "TATASTEEL", "BHARTIARTL",
-            "BAJFINANCE", "MARUTI", "SUNPHARMA"
-        ]
 
         research_start_global = "2025-02-24"
         research_end_global = "2026-08-28"
@@ -889,8 +793,8 @@ class UIDataAccess:
             finally:
                 conn.close()
 
-        failure_lessons = k_rec.failure_lessons if k_rec else ("No failure lessons logged." if standard_status == "PROVEN" else "Friction drag or insufficient edge.")
-        limitations = k_rec.known_limitations if k_rec else "Requires liquid high-beta equities."
+        failure_lessons = "Friction drag or insufficient edge."
+        limitations = "Requires liquid equities."
         
         status_reason = ""
         if standard_status == "PROVEN":

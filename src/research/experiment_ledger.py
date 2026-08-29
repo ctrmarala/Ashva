@@ -39,6 +39,12 @@ class ExperimentRecord:
     git_commit_sha: str
     status: str
     rejection_reasons_json: str
+    hypothesis_name: str = ""
+    category: str = ""
+    economic_rationale: str = ""
+    horizon: str = ""
+    mechanism: str = ""
+    artifact_path: str = ""
     supersedes_experiment_id: Optional[str] = None
     timestamp: str = ""
 
@@ -90,11 +96,22 @@ class ResearchExperimentLedger:
             """)
             cursor = conn.execute("PRAGMA table_info(experiment_journal);")
             columns = [row[1] for row in cursor.fetchall()]
-            if "supersedes_experiment_id" not in columns:
-                try:
-                    conn.execute("ALTER TABLE experiment_journal ADD COLUMN supersedes_experiment_id TEXT;")
-                except Exception:
-                    pass
+            
+            new_columns = {
+                "supersedes_experiment_id": "TEXT",
+                "hypothesis_name": "TEXT",
+                "category": "TEXT",
+                "economic_rationale": "TEXT",
+                "horizon": "TEXT",
+                "mechanism": "TEXT",
+                "artifact_path": "TEXT"
+            }
+            for col, col_type in new_columns.items():
+                if col not in columns:
+                    try:
+                        conn.execute(f"ALTER TABLE experiment_journal ADD COLUMN {col} {col_type};")
+                    except Exception:
+                        pass
 
     def get_global_trials(self) -> int:
         """Returns cumulative count of all tested hypotheses across platform history."""
@@ -125,8 +142,9 @@ class ResearchExperimentLedger:
                     parameters_json, in_sample_sharpe, cpcv_oos_sharpe, deflated_sharpe_p_value,
                     net_profit_factor, monte_carlo_95_max_dd, trials_in_experiment,
                     total_trials_cumulative, git_commit_sha, status, rejection_reasons_json,
-                    supersedes_experiment_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    supersedes_experiment_id, hypothesis_name, category,
+                    economic_rationale, horizon, mechanism, artifact_path
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """, (
                 record.experiment_id,
                 record.timestamp,
@@ -145,6 +163,12 @@ class ResearchExperimentLedger:
                 record.status,
                 record.rejection_reasons_json,
                 record.supersedes_experiment_id,
+                record.hypothesis_name,
+                record.category,
+                record.economic_rationale,
+                record.horizon,
+                record.mechanism,
+                record.artifact_path
             ))
         return self.get_global_trials()
 

@@ -231,18 +231,10 @@ def main():
         print("-" * 135)
         print(f"[*] {strat_name} 540D PORTFOLIO TOTAL: Net P&L = Rs {total_pnl:+,.2f} | Trades = {total_trades} | Taxes Paid = Rs {total_taxes:,.2f}")
 
-        # Automated Tearsheet Generation for All Evaluated Candidates with Trades
+        # Automated Tearsheet Generation is now decoupled
+        # Tearsheets are available via the Factory UI which reads from the Canonical Evidence ledger.
         if not args.no_tearsheet:
-            for r in results:
-                if r["Trades"] > 0:
-                    sym = r["Symbol"]
-                    res_obj = r["_result_obj"]
-                    cpcv_sharpe = r["OOS_Sharpe"]
-                    try:
-                        ts_path = ts_gen.generate_html_tearsheet(res_obj, cpcv_sharpe=cpcv_sharpe)
-                        generated_tearsheets.append((strat_name, sym, ts_path, r["Net_PnL_INR"]))
-                    except Exception as e:
-                        print(f"[-] Tearsheet error for {strat_name} on {sym}: {e}")
+            print("[i] Tearsheets are now decoupled. Access them via the Factory UI -> Canonical Evidence.")
 
         master_results.extend(results)
 

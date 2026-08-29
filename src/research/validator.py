@@ -437,11 +437,25 @@ class StatisticalValidator:
 
         # Automatically record to immutable Research Experiment Ledger (Closed-Loop Trial Accounting)
         try:
+            exp_id = f"EXP_{hypothesis.metadata.hypothesis_id}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
+            
+            # Serialize the backtest result artifact
+            import pickle
+            from pathlib import Path
+            artifact_dir = Path("data_lake/artifacts")
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            artifact_path_str = f"data_lake/artifacts/{exp_id}.pkl"
+            with open(artifact_path_str, "wb") as f:
+                pickle.dump(full_result, f)
+                
+            # Extract hypothesis metadata safely
+            meta = hypothesis.metadata
+            
             exp_record = ExperimentRecord(
-                experiment_id=f"EXP_{hypothesis.metadata.hypothesis_id}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}",
-                strategy_id=hypothesis.metadata.name,
+                experiment_id=exp_id,
+                strategy_id=meta.hypothesis_id,
                 symbol_universe=sym,
-                timeframe=getattr(hypothesis.metadata, "timeframe", "15m"),
+                timeframe=getattr(meta, "timeframe", "15m"),
                 parameters_json=json.dumps(hypothesis.parameters, default=str),
                 in_sample_sharpe=0.0 if (is_sharpe is None or np.isnan(is_sharpe)) else float(is_sharpe),
                 cpcv_oos_sharpe=0.0 if (cpcv_mean_sharpe is None or np.isnan(cpcv_mean_sharpe)) else float(cpcv_mean_sharpe),
@@ -453,6 +467,12 @@ class StatisticalValidator:
                 git_commit_sha=get_current_git_sha(),
                 status=status.value,
                 rejection_reasons_json=json.dumps(rejection_reasons),
+                hypothesis_name=getattr(meta, "name", ""),
+                category=getattr(meta, "category", ""),
+                economic_rationale=getattr(meta, "economic_rationale", ""),
+                horizon=getattr(meta, "horizon", "INTRADAY") if isinstance(getattr(meta, "horizon", ""), str) else getattr(meta, "horizon", StrategyHorizon.INTRADAY).value,
+                mechanism=getattr(meta, "mechanism", "MOMENTUM") if isinstance(getattr(meta, "mechanism", ""), str) else getattr(meta, "mechanism", MarketMechanism.MOMENTUM).value,
+                artifact_path=artifact_path_str
             )
             self.experiment_ledger.log_experiment(exp_record)
         except Exception as e:
