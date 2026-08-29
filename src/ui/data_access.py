@@ -25,6 +25,8 @@ from src.data.data_lake import DataLake
 from src.data.angel_historical import AngelHistoricalFetcher
 from src.data.corporate_actions import CorporateActionManager, CorporateAction
 from src.core.universe_manager import get_universe_symbols, get_universe_name, get_benchmark_symbol
+from src.trading.manifest import TradingManifest
+from src.trading.contract import QualifiedAlphaContract
 
 
 class UIDataAccess:
@@ -43,6 +45,7 @@ class UIDataAccess:
         self.parquet_dir = Path(parquet_dir)
         self.logs_dir = Path(logs_dir)
         self.config_dir = Path(config_dir)
+        self.manifest_path = self.config_dir / "trading_manifest.json"
         self.knowledge_map = AlphaKnowledgeMap()
 
     def _get_strategy_tuple_by_id(self, alpha_id: str) -> Optional[tuple]:
@@ -579,41 +582,38 @@ class UIDataAccess:
     def get_alpha_factory_summary(self) -> Dict[str, Any]:
         """Calculates authoritative Alpha Factory status counts across the persistent research state."""
         df_registry = self.get_alpha_registry_table()
-        unexplored_mechs = self.knowledge_map.get_unexplored_mechanisms()
 
         if df_registry.empty:
             return {
-                "total_alphas": len(unexplored_mechs),
+                "total_alphas": 0,
                 "tested": 0,
                 "currently_testing": 0,
                 "proven": 0,
                 "failed": 0,
-                "uncertain": 0,
-                "unexplored": len(unexplored_mechs),
+                "untested": 0,
             }
 
         total_tested = int(df_registry["tested"].map(lambda x: 1 if x == "YES" else 0).sum())
         proven_count = int((df_registry["status"] == "PROVEN").sum())
         failed_count = int((df_registry["status"] == "FAILED").sum())
-        uncertain_count = int((df_registry["status"] == "UNCERTAIN").sum())
-        unexplored_count = int((df_registry["status"] == "UNEXPLORED").sum()) + len(unexplored_mechs)
+        untested_count = int((df_registry["status"] == "UNTESTED").sum())
         
         curr_testing = int(df_registry["raw_status"].isin(["RESEARCH_CANDIDATE", "DEV_POSITIVE_QUALIFIED", "FORWARD_PAPER"]).sum())
 
         return {
-            "total_alphas": len(df_registry) + len(unexplored_mechs),
+            "total_alphas": len(df_registry),
             "tested": total_tested,
             "currently_testing": curr_testing,
             "proven": proven_count,
             "failed": failed_count,
-            "uncertain": uncertain_count,
-            "unexplored": unexplored_count,
+            "untested": untested_count,
         }
 
     def get_alpha_registry_table(self) -> pd.DataFrame:
         """Generates the comprehensive, sortable Master Alpha Registry Table."""
         km_alphas = {r.alpha_id.lower(): r for r in self.knowledge_map.get_all_mechanisms()}
         df_experiments = self._get_all_experiment_records()
+        strategy_classes = get_all_strategies(reload=True)
 
         latest_experiments = {}
         trial_counts_by_strat = {}
@@ -624,42 +624,66 @@ class UIDataAccess:
                 if s_id not in latest_experiments:
                     latest_experiments[s_id] = row.to_dict()
 
+        # Merge strategy classes and experiment records
+        all_alpha_keys = set(latest_experiments.keys())
+        for strat_name, strat_cls in strategy_classes.items():
+            s_id = getattr(strat_cls, "strategy_id", strat_name).lower()
+            all_alpha_keys.add(s_id)
+
         rows = []
-        for s_id, exp_data in latest_experiments.items():
-            strat_key = exp_data.get("strategy_id", s_id).lower()
-            strat_name = exp_data.get("hypothesis_name") or exp_data.get("strategy_id", s_id)
-            meta = exp_data
+        for s_id in sorted(list(all_alpha_keys)):
+            exp_data = latest_experiments.get(s_id)
+            strat_key = s_id
+            
+            strat_obj = None
+            for name, cls_obj in strategy_classes.items():
+                if name.lower() == s_id or getattr(cls_obj, "strategy_id", "").lower() == s_id:
+                    strat_obj = cls_obj
+                    break
+
+            meta = getattr(strat_obj, "metadata", None) if strat_obj else None
+            strat_name = exp_data.get("hypothesis_name") if exp_data else (getattr(meta, "name", None) or (strat_obj.__name__ if strat_obj else s_id))
+            economic_rationale = exp_data.get("economic_rationale", "") if exp_data else (getattr(meta, "economic_rationale", "") if meta else "")
 
             k_rec = km_alphas.get(strat_key)
 
-            matching_exp = exp_data
-            total_trials_for_strat = trial_counts_by_strat.get(s_id, 1)
+            if exp_data:
+                matching_exp = exp_data
+                raw_status = matching_exp.get("status", "UNTESTED")
+                if raw_status in ["PROVEN", "CAPITAL_CANDIDATE", "ACCEPTED", "DEV_POSITIVE_QUALIFIED"]:
+                    standard_status = "PROVEN"
+                elif raw_status in ["FAILED", "REJECTED", "REJECTED_AT_DEV", "EXPLORED_FAILED", "REJECTED_AT_STAGE_0"]:
+                    standard_status = "FAILED"
+                else:
+                    standard_status = "UNTESTED"
 
-            raw_status = matching_exp.get("status", "UNEXPLORED")
-
-            if raw_status in ["PROVEN", "CAPITAL_CANDIDATE", "ACCEPTED", "DEV_POSITIVE_QUALIFIED"]:
-                standard_status = "PROVEN"
-            elif raw_status in ["FAILED", "REJECTED", "REJECTED_AT_DEV", "EXPLORED_FAILED", "REJECTED_AT_STAGE_0"]:
-                standard_status = "FAILED"
-            elif raw_status in ["UNCERTAIN", "EXPLORED_UNCERTAIN", "LOW_FREQUENCY_WATCHLIST", "DECAYING_WATCHLIST", "RESEARCH_CANDIDATE", "FORWARD_PAPER"]:
-                standard_status = "UNCERTAIN"
+                is_tested = True
+                category_str = exp_data.get("category", getattr(meta, "category", "QUANTITATIVE_FACTOR"))
+                timeframe_str = matching_exp.get("timeframe", getattr(meta, "timeframe", "15m"))
+                sharpe_val = matching_exp.get("in_sample_sharpe")
+                net_pf_val = matching_exp.get("net_profit_factor")
+                oos_sharpe_val = matching_exp.get("cpcv_oos_sharpe")
+                max_dd_val = matching_exp.get("monte_carlo_95_max_dd")
+                last_tested_val = matching_exp.get("timestamp", "NOT AVAILABLE")
+                pos_syms = matching_exp.get("symbol_universe", "NOT AVAILABLE").split(",")
+                oos_trades_val = k_rec.oos_trades if k_rec else "NOT AVAILABLE"
+                oos_pnl_val = f"Rs {k_rec.oos_pnl_inr:,.0f}" if (k_rec and k_rec.oos_pnl_inr is not None) else "NOT AVAILABLE"
+                net_pnl_val = f"Rs {k_rec.pnl_540d_inr:,.0f}" if (k_rec and k_rec.pnl_540d_inr is not None) else "NOT AVAILABLE"
             else:
-                standard_status = "UNEXPLORED"
-
-            is_tested = True
-            category_str = exp_data.get("category", "UNKNOWN")
-
-            sharpe_val = matching_exp.get("in_sample_sharpe")
-            net_pf_val = matching_exp.get("net_profit_factor")
-            oos_sharpe_val = matching_exp.get("cpcv_oos_sharpe")
-            max_dd_val = matching_exp.get("monte_carlo_95_max_dd")
-            last_tested_val = matching_exp.get("timestamp", "NOT AVAILABLE")
-            
-            pos_syms = matching_exp.get("symbol_universe", "NOT AVAILABLE").split(",")
-
-            oos_trades_val = k_rec.oos_trades if k_rec else "NOT AVAILABLE"
-            oos_pnl_val = f"Rs {k_rec.oos_pnl_inr:,.0f}" if (k_rec and k_rec.oos_pnl_inr is not None) else "NOT AVAILABLE"
-            net_pnl_val = f"Rs {k_rec.pnl_540d_inr:,.0f}" if (k_rec and k_rec.pnl_540d_inr is not None) else "NOT AVAILABLE"
+                raw_status = "UNTESTED"
+                standard_status = "UNTESTED"
+                is_tested = False
+                category_str = getattr(meta, "category", "QUANTITATIVE_FACTOR") if meta else "UNKNOWN"
+                timeframe_str = getattr(meta, "timeframe", "15m") if meta else "15m"
+                sharpe_val = None
+                net_pf_val = None
+                oos_sharpe_val = None
+                max_dd_val = None
+                last_tested_val = "NEVER"
+                pos_syms = []
+                oos_trades_val = "0"
+                oos_pnl_val = "Rs 0"
+                net_pnl_val = "Rs 0"
 
             rows.append({
                 "alpha_id": strat_key,
@@ -667,10 +691,11 @@ class UIDataAccess:
                 "version": "v1.0.0",
                 "status": standard_status,
                 "raw_status": raw_status,
-                "dynamic_status": raw_status,
+                "dynamic_status": standard_status,
                 "tested": "YES" if is_tested else "NO",
-                "category": category_str,
-                "timeframe": matching_exp.get("timeframe", "15m"),
+                "category": str(category_str),
+                "economic_rationale": economic_rationale,
+                "timeframe": timeframe_str,
                 "universe": get_universe_name(),
                 "test_period": "540 Days (18M)",
                 "trades": getattr(k_rec, "oos_trades", "NOT AVAILABLE") if k_rec else "NOT AVAILABLE",
@@ -684,7 +709,7 @@ class UIDataAccess:
                 "oos_pnl": oos_pnl_val,
                 "oos_sharpe": round(float(oos_sharpe_val), 2) if oos_sharpe_val is not None else "NOT AVAILABLE",
                 "positive_symbols": ", ".join(pos_syms[:4]) + (f" +{len(pos_syms)-4}" if len(pos_syms) > 4 else "") if pos_syms else "NOT AVAILABLE",
-                "trials_count": trial_counts_by_strat.get(s_id, 1),
+                "trials_count": trial_counts_by_strat.get(s_id, 0),
                 "last_tested": str(last_tested_val)[:19] if len(str(last_tested_val)) >= 19 else str(last_tested_val),
             })
 
@@ -722,15 +747,13 @@ class UIDataAccess:
         latest_exp = matching_trials[0] if matching_trials else matching_exp
         strat_name = latest_exp.get("hypothesis_name") or latest_exp.get("strategy_id", strat_key)
 
-        raw_status = latest_exp.get("status", "UNEXPLORED")
+        raw_status = latest_exp.get("status", "UNTESTED")
         if raw_status in ["PROVEN", "CAPITAL_CANDIDATE", "ACCEPTED", "DEV_POSITIVE_QUALIFIED"]:
             standard_status = "PROVEN"
         elif raw_status in ["FAILED", "REJECTED", "REJECTED_AT_DEV", "EXPLORED_FAILED", "REJECTED_AT_STAGE_0"]:
             standard_status = "FAILED"
-        elif raw_status in ["UNCERTAIN", "EXPLORED_UNCERTAIN", "LOW_FREQUENCY_WATCHLIST", "DECAYING_WATCHLIST", "RESEARCH_CANDIDATE", "FORWARD_PAPER"]:
-            standard_status = "UNCERTAIN"
         else:
-            standard_status = "UNEXPLORED"
+            standard_status = "UNTESTED"
 
         rejection_reasons = []
         if latest_exp and latest_exp.get("rejection_reasons_json"):
@@ -751,7 +774,6 @@ class UIDataAccess:
                 timeframe_comparison = json.loads(latest_exp["timeframe_comparison_json"])
             except Exception:
                 pass
-
 
         gate_dsr_pass = dsr_pval <= 0.05
         gate_cpcv_pass = oos_sharpe > 0.0 or standard_status == "PROVEN"
@@ -809,13 +831,11 @@ class UIDataAccess:
         
         status_reason = ""
         if standard_status == "PROVEN":
-            status_reason = f"PROVEN: Exceeds required Net Profit Factor hurdle (Net PF {net_pf:.2f} > 1.08) and maintains robust positive Sharpe ({is_sharpe:+.2f}) after Indian statutory taxes and slippage."
+            status_reason = f"PROVEN: Exceeds required Net Profit Factor hurdle (Net PF {net_pf:.2f} >= 1.08) and maintains robust positive Sharpe ({is_sharpe:+.2f}) after Indian statutory taxes and slippage."
         elif standard_status == "FAILED":
             status_reason = f"FAILED: Rejected under institutional validation gates. {(' '.join(rejection_reasons)) if rejection_reasons else failure_lessons}"
-        elif standard_status == "UNCERTAIN":
-            status_reason = f"UNCERTAIN: Low trade sample size or mixed cross-sectional performance. {failure_lessons}"
         else:
-            status_reason = "UNEXPLORED: Theoretical candidate hypothesis on the research frontier. Not yet tested in backtest engine."
+            status_reason = "UNTESTED: Code registered in repository. Ready for automated backtest & hypothesis evaluation."
 
         metrics_dict = {
             "total_trades": latest_exp.get("total_trades", "NOT AVAILABLE") if latest_exp else "NOT AVAILABLE",
@@ -844,7 +864,7 @@ class UIDataAccess:
             "trials_evaluated": len(matching_trials),
         }
 
-        commit_sha = latest_exp.get("git_commit_sha", "HEAD") if latest_exp else ("HISTORICAL_RESEARCH" if k_rec else "UNEXPLORED")
+        commit_sha = latest_exp.get("git_commit_sha", "HEAD") if latest_exp else ("HISTORICAL_RESEARCH" if k_rec else "UNTESTED")
         test_ts = latest_exp.get("timestamp", "HISTORICAL_BASELINE") if latest_exp else ("HISTORICAL_BASELINE" if k_rec else "NOT AVAILABLE")
 
         return {
@@ -1021,38 +1041,91 @@ class UIDataAccess:
         Strictly distinguishes PROVEN in Alpha Factory vs ACTIVE IN TRADING.
         """
         active_list = []
-        
-        # NOTE: Legacy alphas have been archived.
-        # Fetch any active strategies dynamically from the registry.
-        active_contract_ids = {}  # E.g., read from a manifest file if needed
-        
+        manifest = TradingManifest.load_from_file(str(self.manifest_path))
         strategy_registry = get_all_strategies(reload=True)
 
-        for strat_key, (strat_name, ver, cat, act_state) in active_contract_ids.items():
-            strat_obj = strategy_registry.get(strat_name)
-            universe = get_universe_symbols()
-            tf = "15m"
-            if strat_obj:
-                try:
-                    meta = strat_obj().metadata
-                    universe = meta.target_instruments or universe
-                    tf = getattr(meta, "timeframe", "15m")
-                except Exception:
-                    pass
-
+        for contract in manifest.get_active_contracts():
+            strat_obj = strategy_registry.get(contract.alpha_id) or strategy_registry.get(contract.alpha_id.lower())
+            strat_name = getattr(contract.strategy_class, "__name__", contract.alpha_id) if contract.strategy_class else (strat_obj.__name__ if strat_obj else contract.alpha_id)
+            universe = contract.universe or get_universe_symbols()
             active_list.append({
-                "alpha_id": strat_key,
+                "alpha_id": contract.alpha_id,
                 "name": strat_name,
-                "version": ver,
-                "category": cat,
+                "version": contract.alpha_version,
+                "category": contract.category,
                 "factory_status": "PROVEN",
-                "trading_status": act_state,
-                "timeframe": tf,
+                "trading_status": contract.status,
+                "timeframe": contract.timeframe,
                 "universe": ", ".join(universe[:4]) + (f" +{len(universe)-4}" if len(universe) > 4 else ""),
                 "symbols_count": len(universe),
             })
 
         return active_list
+
+    def promote_alpha_to_paper(self, alpha_id: str) -> tuple:
+        """Promotes a PROVEN alpha to Paper Trading Manifest."""
+        strat_key = alpha_id.lower().strip()
+        detail = self.get_alpha_detail(strat_key)
+        if not detail or not detail.get("alpha_id"):
+            return False, f"Alpha '{alpha_id}' not found in Alpha Factory."
+
+        if detail.get("status") != "PROVEN":
+            return False, f"Cannot promote '{alpha_id}' with status '{detail.get('status')}'. Only 'PROVEN' Alphas passing all 4 institutional qualification gates can be promoted to Paper Trading."
+
+        manifest = TradingManifest.load_from_file(str(self.manifest_path))
+        strat_registry = get_all_strategies(reload=True)
+        strat_cls = strat_registry.get(detail.get("name")) or strat_registry.get(alpha_id)
+
+        contract = QualifiedAlphaContract(
+            alpha_id=strat_key,
+            strategy_class=strat_cls,
+            alpha_version=detail.get("version", "v1.0.0"),
+            category=detail.get("category", "MOMENTUM"),
+            economic_rationale=detail.get("hypothesis", ""),
+            parameters=detail.get("parameters", {}),
+            universe=detail.get("target_instruments") or get_universe_symbols(),
+            timeframe=detail.get("timeframe", "15m"),
+            status="ACTIVE",
+        )
+        manifest.register_contract(contract)
+        manifest.save_to_file(str(self.manifest_path))
+        return True, f"Successfully promoted '{alpha_id}' (v{contract.alpha_version}) to Active Paper Trading Manifest."
+
+    def run_alpha_backtest(self, alpha_id: str) -> Dict[str, Any]:
+        """Runs institutional backtest and records results into experiment_ledger.db."""
+        from scripts.run_hypothesis_lab import run_strategy_backtest
+        from src.research.validator import StatisticalValidator
+        from src.backtest.engine import BacktestEngine
+        from src.analytics.indian_costs import IndianCostModel, Segment
+        from src.data.data_lake import DataLake
+
+        strat_registry = get_all_strategies(reload=True)
+        strat_cls = strat_registry.get(alpha_id)
+        if not strat_cls:
+            for k, v in strat_registry.items():
+                if k.lower() == alpha_id.lower():
+                    strat_cls = v
+                    break
+
+        if not strat_cls:
+            return {"status": "ERROR", "message": f"Strategy class '{alpha_id}' not found in registry."}
+
+        strat_obj = strat_cls()
+        symbols = get_universe_symbols()
+        lake = DataLake(read_only=True)
+        cost_model = IndianCostModel()
+        engine = BacktestEngine(cost_model=cost_model, initial_capital=500000.0, segment=Segment.EQUITY_INTRADAY)
+        validator = StatisticalValidator()
+
+        res = run_strategy_backtest(
+            strat_id=alpha_id,
+            strat_obj=strat_obj,
+            symbols=symbols,
+            lake=lake,
+            engine=engine,
+            validator=validator,
+        )
+        return res
 
     def get_alpha_symbol_evaluation_matrix(self) -> pd.DataFrame:
         """

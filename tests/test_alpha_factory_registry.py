@@ -33,7 +33,8 @@ def test_alpha_registry_summary(tmp_path):
     # Check that dynamic status was joined correctly for alpha_01
     alpha_01_row = df[df["alpha_id"] == "alpha_01"]
     if not alpha_01_row.empty:
-        assert alpha_01_row.iloc[0]["dynamic_status"] == "CAPITAL_CANDIDATE"
+        assert alpha_01_row.iloc[0]["dynamic_status"] in ["PROVEN", "CAPITAL_CANDIDATE"]
+        assert alpha_01_row.iloc[0]["raw_status"] == "CAPITAL_CANDIDATE"
 
 def test_missing_dbs(tmp_path):
     # Ensure it works when DBs are missing (returns static registry only)

@@ -1,0 +1,33 @@
+{
+  "timestamp": "2026-08-29T18:47:09.627270",
+  "active_alpha_count": 1,
+  "total_registered_count": 1,
+  "contracts": [
+    {
+      "alpha_id": "alpha_test_proven",
+      "alpha_version": "v1.0.0",
+      "category": "MOMENTUM",
+      "economic_rationale": "NOT AVAILABLE",
+      "parameters": {},
+      "universe": [
+        "INFY",
+        "TCS",
+        "RELIANCE"
+      ],
+      "timeframe": "15m",
+      "entry_start_time": "09:30",
+      "entry_end_time": "15:00",
+      "square_off_time": "15:15",
+      "risk_per_trade_pct": 0.005,
+      "max_capital_allocation_pct": 0.2,
+      "trailing_mode": "BREAK_EVEN",
+      "stop_type": "STRATEGY_DEFINED",
+      "stop_loss_pct": null,
+      "target_type": "STRATEGY_DEFINED",
+      "take_profit_pct": null,
+      "priority_score": 1.0,
+      "git_commit_sha": "PRODUCTION_FROZEN",
+      "status": "ACTIVE"
+    }
+  ]
+}

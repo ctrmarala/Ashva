@@ -77,3 +77,27 @@ class TradingManifest:
             "total_registered_count": len(self._contracts),
             "contracts": [c.to_dict() for c in self._contracts.values()],
         }
+
+    def save_to_file(self, file_path: str = "config/trading_manifest.json"):
+        """Persists manifest to JSON file."""
+        p = Path(file_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(self.to_manifest_dict(), f, indent=2)
+
+    @classmethod
+    def load_from_file(cls, file_path: str = "config/trading_manifest.json") -> "TradingManifest":
+        """Loads and reconstructs TradingManifest from JSON file."""
+        p = Path(file_path)
+        if not p.exists():
+            return cls(contracts=[])
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            contracts = []
+            for c_dict in data.get("contracts", []):
+                contracts.append(QualifiedAlphaContract.from_dict(c_dict))
+            return cls(contracts=contracts)
+        except Exception as e:
+            logger.warning(f"Could not load TradingManifest from {file_path}: {e}")
+            return cls(contracts=[])

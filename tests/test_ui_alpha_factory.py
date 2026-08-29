@@ -46,7 +46,7 @@ def mock_dal(tmp_path):
             INSERT INTO experiments VALUES 
             ('alpha_test_proven', 'Proven Test Alpha', 'PROVEN', 2.1, 1.6, 0.005, 1.85, -8.2, 'MOMENTUM', '15m', 'INFY,TCS,RELIANCE', 10, '2026-08-29T10:00:00', 'git123'),
             ('alpha_test_failed', 'Failed Test Alpha', 'FAILED', 0.4, -0.2, 0.45, 0.72, -22.5, 'MEAN_REVERSION', '15m', 'INFY,TCS', 5, '2026-08-29T11:00:00', 'git124'),
-            ('alpha_test_uncertain', 'Uncertain Test Alpha', 'UNCERTAIN', 1.2, 0.8, 0.12, 1.15, -14.0, 'VOLATILITY_EXPANSION', '15m', 'INFY', 8, '2026-08-29T12:00:00', 'git125')
+            ('alpha_test_untested', 'Untested Test Alpha', 'UNTESTED', 0.0, 0.0, 1.0, 0.0, 0.0, 'VOLATILITY_EXPANSION', '15m', 'INFY', 0, '2026-08-29T12:00:00', 'git125')
         """)
 
     return UIDataAccess(
@@ -61,10 +61,10 @@ def mock_dal(tmp_path):
 def test_alpha_factory_summary_counts(mock_dal):
     summary = mock_dal.get_alpha_factory_summary()
     assert summary["total_alphas"] >= 3
-    assert summary["tested"] >= 3
+    assert summary["tested"] >= 2
     assert summary["proven"] == 1
     assert summary["failed"] == 1
-    assert summary["uncertain"] == 1
+    assert summary["untested"] == 1
 
 
 def test_alpha_registry_table_structure(mock_dal):
@@ -74,7 +74,7 @@ def test_alpha_registry_table_structure(mock_dal):
     
     expected_cols = [
         "alpha_id", "name", "version", "status", "raw_status", "dynamic_status", "tested",
-        "category", "timeframe", "universe", "test_period", "trades", "win_rate", "net_pnl",
+        "category", "economic_rationale", "timeframe", "universe", "test_period", "trades", "win_rate", "net_pnl",
         "expectancy", "profit_factor", "sharpe", "max_drawdown", "oos_trades", "oos_pnl",
         "oos_sharpe", "positive_symbols", "trials_count", "last_tested"
     ]
@@ -108,11 +108,10 @@ def test_failed_alpha_detail(mock_dal):
     assert detail["is_tested"] is True
 
 
-def test_uncertain_alpha_detail(mock_dal):
-    detail = mock_dal.get_alpha_detail("alpha_test_uncertain")
-    assert detail["alpha_id"] == "alpha_test_uncertain"
-    assert detail["status"] == "UNCERTAIN"
-    assert detail["is_tested"] is True
+def test_untested_alpha_detail(mock_dal):
+    detail = mock_dal.get_alpha_detail("alpha_test_untested")
+    assert detail["alpha_id"] == "alpha_test_untested"
+    assert detail["status"] == "UNTESTED"
 
 
 def test_metrics_demarcation(mock_dal):
@@ -123,6 +122,18 @@ def test_metrics_demarcation(mock_dal):
     assert m["avg_win"] == "NOT IMPLEMENTED"
 
 
+def test_promote_alpha_to_paper(mock_dal):
+    # Proven alpha can be promoted
+    success, msg = mock_dal.promote_alpha_to_paper("alpha_test_proven")
+    assert success is True
+    assert "Successfully promoted" in msg
+
+    # Failed alpha cannot be promoted
+    success_f, msg_f = mock_dal.promote_alpha_to_paper("alpha_test_failed")
+    assert success_f is False
+    assert "Cannot promote" in msg_f
+
+
 def test_fresh_dal_behavior():
     dal1 = UIDataAccess()
     dal2 = UIDataAccess()
@@ -131,5 +142,5 @@ def test_fresh_dal_behavior():
 
 
 def test_missing_alpha_handling(mock_dal):
-    detail = mock_dal.get_alpha_detail("alpha_nonexistent_999")
+    detail = mock_dal.get_alpha_detail("non_existent_alpha_xyz")
     assert detail == {}

@@ -252,34 +252,41 @@ def render_alpha_factory(dal: UIDataAccess):
 
     # 1. Section 1: Factory Summary KPI Metrics
     summary = dal.get_alpha_factory_summary()
-    kpi1, kpi2, kpi3, kpi4, kpi5, kpi6 = st.columns(6)
+    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 
     total_alphas = summary.get("total_alphas", 0)
     tested_alphas = summary.get("tested", 0)
     kpi1.metric("Total Alphas", total_alphas)
     kpi2.metric("Actually Tested", f"{tested_alphas} / {total_alphas}")
-    kpi3.metric("PROVEN (Capital)", summary.get("proven", 0))
+    kpi3.metric("PROVEN (Capital Cleared)", summary.get("proven", 0))
     kpi4.metric("FAILED (Rejected)", summary.get("failed", 0))
-    kpi5.metric("UNCERTAIN (Watchlist)", summary.get("uncertain", 0))
-    kpi6.metric("UNEXPLORED", summary.get("unexplored", 0))
 
     st.markdown("---")
 
     # 2. Section 2: Master Alpha Registry Table with Filters
     st.subheader("Master Alpha Registry")
     
+    df_registry = dal.get_alpha_registry_table()
+
+    # Dynamically extract all available categories
+    available_categories = ["ALL"]
+    if df_registry is not None and not df_registry.empty and "category" in df_registry.columns:
+        cats = sorted(list(set(df_registry["category"].dropna().astype(str).unique())))
+        for c in cats:
+            if c not in available_categories and c != "UNKNOWN":
+                available_categories.append(c)
+    if len(available_categories) == 1:
+        available_categories.extend(["MOMENTUM", "VOLATILITY_EXPANSION", "OPENING_AUCTION", "ORDER_FLOW_IMBALANCE", "STATISTICAL_REVERSION"])
+
     col_f1, col_f2, col_f3, col_f4 = st.columns(4)
     with col_f1:
-        status_filter = st.selectbox("Filter by Status", ["ALL", "PROVEN", "FAILED", "UNCERTAIN", "UNEXPLORED"], index=0, key="filter_alpha_status")
+        status_filter = st.selectbox("Filter by Status", ["ALL", "PROVEN", "FAILED", "UNTESTED"], index=0, key="filter_alpha_status")
     with col_f2:
         tested_filter = st.selectbox("Tested / Untested", ["ALL", "YES", "NO"], index=0, key="filter_alpha_tested")
     with col_f3:
-        category_filter = st.selectbox("Category Filter", ["ALL", "MOMENTUM", "VOLATILITY_EXPANSION", "OPENING_AUCTION", "ORDER_FLOW_IMBALANCE", "STATISTICAL_REVERSION"], index=0, key="filter_alpha_category")
+        category_filter = st.selectbox("Category Filter", available_categories, index=0, key="filter_alpha_category")
     with col_f4:
-        st.markdown('<div class="stat-value" style="font-size: 1.1rem; color: #b0b0b0;">Global Discovery Registry</div>', unsafe_allow_html=True)
-        search_query = st.text_input("Search Alpha ID / Name / Rationale", placeholder="e.g. DOUBLE_INSIDE, ORB...", key="search_alpha_registry")
-
-    df_registry = dal.get_alpha_registry_table()
+        search_query = st.text_input("Search Alpha ID / Name / Rationale", placeholder="e.g. MOMENTUM, GAP...", key="search_alpha_registry")
 
     if df_registry is not None and not df_registry.empty:
         df_disp = df_registry.copy()
@@ -292,7 +299,7 @@ def render_alpha_factory(dal: UIDataAccess):
             df_disp = df_disp[df_disp["category"].str.contains(category_filter, case=False, na=False)]
         if search_query:
             match_mask = pd.Series(False, index=df_disp.index)
-            for c in ["alpha_id", "name", "category"]:
+            for c in ["alpha_id", "name", "category", "economic_rationale"]:
                 if c in df_disp.columns:
                     match_mask = match_mask | df_disp[c].astype(str).str.contains(search_query, case=False, na=False)
             df_disp = df_disp[match_mask]
@@ -303,7 +310,7 @@ def render_alpha_factory(dal: UIDataAccess):
             hide_index=True,
         )
     else:
-        st.info("ℹ️ **Active Alpha Registry is clean & reset.** Ready to discover and validate new hypotheses across the dynamic 77-equity universe.")
+        st.info("ℹ️ **Active Alpha Registry is clean & reset (0 active alphas).** Ready to discover and validate new hypotheses across the dynamic 77-equity universe.")
 
     st.markdown("---")
 
@@ -312,9 +319,28 @@ def render_alpha_factory(dal: UIDataAccess):
     alpha_options = list(df_registry["alpha_id"].values) if (df_registry is not None and not df_registry.empty and "alpha_id" in df_registry.columns) else []
     
     if alpha_options:
-        colA, colB, colC = st.columns([1, 1, 1])
+        colA, colB, colC = st.columns([2, 1, 1])
         with colA:
             selected_alpha = st.selectbox("Select Alpha ID for Full Quantitative Audit", alpha_options, index=0, key="select_alpha_detail")
+        with colB:
+            st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+            if st.button("▶️ Re-run Backtest", key="btn_rerun_alpha", use_container_width=True):
+                with st.spinner(f"Running quantitative backtest for {selected_alpha}..."):
+                    res = dal.run_alpha_backtest(selected_alpha)
+                    if res.get("status") == "ERROR":
+                        st.error(res.get("message", "Backtest failed"))
+                    else:
+                        st.success(f"Backtest completed for {selected_alpha} across {len(get_universe_symbols())} symbols!")
+                        st.rerun()
+        with colC:
+            st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+            if st.button("🚀 Promote to Paper", key="btn_promote_alpha", use_container_width=True):
+                success, msg = dal.promote_alpha_to_paper(selected_alpha)
+                if success:
+                    st.success(msg)
+                    st.rerun()
+                else:
+                    st.error(msg)
 
         detail = dal.get_alpha_detail(selected_alpha) if selected_alpha else {}
     else:
@@ -322,7 +348,7 @@ def render_alpha_factory(dal: UIDataAccess):
         detail = {}
 
     if detail and detail.get("alpha_id"):
-        st.markdown(f"### `{str(detail.get('alpha_id', '')).upper()}`: {detail.get('name', 'Strategy')} — Status: `{detail.get('status', 'UNEXPLORED')}`")
+        st.markdown(f"### `{str(detail.get('alpha_id', '')).upper()}`: {detail.get('name', 'Strategy')} — Status: `{detail.get('status', 'UNTESTED')}`")
         st.caption(f"Category: **{detail.get('category', 'UNKNOWN')}** | Timeframe: **{detail.get('timeframe', '15m')}** | Version: **{detail.get('version', 'v1.0.0')}** | Tested: **{'YES' if detail.get('is_tested') else 'NO'}**")
 
         detail_tabs = st.tabs([
@@ -385,17 +411,15 @@ def render_alpha_factory(dal: UIDataAccess):
 
             st.markdown("#### Status Explanation & Quantitative Justification")
             explanations = detail.get("explanations", {})
-            status_val = detail.get("status", "UNEXPLORED")
+            status_val = detail.get("status", "UNTESTED")
             status_reason = explanations.get("status_reason", "Awaiting comprehensive backtest evaluation.")
             
             if status_val == "PROVEN":
                 st.success(f"**PROVEN QUALIFICATION**: {status_reason}")
             elif status_val == "FAILED":
                 st.error(f"**FAILED / REJECTED**: {status_reason}")
-            elif status_val == "UNCERTAIN":
-                st.warning(f"**UNCERTAIN**: {status_reason}")
             else:
-                st.info(f"**UNEXPLORED**: {status_reason}")
+                st.info(f"**UNTESTED**: {status_reason}")
 
             if explanations.get("failure_lessons") and explanations["failure_lessons"] != "NOT APPLICABLE":
                 st.warning(f"**Empirical Failure Lessons & Friction Analysis**: {explanations['failure_lessons']}")
