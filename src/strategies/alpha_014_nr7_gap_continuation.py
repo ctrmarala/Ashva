@@ -53,9 +53,9 @@ class Alpha14NR7GapContinuation(BaseHypothesis, BaseStrategy):
         default_params = {
             "min_rvol": 1.30,                 # 1.30x relative volume surge
             "stop_loss_pct": 0.0040,          # 0.40% tight structural stop
-            "take_profit_pct": 0.0080,        # 0.80% take profit (2.0:1 RR)
-            "trail_trigger_pct": 0.0050,      # Dynamic profit lock trigger at +0.50%
-            "trail_lock_pct": 0.0015,         # Lock in +0.15% once trigger hit
+            "take_profit_pct": 0.0150,        # 1.50% take profit (3.75:1 RR)
+            "trail_trigger_pct": 0.0090,      # Dynamic profit lock trigger at +0.90%
+            "trail_lock_pct": 0.0040,         # Lock in +0.40% once trigger hit
             "max_holding_bars": 8,            # Max holding duration (2 hours on 15m)
             "timeframe": "15m",               # Default research timeframe
             "entry_start_time": "09:30",      # Morning window opens

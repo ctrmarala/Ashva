@@ -52,8 +52,8 @@ class Alpha20PowerHourTrendAcceleration(BaseHypothesis, BaseStrategy):
     def __init__(self, parameters: Optional[Dict[str, Any]] = None):
         default_params = {
             "min_rvol": 1.35,                 # 1.35x relative volume surge
-            "stop_loss_pct": 0.0035,          # 0.35% tight structural stop
-            "take_profit_pct": 0.0070,        # 0.70% take profit (2.0:1 RR)
+            "stop_loss_pct": 0.0070,          # 0.70% structural stop
+            "take_profit_pct": 0.0150,        # 1.50% take profit (2.1:1 RR)
             "trail_trigger_pct": 0.0040,      # Dynamic profit lock trigger at +0.40%
             "trail_lock_pct": 0.0010,         # Lock in +0.10% once trigger hit
             "max_holding_bars": 4,            # Max holding duration (1 hour on 15m)
@@ -70,7 +70,7 @@ class Alpha20PowerHourTrendAcceleration(BaseHypothesis, BaseStrategy):
             category="TIME_OF_DAY_MICROSTRUCTURE",
             economic_rationale=(
                 "Captures institutional closing auction flows and MOC imbalances during Power Hour (14:15–15:15). "
-                "Tight 0.35% stop and 4-bar holding duration minimizes holding risk."
+                "0.70% stop gives room for noise, 1.50% TP allows solid 2.1:1 RR."
             ),
             target_instruments=merged_params.get("target_instruments", []),
             timeframe=merged_params.get("timeframe", "15m"),
@@ -89,8 +89,8 @@ class Alpha20PowerHourTrendAcceleration(BaseHypothesis, BaseStrategy):
     def get_parameter_grid(self) -> Dict[str, List[Any]]:
         return {
             "min_rvol": [1.20, 1.35, 1.50],
-            "stop_loss_pct": [0.0030, 0.0035, 0.0045],
-            "take_profit_pct": [0.0065, 0.0070, 0.0085],
+            "stop_loss_pct": [0.0060, 0.0070, 0.0080],
+            "take_profit_pct": [0.0120, 0.0150, 0.0180],
             "max_holding_bars": [3, 4, 5],
         }
 
@@ -113,8 +113,8 @@ class Alpha20PowerHourTrendAcceleration(BaseHypothesis, BaseStrategy):
         out.sort_index(inplace=True)
 
         min_rvol = float(self.parameters.get("min_rvol", 1.35))
-        sl_pct = float(self.parameters.get("stop_loss_pct", 0.0035))
-        tp_pct = float(self.parameters.get("take_profit_pct", 0.0070))
+        sl_pct = float(self.parameters.get("stop_loss_pct", 0.0070))
+        tp_pct = float(self.parameters.get("take_profit_pct", 0.0150))
         trail_trig = float(self.parameters.get("trail_trigger_pct", 0.0040))
         trail_lock = float(self.parameters.get("trail_lock_pct", 0.0010))
         max_bars = int(self.parameters.get("max_holding_bars", 4))
@@ -259,12 +259,16 @@ class Alpha20PowerHourTrendAcceleration(BaseHypothesis, BaseStrategy):
             return []
 
         if pos != 0.0:
-            sl_px = self._entry_price[sym] * (1.0 - 0.0035) if pos > 0 else self._entry_price[sym] * (1.0 + 0.0035)
-            tp_px = self._entry_price[sym] * (1.0 + 0.0070) if pos > 0 else self._entry_price[sym] * (1.0 - 0.0070)
+            sl_pct = float(self.parameters.get("stop_loss_pct", 0.0070))
+            tp_pct = float(self.parameters.get("take_profit_pct", 0.0150))
+            max_bars = int(self.parameters.get("max_holding_bars", 4))
+            
+            sl_px = self._entry_price[sym] * (1.0 - sl_pct) if pos > 0 else self._entry_price[sym] * (1.0 + sl_pct)
+            tp_px = self._entry_price[sym] * (1.0 + tp_pct) if pos > 0 else self._entry_price[sym] * (1.0 - tp_pct)
             self._bars_held[sym] = self._bars_held.get(sym, 0) + 1
 
-            if (pos > 0 and (l_px <= sl_px or h_px >= tp_px or self._bars_held[sym] >= 4)) or \
-               (pos < 0 and (h_px >= sl_px or l_px <= tp_px or self._bars_held[sym] >= 4)):
+            if (pos > 0 and (l_px <= sl_px or h_px >= tp_px or self._bars_held[sym] >= max_bars)) or \
+               (pos < 0 and (h_px >= sl_px or l_px <= tp_px or self._bars_held[sym] >= max_bars)):
                 self._current_pos[sym] = 0.0
                 return [SignalEvent(strategy_id=self.strategy_id, symbol=sym, signal_type=SignalType.FLAT, timestamp=event.timestamp)]
 

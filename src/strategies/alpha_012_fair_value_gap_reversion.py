@@ -54,8 +54,8 @@ class Alpha12FairValueGapReversion(BaseHypothesis, BaseStrategy):
     def __init__(self, parameters: Optional[Dict[str, Any]] = None):
         default_params = {
             "min_fvg_pct": 0.0030,            # Min 0.30% gap size for institutional FVG
-            "stop_loss_pct": 0.0040,          # 0.40% tight structural stop loss
-            "take_profit_pct": 0.0160,        # 1.60% profit target (4.0:1 RR)
+            "stop_loss_pct": 0.0075,          # 0.75% structural stop loss
+            "take_profit_pct": 0.0175,        # 1.75% profit target (2.3:1 RR)
             "trail_trigger_pct": 0.0070,      # Dynamic profit lock trigger at +0.70%
             "trail_lock_pct": 0.0015,         # Lock in +0.15% once trigger hit
             "max_holding_bars": 8,            # Max holding duration (4 hours on 30m)
@@ -72,7 +72,7 @@ class Alpha12FairValueGapReversion(BaseHypothesis, BaseStrategy):
             category="ORDER_FLOW_IMBALANCE",
             economic_rationale=(
                 "Exploits institutional order-flow imbalances (Fair Value Gaps) formed at market open. "
-                "Retests of unfilled FVG zones provide 4.0:1 asymmetric reward-to-risk with tight 0.40% risk, "
+                "Retests of unfilled FVG zones provide asymmetric reward-to-risk with 0.75% risk, "
                 "drastically lowering statutory friction impact."
             ),
             target_instruments=merged_params.get("target_instruments", []),
@@ -93,8 +93,8 @@ class Alpha12FairValueGapReversion(BaseHypothesis, BaseStrategy):
         """Returns the parameter search space for sensitivity and robustness testing."""
         return {
             "min_fvg_pct": [0.0020, 0.0030, 0.0040],
-            "stop_loss_pct": [0.0035, 0.0040, 0.0050],
-            "take_profit_pct": [0.0140, 0.0160, 0.0180],
+            "stop_loss_pct": [0.0065, 0.0075, 0.0085],
+            "take_profit_pct": [0.0155, 0.0175, 0.0195],
             "max_holding_bars": [6, 8, 10],
         }
 
@@ -121,8 +121,8 @@ class Alpha12FairValueGapReversion(BaseHypothesis, BaseStrategy):
         out.sort_index(inplace=True)
 
         min_fvg = float(self.parameters.get("min_fvg_pct", 0.0030))
-        sl_pct = float(self.parameters.get("stop_loss_pct", 0.0040))
-        tp_pct = float(self.parameters.get("take_profit_pct", 0.0160))
+        sl_pct = float(self.parameters.get("stop_loss_pct", 0.0075))
+        tp_pct = float(self.parameters.get("take_profit_pct", 0.0175))
         trail_trig = float(self.parameters.get("trail_trigger_pct", 0.0070))
         trail_lock = float(self.parameters.get("trail_lock_pct", 0.0015))
         max_bars = int(self.parameters.get("max_holding_bars", 8))
@@ -272,12 +272,16 @@ class Alpha12FairValueGapReversion(BaseHypothesis, BaseStrategy):
 
         # Check holding exit
         if pos != 0.0:
-            sl_px = self._entry_price[sym] * (1.0 - 0.0040) if pos > 0 else self._entry_price[sym] * (1.0 + 0.0040)
-            tp_px = self._entry_price[sym] * (1.0 + 0.0160) if pos > 0 else self._entry_price[sym] * (1.0 - 0.0160)
+            sl_pct = float(self.parameters.get("stop_loss_pct", 0.0075))
+            tp_pct = float(self.parameters.get("take_profit_pct", 0.0175))
+            max_bars = int(self.parameters.get("max_holding_bars", 8))
+            
+            sl_px = self._entry_price[sym] * (1.0 - sl_pct) if pos > 0 else self._entry_price[sym] * (1.0 + sl_pct)
+            tp_px = self._entry_price[sym] * (1.0 + tp_pct) if pos > 0 else self._entry_price[sym] * (1.0 - tp_pct)
             self._bars_held[sym] = self._bars_held.get(sym, 0) + 1
 
-            if (pos > 0 and (l_px <= sl_px or h_px >= tp_px or self._bars_held[sym] >= 8)) or \
-               (pos < 0 and (h_px >= sl_px or l_px <= tp_px or self._bars_held[sym] >= 8)):
+            if (pos > 0 and (l_px <= sl_px or h_px >= tp_px or self._bars_held[sym] >= max_bars)) or \
+               (pos < 0 and (h_px >= sl_px or l_px <= tp_px or self._bars_held[sym] >= max_bars)):
                 self._current_pos[sym] = 0.0
                 return [SignalEvent(strategy_id=self.strategy_id, symbol=sym, signal_type=SignalType.FLAT, timestamp=event.timestamp)]
 
