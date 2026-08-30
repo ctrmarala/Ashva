@@ -618,29 +618,55 @@ class UIDataAccess:
 
         latest_experiments = {}
         trial_counts_by_strat = {}
+        status_priority = {
+            "PROVEN": 1,
+            "CAPITAL_CANDIDATE": 1,
+            "ACCEPTED": 1,
+            "DEV_POSITIVE_QUALIFIED": 2,
+            "FORWARD_PAPER": 3,
+            "RESEARCH_CANDIDATE": 4,
+        }
         if not df_experiments.empty:
             for _, row in df_experiments.iterrows():
                 s_id = str(row["strategy_id"]).lower()
                 trial_counts_by_strat[s_id] = trial_counts_by_strat.get(s_id, 0) + 1
                 if s_id not in latest_experiments:
                     latest_experiments[s_id] = row.to_dict()
+                else:
+                    curr = latest_experiments[s_id]
+                    curr_prio = status_priority.get(curr.get("status", ""), 99)
+                    new_prio = status_priority.get(row.get("status", ""), 99)
+                    if new_prio < curr_prio:
+                        latest_experiments[s_id] = row.to_dict()
 
-        # Merge strategy classes and experiment records
-        all_alpha_keys = set(latest_experiments.keys())
-        for strat_name, strat_cls in strategy_classes.items():
-            s_id = getattr(strat_cls, "strategy_id", strat_name).lower()
-            all_alpha_keys.add(s_id)
+        # Collect all canonical active strategies and any unique experiment records
+        all_alpha_keys = set(strategy_classes.keys())
+        for s_id in latest_experiments.keys():
+            canonical = s_id.lower().replace("hyp_", "")
+            if canonical not in all_alpha_keys:
+                all_alpha_keys.add(s_id)
+
+        active_strategy_ids = sorted(
+            list(all_alpha_keys),
+            key=lambda x: int(x.split('_')[0]) if x.split('_')[0].isdigit() else 999
+        )
 
         rows = []
-        for s_id in sorted(list(all_alpha_keys)):
-            exp_data = latest_experiments.get(s_id)
-            strat_key = s_id
+        for s_id in active_strategy_ids:
+            strat_key = s_id.lower()
+            strat_obj = strategy_classes.get(s_id) or strategy_classes.get(strat_key)
+            if not strat_obj:
+                for name, cls_obj in strategy_classes.items():
+                    if name.lower() == strat_key or getattr(cls_obj, "strategy_id", "").lower() == strat_key:
+                        strat_obj = cls_obj
+                        break
             
-            strat_obj = None
-            for name, cls_obj in strategy_classes.items():
-                if name.lower() == s_id or getattr(cls_obj, "strategy_id", "").lower() == s_id:
-                    strat_obj = cls_obj
-                    break
+            # Find experiment data matching canonical ID or legacy exploratory HYP_ alias
+            exp_data = (
+                latest_experiments.get(strat_key)
+                or latest_experiments.get(f"hyp_{strat_key}")
+                or latest_experiments.get(f"hyp_{strat_key.upper()}")
+            )
 
             strat_inst = None
             if strat_obj is not None:

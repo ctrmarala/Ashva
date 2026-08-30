@@ -2,6 +2,7 @@
 Ashva Dynamic Strategy Registry
 Provides plug-and-play auto-discovery for all Alpha strategy classes in src/strategies/.
 Any new alpha_*.py file placed in src/strategies/ is immediately accessible without manual registration.
+Returns canonical 1-to-1 mapping of Strategy ID -> Strategy Class.
 """
 
 import importlib
@@ -15,7 +16,7 @@ _STRATEGY_CACHE: Optional[Dict[str, Type[Any]]] = None
 def get_all_strategies(reload: bool = False) -> Dict[str, Type[Any]]:
     """
     Scans src/strategies/ for all alpha_*.py files, imports them dynamically,
-    and returns a mapping of StrategyName -> StrategyClass.
+    and returns a canonical mapping of StrategyID -> StrategyClass (1 entry per strategy).
     """
     global _STRATEGY_CACHE
     if _STRATEGY_CACHE is not None and not reload:
@@ -39,10 +40,8 @@ def get_all_strategies(reload: bool = False) -> Dict[str, Type[Any]]:
                     and hasattr(obj, "generate_signals")
                     and obj.__name__ not in ["BaseStrategy", "BaseHypothesis", "CrossSectionalHypothesis"]
                 ):
-                    strategies[attr] = obj
-                    strat_id = getattr(obj, "strategy_id", None)
-                    if strat_id and strat_id != attr:
-                        strategies[strat_id] = obj
+                    strat_id = getattr(obj, "strategy_id", None) or attr
+                    strategies[strat_id] = obj
                     break
         except Exception as e:
             print(f"[!] Warning: Could not auto-load strategy module {p.name}: {e}")
@@ -52,10 +51,16 @@ def get_all_strategies(reload: bool = False) -> Dict[str, Type[Any]]:
 
 
 def get_strategy_by_name(name: str) -> Optional[Type[Any]]:
-    """Retrieves a strategy class by its exact class name or fuzzy match."""
+    """
+    Retrieves a strategy class by its exact strategy_id, class name, or case-insensitive match.
+    """
     strats = get_all_strategies()
     if name in strats:
         return strats[name]
 
-    normalized_map = {k.lower(): v for k, v in strats.items()}
-    return normalized_map.get(name.lower())
+    # Check class names or case-insensitive keys
+    for k, cls in strats.items():
+        if k.lower() == name.lower() or cls.__name__.lower() == name.lower():
+            return cls
+
+    return None
