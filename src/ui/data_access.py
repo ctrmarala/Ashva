@@ -1053,7 +1053,7 @@ class UIDataAccess:
             "exit_conditions": "Intraday 15:15 IST Mandatory Square-off + Dynamic Trailing Stop",
             "parameters": {},
             "target_instruments": target_syms,
-            "is_tested": len(matching_trials) > 0 or (k_rec is not None),
+            "is_tested": (latest_exp is not None and latest_exp.get("status") not in ["UNTESTED", None]),
             "research_evidence": {
                 "research_start": research_start_global,
                 "research_end": research_end_global,

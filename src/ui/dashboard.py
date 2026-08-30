@@ -393,29 +393,35 @@ def render_alpha_factory(dal: UIDataAccess):
 
         with detail_tabs[1]:
             st.markdown("#### Institutional Qualification Gates Evaluation")
+            status_val = detail.get("status", "UNTESTED")
+            is_tested = detail.get("is_tested", False) and status_val != "UNTESTED"
             gates = detail.get("qualification_gates", {})
             
             g_col1, g_col2, g_col3, g_col4 = st.columns(4)
             
             g1 = gates.get("gate_1_dsr", {})
-            g_col1.metric(g1.get("name", "DSR Test"), g1.get("value", "N/A"), delta="PASS" if g1.get("passed") else "FAIL", delta_color="normal" if g1.get("passed") else "inverse")
-            g_col1.caption(f"Hurdle: {g1.get('threshold', 'N/A')}")
-
             g2 = gates.get("gate_2_cpcv", {})
-            g_col2.metric(g2.get("name", "CPCV OOS Quality"), g2.get("value", "N/A"), delta="PASS" if g2.get("passed") else "FAIL", delta_color="normal" if g2.get("passed") else "inverse")
-            g_col2.caption(f"Hurdle: {g2.get('threshold', 'N/A')}")
-
             g3 = gates.get("gate_3_mc_tail", {})
-            g_col3.metric(g3.get("name", "Monte Carlo 5000 DD"), g3.get("value", "N/A"), delta="PASS" if g3.get("passed") else "FAIL", delta_color="normal" if g3.get("passed") else "inverse")
-            g_col3.caption(f"Tolerance: {g3.get('threshold', 'N/A')}")
-
             g4 = gates.get("gate_4_net_pf", {})
-            g_col4.metric(g4.get("name", "Post-Tax Net PF"), g4.get("value", "N/A"), delta="PASS" if g4.get("passed") else "FAIL", delta_color="normal" if g4.get("passed") else "inverse")
+
+            if is_tested:
+                g_col1.metric(g1.get("name", "DSR Test"), g1.get("value", "N/A"), delta="PASS" if g1.get("passed") else "FAIL", delta_color="normal" if g1.get("passed") else "inverse")
+                g_col2.metric(g2.get("name", "CPCV OOS Quality"), g2.get("value", "N/A"), delta="PASS" if g2.get("passed") else "FAIL", delta_color="normal" if g2.get("passed") else "inverse")
+                g_col3.metric(g3.get("name", "Monte Carlo 5000 DD"), g3.get("value", "N/A"), delta="PASS" if g3.get("passed") else "FAIL", delta_color="normal" if g3.get("passed") else "inverse")
+                g_col4.metric(g4.get("name", "Post-Tax Net PF"), g4.get("value", "N/A"), delta="PASS" if g4.get("passed") else "FAIL", delta_color="normal" if g4.get("passed") else "inverse")
+            else:
+                g_col1.metric(g1.get("name", "DSR Test"), "NOT TESTED", delta="PENDING", delta_color="off")
+                g_col2.metric(g2.get("name", "CPCV OOS Quality"), "NOT TESTED", delta="PENDING", delta_color="off")
+                g_col3.metric(g3.get("name", "Monte Carlo 5000 DD"), "NOT TESTED", delta="PENDING", delta_color="off")
+                g_col4.metric(g4.get("name", "Post-Tax Net PF"), "NOT TESTED", delta="PENDING", delta_color="off")
+
+            g_col1.caption(f"Hurdle: {g1.get('threshold', 'N/A')}")
+            g_col2.caption(f"Hurdle: {g2.get('threshold', 'N/A')}")
+            g_col3.caption(f"Tolerance: {g3.get('threshold', 'N/A')}")
             g_col4.caption(f"Hurdle: {g4.get('threshold', 'N/A')}")
 
             st.markdown("#### Status Explanation & Quantitative Justification")
             explanations = detail.get("explanations", {})
-            status_val = detail.get("status", "UNTESTED")
             status_reason = explanations.get("status_reason", "Awaiting comprehensive backtest evaluation.")
             
             if status_val == "PROVEN":
