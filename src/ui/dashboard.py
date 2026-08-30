@@ -17,8 +17,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Initialize Data Access Layer
 def get_dal() -> UIDataAccess:
+    import src.strategies.registry
+    importlib.reload(src.strategies.registry)
     import src.research.knowledge_map
     importlib.reload(src.research.knowledge_map)
     importlib.reload(src.ui.data_access)

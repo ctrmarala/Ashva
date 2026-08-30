@@ -5,6 +5,7 @@ Any new alpha_*.py file placed in src/strategies/ is immediately accessible with
 Returns canonical 1-to-1 mapping of Strategy ID -> Strategy Class.
 """
 
+import sys
 import importlib
 from pathlib import Path
 from typing import Dict, Any, Type, Optional
@@ -22,17 +23,31 @@ def get_all_strategies(reload: bool = False) -> Dict[str, Type[Any]]:
     if _STRATEGY_CACHE is not None and not reload:
         return _STRATEGY_CACHE
 
-    strategies = {}
     strat_dir = Path(__file__).parent
+    current_file_stems = {
+        p.stem for p in strat_dir.glob("*.py")
+        if p.name not in ["base.py", "registry.py", "__init__.py"]
+    }
+
+    # Clean up sys.modules of any renamed/deleted strategy files
+    for mod_key in list(sys.modules.keys()):
+        if mod_key.startswith("src.strategies."):
+            stem = mod_key.split(".")[-1]
+            if stem not in current_file_stems and stem not in ["base", "registry", "__init__"]:
+                del sys.modules[mod_key]
+
+    strategies = {}
 
     for p in sorted(strat_dir.glob("*.py")):
         if p.name in ["base.py", "registry.py", "__init__.py"]:
             continue
         mod_name = f"src.strategies.{p.stem}"
         try:
-            mod = importlib.import_module(mod_name)
-            if reload:
-                importlib.reload(mod)
+            if mod_name in sys.modules and reload:
+                mod = importlib.reload(sys.modules[mod_name])
+            else:
+                mod = importlib.import_module(mod_name)
+
             for attr in dir(mod):
                 obj = getattr(mod, attr)
                 if (
