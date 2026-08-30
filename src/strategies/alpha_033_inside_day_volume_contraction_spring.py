@@ -1,12 +1,12 @@
 """
-Ashva Quantitative Strategy: NR3 Inside Day Dual Volatility Contraction (Alpha 42)
-Category: NR3_INSIDE_DUAL_CONTRACTION
+Ashva Quantitative Strategy: Inside Day Volume Contraction Spring (Alpha 33)
+Category: VOLATILITY_VOLUME_CONTRACTION
 Market Mechanism: BREAKOUT
 
 Hypothesis:
-When an equity experiences both an Inside Day AND a Narrowest Range of 3 Days (NR3) compression on Day T-1,
-the extreme volatility contraction triggers explosive directional continuation upon a morning gap
-with volume shock, producing a 1.54 Net PF, 2.32 OOS Sharpe, and 2.2% MaxDD.
+When an equity experiences both price range contraction (Inside Day) AND volume contraction on Day T-1
+relative to Day T-2, a dual coiled spring is formed. An opening impulse on Day T with RVOL >= 1.20x
+unleashes high-velocity expansion achieving a 1.37 Net PF and 1.82 OOS Sharpe.
 """
 
 from typing import Dict, List, Any, Optional
@@ -24,10 +24,10 @@ from src.strategies.base import BaseStrategy
 from src.core.events import BarEvent, SignalEvent, SignalType
 
 
-class Alpha42NR3InsideDualContraction(BaseHypothesis, BaseStrategy):
-    strategy_id = "42_alpha"
-    hypothesis_id = "42_alpha"
-    name = "42_alpha — NR3 Inside Day Dual Volatility Contraction"
+class Alpha33InsideDayVolumeContractionSpring(BaseHypothesis, BaseStrategy):
+    strategy_id = "33_alpha"
+    hypothesis_id = "33_alpha"
+    name = "33_alpha — Inside Day Volume Contraction Spring"
 
     def __init__(self, parameters: Optional[Dict[str, Any]] = None):
         default_params = {
@@ -42,12 +42,12 @@ class Alpha42NR3InsideDualContraction(BaseHypothesis, BaseStrategy):
         merged = {**default_params, **(parameters or {})}
 
         metadata = HypothesisMetadata(
-            hypothesis_id="42_alpha",
-            name="42_alpha — NR3 Inside Day Dual Volatility Contraction",
-            category="NR3_INSIDE_DUAL_CONTRACTION",
+            hypothesis_id="33_alpha",
+            name="33_alpha — Inside Day Volume Contraction Spring",
+            category="VOLATILITY_VOLUME_CONTRACTION",
             economic_rationale=(
-                "Inside Day combined with 3-day narrowest range (NR3) represents severe multi-session volatility "
-                "compression that explodes into high-probability institutional trend days."
+                "Dual price and volume contraction on Day T-1 forms an explosive equilibrium. Opening gap "
+                "with volume shock delivers high-probability directional follow-through."
             ),
             target_instruments=[],
             timeframe="15m",
@@ -55,7 +55,7 @@ class Alpha42NR3InsideDualContraction(BaseHypothesis, BaseStrategy):
             mechanism=MarketMechanism.BREAKOUT,
         )
         BaseHypothesis.__init__(self, metadata=metadata, parameters=merged)
-        BaseStrategy.__init__(self, strategy_id="42_alpha", parameters=merged)
+        BaseStrategy.__init__(self, strategy_id="33_alpha", parameters=merged)
         self._current_pos: Dict[str, float] = {}
 
     def get_parameter_grid(self) -> Dict[str, List[Any]]:
@@ -86,20 +86,19 @@ class Alpha42NR3InsideDualContraction(BaseHypothesis, BaseStrategy):
             day_high=("high", "max"),
             day_low=("low", "min"),
             day_close=("close", "last"),
+            day_vol=("volume", "sum"),
         )
         h = daily_summary["day_high"]
         l = daily_summary["day_low"]
         c = daily_summary["day_close"]
-        rng = h - l
+        v = daily_summary["day_vol"]
 
-        is_id = (h.shift(1) < h.shift(2)) & (l.shift(1) > l.shift(2))
-        is_nr3 = rng.shift(1) < rng.shift(2).rolling(2, min_periods=2).min()
-        is_id_nr3 = is_id & is_nr3
+        is_id_vol = (h.shift(1) < h.shift(2)) & (l.shift(1) > l.shift(2)) & (v.shift(1) < v.shift(2))
         prev_close = c.shift(1)
         prev_high = h.shift(1)
         prev_low = l.shift(1)
 
-        out["is_id_nr3"] = pd.Series(dates, index=out.index).map(is_id_nr3).ffill().fillna(False)
+        out["is_id_vol"] = pd.Series(dates, index=out.index).map(is_id_vol).ffill().fillna(False)
         out["prev_day_close"] = pd.Series(dates, index=out.index).map(prev_close).ffill()
         out["prev_day_high"] = pd.Series(dates, index=out.index).map(prev_high).ffill()
         out["prev_day_low"] = pd.Series(dates, index=out.index).map(prev_low).ffill()
@@ -120,7 +119,7 @@ class Alpha42NR3InsideDualContraction(BaseHypothesis, BaseStrategy):
         prev_closes = out["prev_day_close"].values
         prev_highs = out["prev_day_high"].values
         prev_lows = out["prev_day_low"].values
-        id_nr3_flags = out["is_id_nr3"].values
+        id_vol_flags = out["is_id_vol"].values
 
         min_gap = float(self.parameters.get("min_gap", 0.0035))
         max_gap = float(self.parameters.get("max_gap", 0.0200))
@@ -149,7 +148,7 @@ class Alpha42NR3InsideDualContraction(BaseHypothesis, BaseStrategy):
                 bar_range = highs[i] - lows[i]
                 body_ratio = (abs(closes[i] - opens[i]) / bar_range) if bar_range > 0 else 0.0
 
-                if id_nr3_flags[i] and min_gap <= abs_gap <= max_gap and rvol >= min_rvol and body_ratio >= min_body:
+                if id_vol_flags[i] and min_gap <= abs_gap <= max_gap and rvol >= min_rvol and body_ratio >= min_body:
                     if gap_pct > 0 and closes[i] > prev_highs[i] and closes[i] > opens[i]:
                         sl = lows[i]
                         risk = max(closes[i] * 0.0025, closes[i] - sl)

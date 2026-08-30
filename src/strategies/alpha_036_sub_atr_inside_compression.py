@@ -1,5 +1,5 @@
 """
-Ashva Quantitative Strategy: Sub-ATR Inside Compression (Alpha 43)
+Ashva Quantitative Strategy: Sub-ATR Inside Compression (Alpha 36)
 Category: SUB_ATR_VOLATILITY_COMPRESSION
 Market Mechanism: BREAKOUT
 
@@ -24,10 +24,10 @@ from src.strategies.base import BaseStrategy
 from src.core.events import BarEvent, SignalEvent, SignalType
 
 
-class Alpha43SubATRInsideCompression(BaseHypothesis, BaseStrategy):
-    strategy_id = "43_alpha"
-    hypothesis_id = "43_alpha"
-    name = "43_alpha — Sub-ATR Inside Compression"
+class Alpha36SubATRInsideCompression(BaseHypothesis, BaseStrategy):
+    strategy_id = "36_alpha"
+    hypothesis_id = "36_alpha"
+    name = "36_alpha — Sub-ATR Inside Compression"
 
     def __init__(self, parameters: Optional[Dict[str, Any]] = None):
         default_params = {
@@ -42,8 +42,8 @@ class Alpha43SubATRInsideCompression(BaseHypothesis, BaseStrategy):
         merged = {**default_params, **(parameters or {})}
 
         metadata = HypothesisMetadata(
-            hypothesis_id="43_alpha",
-            name="43_alpha — Sub-ATR Inside Compression",
+            hypothesis_id="36_alpha",
+            name="36_alpha — Sub-ATR Inside Compression",
             category="SUB_ATR_VOLATILITY_COMPRESSION",
             economic_rationale=(
                 "Inside Day with sub-0.75x ATR range compression captures deep volatility equilibrium. "
@@ -55,7 +55,7 @@ class Alpha43SubATRInsideCompression(BaseHypothesis, BaseStrategy):
             mechanism=MarketMechanism.BREAKOUT,
         )
         BaseHypothesis.__init__(self, metadata=metadata, parameters=merged)
-        BaseStrategy.__init__(self, strategy_id="43_alpha", parameters=merged)
+        BaseStrategy.__init__(self, strategy_id="36_alpha", parameters=merged)
         self._current_pos: Dict[str, float] = {}
 
     def get_parameter_grid(self) -> Dict[str, List[Any]]:

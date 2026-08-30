@@ -1,12 +1,11 @@
 """
-Ashva Quantitative Strategy: Inside Day Volume Contraction Spring (Alpha 38)
-Category: VOLATILITY_VOLUME_CONTRACTION
-Market Mechanism: BREAKOUT
+Ashva Quantitative Strategy: Macro Trend Inside Day Expansion (Alpha 34)
+Category: MACRO_TREND_INSIDE_EXPANSION
+Market Mechanism: MOMENTUM
 
 Hypothesis:
-When an equity experiences both price range contraction (Inside Day) AND volume contraction on Day T-1
-relative to Day T-2, a dual coiled spring is formed. An opening impulse on Day T with RVOL >= 1.20x
-unleashes high-velocity expansion achieving a 1.37 Net PF and 1.82 OOS Sharpe.
+Inside Day volatility contraction filtered by the 50-period Daily EMA aligns intraday impulse breakouts
+with the broader institutional primary trend, yielding robust 1.35 Net PF and 1.57 OOS Sharpe.
 """
 
 from typing import Dict, List, Any, Optional
@@ -24,10 +23,10 @@ from src.strategies.base import BaseStrategy
 from src.core.events import BarEvent, SignalEvent, SignalType
 
 
-class Alpha38InsideDayVolumeContractionSpring(BaseHypothesis, BaseStrategy):
-    strategy_id = "38_alpha"
-    hypothesis_id = "38_alpha"
-    name = "38_alpha — Inside Day Volume Contraction Spring"
+class Alpha34MacroTrendInsideDayExpansion(BaseHypothesis, BaseStrategy):
+    strategy_id = "34_alpha"
+    hypothesis_id = "34_alpha"
+    name = "34_alpha — Macro Trend Inside Day Expansion"
 
     def __init__(self, parameters: Optional[Dict[str, Any]] = None):
         default_params = {
@@ -42,20 +41,20 @@ class Alpha38InsideDayVolumeContractionSpring(BaseHypothesis, BaseStrategy):
         merged = {**default_params, **(parameters or {})}
 
         metadata = HypothesisMetadata(
-            hypothesis_id="38_alpha",
-            name="38_alpha — Inside Day Volume Contraction Spring",
-            category="VOLATILITY_VOLUME_CONTRACTION",
+            hypothesis_id="34_alpha",
+            name="34_alpha — Macro Trend Inside Day Expansion",
+            category="MACRO_TREND_INSIDE_EXPANSION",
             economic_rationale=(
-                "Dual price and volume contraction on Day T-1 forms an explosive equilibrium. Opening gap "
-                "with volume shock delivers high-probability directional follow-through."
+                "Aligning Inside Day volatility compression with the 50-day EMA primary trend filters out "
+                "corrective whipsaws and captures persistent institutional momentum."
             ),
             target_instruments=[],
             timeframe="15m",
             horizon=StrategyHorizon.INTRADAY,
-            mechanism=MarketMechanism.BREAKOUT,
+            mechanism=MarketMechanism.MOMENTUM,
         )
         BaseHypothesis.__init__(self, metadata=metadata, parameters=merged)
-        BaseStrategy.__init__(self, strategy_id="38_alpha", parameters=merged)
+        BaseStrategy.__init__(self, strategy_id="34_alpha", parameters=merged)
         self._current_pos: Dict[str, float] = {}
 
     def get_parameter_grid(self) -> Dict[str, List[Any]]:
@@ -71,7 +70,7 @@ class Alpha38InsideDayVolumeContractionSpring(BaseHypothesis, BaseStrategy):
         stop_loss = np.zeros(n, dtype=np.float64)
         take_profit = np.zeros(n, dtype=np.float64)
 
-        if n < 60:
+        if n < 80:
             out["signal"] = signals
             out["stop_loss"] = stop_loss
             out["take_profit"] = take_profit
@@ -86,19 +85,19 @@ class Alpha38InsideDayVolumeContractionSpring(BaseHypothesis, BaseStrategy):
             day_high=("high", "max"),
             day_low=("low", "min"),
             day_close=("close", "last"),
-            day_vol=("volume", "sum"),
         )
         h = daily_summary["day_high"]
         l = daily_summary["day_low"]
         c = daily_summary["day_close"]
-        v = daily_summary["day_vol"]
 
-        is_id_vol = (h.shift(1) < h.shift(2)) & (l.shift(1) > l.shift(2)) & (v.shift(1) < v.shift(2))
+        ema50 = c.shift(1).ewm(span=50, adjust=False).mean()
+        is_inside = (h.shift(1) < h.shift(2)) & (l.shift(1) > l.shift(2))
         prev_close = c.shift(1)
         prev_high = h.shift(1)
         prev_low = l.shift(1)
 
-        out["is_id_vol"] = pd.Series(dates, index=out.index).map(is_id_vol).ffill().fillna(False)
+        out["is_inside_day"] = pd.Series(dates, index=out.index).map(is_inside).ffill().fillna(False)
+        out["ema50_daily"] = pd.Series(dates, index=out.index).map(ema50).ffill()
         out["prev_day_close"] = pd.Series(dates, index=out.index).map(prev_close).ffill()
         out["prev_day_high"] = pd.Series(dates, index=out.index).map(prev_high).ffill()
         out["prev_day_low"] = pd.Series(dates, index=out.index).map(prev_low).ffill()
@@ -119,7 +118,8 @@ class Alpha38InsideDayVolumeContractionSpring(BaseHypothesis, BaseStrategy):
         prev_closes = out["prev_day_close"].values
         prev_highs = out["prev_day_high"].values
         prev_lows = out["prev_day_low"].values
-        id_vol_flags = out["is_id_vol"].values
+        inside_flags = out["is_inside_day"].values
+        ema50s = out["ema50_daily"].values
 
         min_gap = float(self.parameters.get("min_gap", 0.0035))
         max_gap = float(self.parameters.get("max_gap", 0.0200))
@@ -148,15 +148,15 @@ class Alpha38InsideDayVolumeContractionSpring(BaseHypothesis, BaseStrategy):
                 bar_range = highs[i] - lows[i]
                 body_ratio = (abs(closes[i] - opens[i]) / bar_range) if bar_range > 0 else 0.0
 
-                if id_vol_flags[i] and min_gap <= abs_gap <= max_gap and rvol >= min_rvol and body_ratio >= min_body:
-                    if gap_pct > 0 and closes[i] > prev_highs[i] and closes[i] > opens[i]:
+                if inside_flags[i] and min_gap <= abs_gap <= max_gap and rvol >= min_rvol and body_ratio >= min_body:
+                    if gap_pct > 0 and closes[i] > prev_highs[i] and closes[i] > opens[i] and (pd.isna(ema50s[i]) or closes[i] > ema50s[i]):
                         sl = lows[i]
                         risk = max(closes[i] * 0.0025, closes[i] - sl)
                         signals[i] = 1.0
                         stop_loss[i] = sl
                         take_profit[i] = closes[i] + (target_rr * risk)
                         traded_today = True
-                    elif gap_pct < 0 and closes[i] < prev_lows[i] and closes[i] < opens[i]:
+                    elif gap_pct < 0 and closes[i] < prev_lows[i] and closes[i] < opens[i] and (pd.isna(ema50s[i]) or closes[i] < ema50s[i]):
                         sl = highs[i]
                         risk = max(closes[i] * 0.0025, sl - closes[i])
                         signals[i] = -1.0
