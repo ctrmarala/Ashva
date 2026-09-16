@@ -213,7 +213,13 @@ def research_single_alpha(strat_id: str, lake: DataLake, symbols: List[str], cos
     print("=" * 80)
 
     strat_pref = strat_cls({"timeframe": preferred_tf})
-    engine = BacktestEngine(cost_model=cost_model, initial_capital=500000.0, segment=Segment.EQUITY_INTRADAY)
+    engine = BacktestEngine(
+        cost_model=cost_model,
+        initial_capital=500000.0,
+        segment=Segment.EQUITY_INTRADAY,
+        use_1m_intrabar=True,
+        data_lake=lake,
+    )
 
     all_trades: List[BacktestTrade] = []
     symbol_breakdown = []
