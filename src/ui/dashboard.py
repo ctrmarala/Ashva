@@ -3,6 +3,14 @@ Ashva Master Observability Dashboard
 Unified observability suite providing multi-tab inspection for Data, Alpha Factory, Trading, and System.
 """
 
+import sys
+from pathlib import Path
+
+# Ensure project root is in sys.path
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 import importlib
 import streamlit as st
 import pandas as pd
