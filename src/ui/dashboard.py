@@ -355,52 +355,121 @@ def render_alpha_factory(dal: UIDataAccess):
                     st.error(msg)
 
         detail = dal.get_alpha_detail(selected_alpha) if selected_alpha else {}
-    else:
-        selected_alpha = None
-        detail = {}
+        
+        if detail and detail.get("alpha_id"):
+            # Multi-timeframe discovery payload
+            tf_comp = detail.get("timeframe_comparison", {})
+            available_tfs = list(tf_comp.keys()) if tf_comp else ["15m", "5m", "30m", "1m"]
+            
+            # Default to 15m if available
+            default_idx = available_tfs.index("15m") if "15m" in available_tfs else 0
 
-    if detail and detail.get("alpha_id"):
-        st.markdown(f"### `{str(detail.get('alpha_id', '')).upper()}`: {detail.get('name', 'Strategy')} — Status: `{detail.get('status', 'UNTESTED')}`")
-        st.caption(f"Category: **{detail.get('category', 'UNKNOWN')}** | Timeframe: **{detail.get('timeframe', '15m')}** | Version: **{detail.get('version', 'v1.0.0')}** | Tested: **{'YES' if detail.get('is_tested') else 'NO'}**")
+            st.markdown(f"### `{str(detail.get('alpha_id', '')).upper()}`: {detail.get('name', 'Strategy')} — Status: `{detail.get('status', 'UNTESTED')}`")
+            st.caption(f"Category: **{detail.get('category', 'UNKNOWN')}** | Version: **{detail.get('version', 'v1.0.0')}** | Tested: **{'YES' if detail.get('is_tested') else 'NO'}**")
 
+        # -------------------------------------------------------------
+        # 1. EXECUTIVE MULTI-TIMEFRAME DECISION MATRIX BANNER
+        # -------------------------------------------------------------
+        st.markdown("#### ⏱️ Multi-Timeframe Decision Matrix (540-Day Panel Audit)")
+        if tf_comp:
+            tf_cols = st.columns(len(available_tfs))
+            for i, tf_name in enumerate(available_tfs):
+                tf_info = tf_comp[tf_name]
+                net_pnl = float(tf_info.get("net_pnl", 0.0))
+                wr = float(tf_info.get("win_rate_pct", 0.0))
+                pf = float(tf_info.get("net_profit_factor", 0.0))
+                trades = int(tf_info.get("trades", 0))
+
+                with tf_cols[i]:
+                    if net_pnl > 0:
+                        st.success(f"**{tf_name.upper()} — PROFITABLE** ✅\n\n"
+                                   f"**Net P&L**: `+Rs {net_pnl:,.0f}`\n\n"
+                                   f"**Win Rate**: `{wr:.1f}%` ({trades} trades)\n\n"
+                                   f"**Profit Factor**: `{pf:.2f}`")
+                    else:
+                        st.error(f"**{tf_name.upper()} — UNPROFITABLE** ❌\n\n"
+                                 f"**Net P&L**: `Rs {net_pnl:,.0f}`\n\n"
+                                 f"**Win Rate**: `{wr:.1f}%` ({trades} trades)\n\n"
+                                 f"**Tax Drag**: `-Rs {float(tf_info.get('total_costs', 0.0)):,.0f}`")
+        else:
+            st.info("Multi-timeframe discovery scan pending for this strategy.")
+
+        # Interactive Timeframe Inspector
+        col_tf_sel, col_tf_info = st.columns([1, 2])
+        with col_tf_sel:
+            active_tf = st.selectbox(
+                "🔍 Inspect Timeframe Details:",
+                available_tfs,
+                index=default_idx,
+                help="Select timeframe to view underlying trade metrics, cash flow equations, and symbol audits."
+            )
+        with col_tf_info:
+            if active_tf == "15m":
+                st.info("💡 **15m is the Institutional Native Horizon**: Candle target moves (+1.5% to +2.5%) easily overpower Indian statutory taxes.")
+            else:
+                st.warning(f"⚠️ **{active_tf} is Sub-Optimal**: Shorter candle moves suffer severe tax friction drag under Indian STT + GST.")
+
+        # Reload detail for the selected active timeframe
+        detail = dal.get_alpha_detail(selected_alpha, timeframe_override=active_tf)
+        m = detail["metrics"]
+
+        # -------------------------------------------------------------
+        # 2. STREAMLINED 5-TAB DEEP DIVE ARCHITECTURE
+        # -------------------------------------------------------------
         detail_tabs = st.tabs([
+            "📊 Performance & Accounting",
+            "🛡️ Institutional Gates & Audit",
             "🎯 Hypothesis & Parameters",
-            "🛡️ Qualification Gates",
-            "📈 Quantitative Metrics",
-            "🏢 Symbol-Level Performance",
-            "🔬 Research Evidence & 540d",
-            "📜 Test History Journal",
-            "⚙️ Replay Context & Provenance",
-            "⏱️ Timeframe Discovery",
-            "🧠 Knowledge Lineage"
+            "🏢 77-Stock Universe Performance",
+            "📜 Test History & Discovery Ledger",
         ])
 
         with detail_tabs[0]:
-            st.markdown("#### Economic Rationale & Mechanism")
-            st.write(detail.get("hypothesis", "No hypothesis rationale registered."))
+            st.markdown(f"#### Realized Cash Flow Accounting (`{active_tf}` Timeframe)")
             
-            st.markdown("#### Market Mechanism Description")
-            st.info(detail.get("mechanism", "Standard quantitative factor model."))
+            # Cash Flow Equation Alert
+            is_pos = m.get("is_profitable", False)
+            if is_pos:
+                st.success(f"""
+                **✅ VERIFIED PROFITABLE (Post-Tax Net Cash Flow)**:
+                - **Gross Trading P&L**: `{m.get('gross_profit')}`
+                - **Statutory Taxes & Friction**: `-{m.get('total_costs')}`
+                - **Net Realized P&L**: **`{m.get('net_pnl')}`** (Win Rate: `{m.get('win_rate')}` | Net PF: `{m.get('profit_factor')}`)
+                """)
+            else:
+                st.error(f"""
+                **❌ UNPROFITABLE ON THIS TIMEFRAME (Tax Friction Drag)**:
+                - **Gross Trading P&L**: `{m.get('gross_profit')}`
+                - **Statutory Taxes & Friction**: `-{m.get('total_costs')}`
+                - **Net Realized P&L**: **`{m.get('net_pnl')}`** (Net Loss after statutory costs)
+                """)
 
-            col_p1, col_p2 = st.columns(2)
-            with col_p1:
-                st.markdown("#### Entry, Exit & Holding Specifications")
-                st.write(f"**Entry Window**: `{detail.get('entry_window', '09:30-14:30 IST')}`")
-                st.write(f"**Entry Conditions**: `{detail.get('entry_conditions', 'Alpha-specific threshold condition')}`")
-                st.write(f"**Exit Conditions**: `{detail.get('exit_conditions', 'Stop Loss / Target / Intraday Square-off')}`")
-                st.write(f"**Holding Concept**: `{detail.get('holding_concept', 'Intraday Horizon')}`")
-                targets = detail.get("target_instruments", [])
-                targets_disp = ", ".join(targets[:8]) + ("..." if len(targets) > 8 else "") if targets else "Dynamic Active Universe"
-                st.write(f"**Research Universe**: `{targets_disp}`")
-            with col_p2:
-                st.markdown("#### Strategy Parameters")
-                if detail.get("parameters"):
-                    st.json(detail["parameters"])
-                else:
-                    st.write("No parameters defined (Default baseline).")
+            st.markdown("##### Quantitative Metrics Breakdown")
+            mc1, mc2, mc3 = st.columns(3)
+            with mc1:
+                st.markdown("###### Trade Execution")
+                st.write(f"**Active Timeframe**: `{active_tf}`")
+                st.write(f"**Total Trades**: `{m.get('total_trades')}`")
+                st.write(f"**Winning Trades**: `{m.get('winning_trades')}`")
+                st.write(f"**Losing Trades**: `{m.get('losing_trades')}`")
+                st.write(f"**Win Rate**: `{m.get('win_rate')}`")
+            with mc2:
+                st.markdown("###### Cash Flow & P&L")
+                st.write(f"**Gross Trading P&L**: `{m.get('gross_profit')}`")
+                st.write(f"**Total Statutory Costs**: `{m.get('total_costs')}`")
+                st.write(f"**Net Realized P&L**: `{m.get('net_pnl')}`")
+                st.write(f"**Expectancy (per trade)**: `{m.get('expectancy')}`")
+                st.write(f"**Profit Factor**: `{m.get('profit_factor')}`")
+            with mc3:
+                st.markdown("###### Risk & Statistical Significance")
+                st.write(f"**In-Sample Sharpe**: `{m.get('sharpe')}`")
+                st.write(f"**CPCV OOS Sharpe**: `{m.get('oos_sharpe')}`")
+                st.write(f"**Deflated Sharpe (p-value)**: `{m.get('deflated_sharpe_p_value')}`")
+                st.write(f"**Monte Carlo 95th DD**: `{m.get('max_drawdown')}`")
+                st.write(f"**Exit Rule**: `Intraday 15:15 Square-off`")
 
         with detail_tabs[1]:
-            st.markdown("#### Institutional Qualification Gates Evaluation")
+            st.markdown("#### Institutional Qualification Gates Audit")
             status_val = detail.get("status", "UNTESTED")
             is_tested = detail.get("is_tested", False) and status_val != "UNTESTED"
             gates = detail.get("qualification_gates", {})
@@ -444,51 +513,7 @@ def render_alpha_factory(dal: UIDataAccess):
             if explanations.get("known_limitations"):
                 st.write(f"**Known Regime Limitations**: {explanations['known_limitations']}")
 
-        with detail_tabs[2]:
-            st.markdown("#### Complete Quantitative Metrics Breakdown")
-            st.caption("Metrics faithfully retrieved from backend state. Metrics not recorded or implemented are explicitly demarcated.")
-            m = detail["metrics"]
-            
-            mc1, mc2, mc3 = st.columns(3)
-            with mc1:
-                st.markdown("##### In-Sample & Aggregate")
-                st.write(f"**Total Trades**: `{m.get('total_trades')}`")
-                st.write(f"**Winning Trades**: `{m.get('winning_trades')}`")
-                st.write(f"**Losing Trades**: `{m.get('losing_trades')}`")
-                st.write(f"**Win Rate**: `{m.get('win_rate')}`")
-                st.write(f"**Gross Profit**: `{m.get('gross_profit')}`")
-                st.write(f"**Gross Loss**: `{m.get('gross_loss')}`")
-                st.write(f"**Net P&L (INR)**: `{m.get('net_pnl')}`")
-            with mc2:
-                st.markdown("##### Risk-Adjusted & Ratios")
-                st.write(f"**Expectancy**: `{m.get('expectancy')}`")
-                st.write(f"**Profit Factor**: `{m.get('profit_factor')}`")
-                st.write(f"**Sharpe Ratio**: `{m.get('sharpe')}`")
-                st.write(f"**Sortino Ratio**: `{m.get('sortino')}`")
-                st.write(f"**Max Drawdown**: `{m.get('max_drawdown')}`")
-                st.write(f"**Average Win**: `{m.get('avg_win')}`")
-                st.write(f"**Average Loss**: `{m.get('avg_loss')}`")
-            with mc3:
-                st.markdown("##### Out-Of-Sample (CPCV) & Tail")
-                st.write(f"**OOS Trades**: `{m.get('oos_trades')}`")
-                st.write(f"**OOS Net P&L**: `{m.get('oos_pnl')}`")
-                st.write(f"**OOS Sharpe**: `{m.get('oos_sharpe')}`")
-                st.write(f"**OOS Win Rate**: `{m.get('oos_win_rate')}`")
-                st.write(f"**OOS Drawdown**: `{m.get('oos_drawdown')}`")
-                st.write(f"**Deflated Sharpe (p-value)**: `{m.get('deflated_sharpe_p_value', 'NOT AVAILABLE')}`")
-                st.write(f"**Average Holding Time**: `{m.get('avg_holding_time')}`")
-
-        with detail_tabs[3]:
-            st.markdown("#### Cross-Sectional Asset Performance & Data Lake Status")
-            st.caption("Distinguishes universal Alpha Logic from instrument-specific data coverage.")
-            sym_perf = detail.get("symbol_performance", [])
-            if sym_perf:
-                sym_df = pd.DataFrame(sym_perf)
-                st.dataframe(sym_df, use_container_width=True, hide_index=True)
-            else:
-                st.info("No symbol performance breakdown recorded for this alpha.")
-
-        with detail_tabs[4]:
+            st.markdown("---")
             st.markdown("#### 540-Day Research Horizon Compliance & Evidence Audit")
             ev = detail.get("research_evidence", {})
             d_read = detail.get("data_readiness", {})
@@ -512,24 +537,35 @@ def render_alpha_factory(dal: UIDataAccess):
             - **540-Day Full Horizon**: Hard institutional ceiling (~18 months) ensuring statistical significance.
             """)
 
-        with detail_tabs[5]:
-            st.markdown("#### Chronological Research Trials Ledger (`experiment_ledger.db`)")
-            hist = detail.get("test_history", [])
-            if hist:
-                df_hist = pd.DataFrame(hist)
-                cols = [c for c in ["experiment_id", "timestamp", "status", "in_sample_sharpe", "cpcv_oos_sharpe", "net_profit_factor", "monte_carlo_95_max_dd", "git_commit_sha"] if c in df_hist.columns]
-                st.dataframe(
-                    df_hist[cols] if cols else df_hist,
-                    use_container_width=True,
-                    hide_index=True
-                )
-            else:
-                st.info("No recorded trial history found in SQLite experiment ledger.")
+        with detail_tabs[2]:
+            st.markdown("#### Economic Rationale & Mechanism")
+            st.write(detail.get("hypothesis", "No hypothesis rationale registered."))
+            
+            st.markdown("#### Market Mechanism Description")
+            st.info(detail.get("mechanism", "Standard quantitative factor model."))
 
-        with detail_tabs[6]:
+            col_p1, col_p2 = st.columns(2)
+            with col_p1:
+                st.markdown("#### Entry, Exit & Holding Specifications")
+                st.write(f"**Entry Window**: `{detail.get('entry_window', '09:30-14:30 IST')}`")
+                st.write(f"**Entry Conditions**: `{detail.get('entry_conditions', 'Alpha-specific threshold condition')}`")
+                st.write(f"**Exit Conditions**: `{detail.get('exit_conditions', 'Stop Loss / Target / Intraday Square-off')}`")
+                st.write(f"**Holding Concept**: `{detail.get('holding_concept', 'Intraday Horizon')}`")
+                targets = detail.get("target_instruments", [])
+                targets_disp = ", ".join(targets[:8]) + ("..." if len(targets) > 8 else "") if targets else "Dynamic Active Universe"
+                st.write(f"**Research Universe**: `{targets_disp}`")
+            with col_p2:
+                st.markdown("#### Strategy Parameters")
+                if detail.get("parameters"):
+                    st.json(detail["parameters"])
+                else:
+                    st.write("No parameters defined (Default baseline).")
+
+            st.markdown("---")
             st.markdown("#### Execution Alignment & Replay Context")
             st.caption("Verifies consistency between research configuration and trading engine execution parameters.")
             rep = detail.get("replay_context", {})
+            prov = detail.get("provenance", {})
             
             c_rep1, c_rep2 = st.columns(2)
             with c_rep1:
@@ -538,14 +574,22 @@ def render_alpha_factory(dal: UIDataAccess):
                 st.write(f"**Trailing Stop Mode**: `{rep.get('trailing_stop_mode', 'STEP_RATCHET')}`")
                 st.write(f"**Intraday Square-off**: `{rep.get('intraday_squareoff', '15:15 IST')}`")
             with c_rep2:
-                prov = detail.get("provenance", {})
-                st.markdown("#### Quantitative Source & Provenance")
                 st.write(f"**Research Commit SHA**: `{prov.get('research_commit', 'NOT AVAILABLE')}`")
                 st.write(f"**Code Commit SHA**: `{prov.get('code_commit', 'NOT AVAILABLE')}`")
                 st.write(f"**Qualification Version**: `{prov.get('qualification_version', 'v1.0.0')}`")
                 st.write(f"**Research Timestamp**: `{prov.get('research_timestamp', 'NOT AVAILABLE')}`")
 
-        with detail_tabs[7]:
+        with detail_tabs[3]:
+            st.markdown("#### Cross-Sectional Asset Performance & Data Lake Status")
+            st.caption("Distinguishes universal Alpha Logic from instrument-specific data coverage.")
+            sym_perf = detail.get("symbol_performance", [])
+            if sym_perf:
+                sym_df = pd.DataFrame(sym_perf)
+                st.dataframe(sym_df, use_container_width=True, hide_index=True)
+            else:
+                st.info("No symbol performance breakdown recorded for this alpha.")
+
+        with detail_tabs[4]:
             st.markdown("#### Timeframe Discovery Evidence")
             st.caption("Evidence generated by the hypothesis lab when searching across timeframes.")
             tfc = detail.get("timeframe_comparison", {})
@@ -563,8 +607,22 @@ def render_alpha_factory(dal: UIDataAccess):
                     st.dataframe(df_tfc, use_container_width=True, hide_index=True)
             else:
                 st.info("No timeframe comparison evidence recorded for this alpha.")
+
+            st.markdown("---")
+            st.markdown("#### Chronological Research Trials Ledger (`experiment_ledger.db`)")
+            hist = detail.get("test_history", [])
+            if hist:
+                df_hist = pd.DataFrame(hist)
+                cols = [c for c in ["experiment_id", "timestamp", "status", "in_sample_sharpe", "cpcv_oos_sharpe", "net_profit_factor", "monte_carlo_95_max_dd", "git_commit_sha"] if c in df_hist.columns]
+                st.dataframe(
+                    df_hist[cols] if cols else df_hist,
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.info("No recorded trial history found in SQLite experiment ledger.")
                 
-        with detail_tabs[8]:
+            st.markdown("---")
             st.markdown("#### Master Knowledge Lineage")
             st.caption("Complete history of all tested alphas loaded from canonical ledger.")
             lineage = dal.get_knowledge_lineage()

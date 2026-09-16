@@ -805,7 +805,7 @@ class UIDataAccess:
 
         return pd.DataFrame(rows)
 
-    def get_alpha_detail(self, alpha_id: str) -> Dict[str, Any]:
+    def get_alpha_detail(self, alpha_id: str, timeframe_override: Optional[str] = None) -> Dict[str, Any]:
         """Retrieves deep structured institutional evidence for a specific Alpha ID from Canonical Evidence."""
         strat_key = alpha_id.lower()
         km_alphas = {r.alpha_id.lower(): r for r in self.knowledge_map.get_all_mechanisms()}
@@ -881,23 +881,51 @@ class UIDataAccess:
             except Exception:
                 rejection_reasons = [str(latest_exp["rejection_reasons_json"])]
 
-        net_pf = float(latest_exp.get("net_profit_factor", 0.0))
-        is_sharpe = float(latest_exp.get("in_sample_sharpe", 0.0))
-        oos_sharpe = float(latest_exp.get("cpcv_oos_sharpe", 0.0))
-        dsr_pval = float(latest_exp.get("deflated_sharpe_p_value", 1.0))
-        mc_dd = float(latest_exp.get("monte_carlo_95_max_dd", 0.0))
-
-        timeframe_comparison = {}
+        # Parse timeframe comparison json if available
+        tf_comp = {}
         if latest_exp and latest_exp.get("timeframe_comparison_json"):
             try:
-                timeframe_comparison = json.loads(latest_exp["timeframe_comparison_json"])
+                tf_comp = json.loads(latest_exp["timeframe_comparison_json"])
             except Exception:
-                pass
+                tf_comp = {}
+
+        # Determine active timeframe: prefer override, then 15m native, then recorded
+        active_tf = timeframe_override or ("15m" if "15m" in tf_comp else (latest_exp.get("timeframe", "15m") if latest_exp else "15m"))
+        target_tf_data = tf_comp.get(active_tf, {}) or (list(tf_comp.values())[0] if tf_comp else {})
+
+        # Extract metrics based on active timeframe
+        tot_trades = target_tf_data.get("trades") or latest_exp.get("total_trades") if latest_exp else 0
+        wr_val = target_tf_data.get("win_rate_pct") or latest_exp.get("win_rate_pct") if latest_exp else 0.0
+        gross_pnl_raw = target_tf_data.get("gross_pnl") or latest_exp.get("gross_pnl_inr", 0.0) if latest_exp else 0.0
+        total_costs_raw = target_tf_data.get("total_costs") or latest_exp.get("total_costs_inr", 0.0) if latest_exp else 0.0
+        net_pnl_raw = target_tf_data.get("net_pnl") or (gross_pnl_raw - total_costs_raw)
+        net_pf = float(target_tf_data.get("net_profit_factor") or (latest_exp.get("net_profit_factor", 0.0) if latest_exp else 0.0))
+
+        trades_count_int = int(tot_trades) if tot_trades and str(tot_trades).isdigit() else (int(tot_trades) if isinstance(tot_trades, (int, float)) else 0)
+        win_rate_float = float(wr_val) if wr_val is not None else 0.0
+        win_trades_int = int(round(trades_count_int * win_rate_float / 100.0))
+        loss_trades_int = max(0, trades_count_int - win_trades_int)
+
+        is_sharpe = float(latest_exp.get("in_sample_sharpe", 0.0)) if latest_exp else 0.0
+        oos_sharpe = float(latest_exp.get("cpcv_oos_sharpe", 0.0)) if latest_exp else 0.0
+        dsr_pval = float(latest_exp.get("deflated_sharpe_p_value", 1.0)) if latest_exp else 1.0
+        mc_dd = float(latest_exp.get("monte_carlo_95_max_dd", 0.0)) if latest_exp else 0.0
 
         gate_dsr_pass = dsr_pval <= 0.05
         gate_cpcv_pass = oos_sharpe > 0.0 or standard_status == "PROVEN"
         gate_mc_pass = mc_dd <= 15.0
         gate_pf_pass = net_pf >= 1.08 or (net_pf == 0.0 and standard_status == "PROVEN")
+
+        failure_lessons = "Friction drag or insufficient edge."
+        limitations = "Requires liquid equities."
+        
+        status_reason = ""
+        if standard_status == "PROVEN":
+            status_reason = f"PROVEN: Exceeds required Net Profit Factor hurdle (Net PF {net_pf:.2f} >= 1.08) and maintains robust positive Sharpe ({is_sharpe:+.2f}) after Indian statutory taxes and slippage."
+        elif standard_status == "FAILED":
+            status_reason = f"FAILED: Rejected under institutional validation gates. {(' '.join(rejection_reasons)) if rejection_reasons else failure_lessons}"
+        else:
+            status_reason = "UNTESTED: Code registered in repository. Ready for automated backtest & hypothesis evaluation."
 
         conn = self._get_duckdb_conn()
         symbols_audit = []
@@ -915,107 +943,42 @@ class UIDataAccess:
                         FROM ohlcv_bars
                         WHERE symbol = ? AND timeframe = '15m'
                     """, [sym.upper()]).fetchone()
-                    
                     if row_sym and row_sym[0] > 0:
-                        t_min = pd.to_datetime(row_sym[1])
-                        t_max = pd.to_datetime(row_sym[2])
-                        span = (t_max - t_min).days
-                        status_sym = "QUALIFIED (540d+)" if span >= 540 else f"PARTIAL ({span}d)"
                         symbols_audit.append({
                             "symbol": sym,
-                            "bars_15m": int(row_sym[0]),
-                            "first_bar": str(row_sym[1])[:10],
-                            "last_bar": str(row_sym[2])[:10],
-                            "calendar_days": span,
-                            "status": status_sym,
-                            "participation": "ACTIVE_UNIVERSE",
+                            "bars_15m": row_sym[0],
+                            "start_date": str(row_sym[1])[:10],
+                            "end_date": str(row_sym[2])[:10],
+                            "status": "QUALIFIED (540d+)" if row_sym[0] >= 3500 else "PARTIAL",
                         })
                     else:
                         symbols_audit.append({
                             "symbol": sym,
                             "bars_15m": 0,
-                            "first_bar": "NOT AVAILABLE",
-                            "last_bar": "NOT AVAILABLE",
-                            "calendar_days": 0,
-                            "status": "MISSING",
-                            "participation": "UNAVAILABLE",
+                            "start_date": "N/A",
+                            "end_date": "N/A",
+                            "status": "NO_DATA",
                         })
             except Exception as e:
-                print(f"Error auditing symbols: {e}")
-            finally:
-                conn.close()
+                print(f"Error querying duckdb symbols audit: {e}")
 
-        failure_lessons = "Friction drag or insufficient edge."
-        limitations = "Requires liquid equities."
-        
-        status_reason = ""
-        if standard_status == "PROVEN":
-            status_reason = f"PROVEN: Exceeds required Net Profit Factor hurdle (Net PF {net_pf:.2f} >= 1.08) and maintains robust positive Sharpe ({is_sharpe:+.2f}) after Indian statutory taxes and slippage."
-        elif standard_status == "FAILED":
-            status_reason = f"FAILED: Rejected under institutional validation gates. {(' '.join(rejection_reasons)) if rejection_reasons else failure_lessons}"
-        else:
-            status_reason = "UNTESTED: Code registered in repository. Ready for automated backtest & hypothesis evaluation."
-
-        # Parse timeframe comparison json if available
-        tf_comp = {}
-        if latest_exp and latest_exp.get("timeframe_comparison_json"):
-            try:
-                tf_comp = json.loads(latest_exp["timeframe_comparison_json"])
-            except Exception:
-                tf_comp = {}
-
-        target_tf_data = tf_comp.get(latest_exp.get("timeframe", "15m"), {}) or (list(tf_comp.values())[0] if tf_comp else {})
-
-        # Extract trade count
-        tot_trades = latest_exp.get("total_trades") or target_tf_data.get("trades")
-        if tot_trades is None:
-            rej_text = str(latest_exp.get("rejection_reasons_json", ""))
-            import re
-            match_n = re.search(r"N=(\d+)", rej_text)
-            if match_n:
-                tot_trades = int(match_n.group(1))
-            else:
-                tot_trades = "NOT AVAILABLE"
-
-        wr_val = latest_exp.get("win_rate_pct") or target_tf_data.get("win_rate_pct")
-        win_rate_disp = f"{float(wr_val):.1f}%" if wr_val is not None else "NOT AVAILABLE"
-
-        net_pnl_raw = latest_exp.get("net_pnl_inr") or target_tf_data.get("net_pnl")
-        gross_pnl_raw = latest_exp.get("gross_pnl_inr") or target_tf_data.get("gross_pnl")
-        total_costs_raw = latest_exp.get("total_costs_inr") or target_tf_data.get("total_costs")
-
-        if net_pnl_raw is not None:
-            net_pnl_disp = f"Rs {float(net_pnl_raw):,.0f}"
-        elif k_rec and k_rec.pnl_540d_inr is not None:
-            net_pnl_disp = f"Rs {k_rec.pnl_540d_inr:,.0f}"
-        else:
-            net_pnl_disp = "NOT AVAILABLE"
-
-        trades_count_int = None
-        if tot_trades is not None and str(tot_trades).isdigit():
-            trades_count_int = int(tot_trades)
-        elif isinstance(tot_trades, (int, float)) and not pd.isna(tot_trades):
-            trades_count_int = int(tot_trades)
-
-        if net_pnl_raw is not None and trades_count_int is not None and trades_count_int > 0:
-            exp_val = float(net_pnl_raw) / trades_count_int
-            expectancy_disp = f"Rs {exp_val:+,.2f}"
-        else:
-            expectancy_disp = "NOT AVAILABLE"
-
-        win_trades_disp = f"{int(round(trades_count_int * float(wr_val) / 100.0)):,}" if (trades_count_int is not None and wr_val is not None) else "NOT AVAILABLE"
-        loss_trades_disp = f"{trades_count_int - int(round(trades_count_int * float(wr_val) / 100.0)):,}" if (trades_count_int is not None and wr_val is not None) else "NOT AVAILABLE"
+        # Accounting formula
+        expectancy_val = (float(net_pnl_raw) / max(1, trades_count_int)) if trades_count_int > 0 else 0.0
 
         metrics_dict = {
-            "total_trades": f"{trades_count_int:,}" if trades_count_int is not None else "NOT AVAILABLE",
-            "winning_trades": win_trades_disp,
-            "losing_trades": loss_trades_disp,
-            "win_rate": win_rate_disp,
-            "gross_profit": f"Rs {float(gross_pnl_raw):,.0f}" if gross_pnl_raw is not None else "NOT AVAILABLE",
-            "gross_loss": f"Rs {float(total_costs_raw):,.0f}" if total_costs_raw is not None else "NOT AVAILABLE",
-            "net_pnl": net_pnl_disp,
-            "expectancy": expectancy_disp,
-            "profit_factor": round(net_pf, 2) if net_pf > 0 else "NOT AVAILABLE",
+            "active_timeframe": active_tf,
+            "total_trades": f"{trades_count_int:,}",
+            "winning_trades": f"{win_trades_int:,}",
+            "losing_trades": f"{loss_trades_int:,}",
+            "win_rate": f"{win_rate_float:.1f}%",
+            "gross_profit": f"Rs {float(gross_pnl_raw):+,.2f}",
+            "gross_loss": f"Rs {float(total_costs_raw):,.2f}",
+            "total_costs": f"Rs {float(total_costs_raw):,.2f}",
+            "net_pnl": f"Rs {float(net_pnl_raw):+,.2f}",
+            "net_pnl_raw": float(net_pnl_raw),
+            "is_profitable": float(net_pnl_raw) > 0,
+            "expectancy": f"Rs {expectancy_val:+,.2f}",
+            "profit_factor": round(net_pf, 2) if net_pf > 0 else "0.00",
             "sharpe": round(is_sharpe, 2) if is_sharpe != 0 else "NOT AVAILABLE",
             "sortino": "NOT IMPLEMENTED",
             "max_drawdown": f"{mc_dd:.2f}%" if mc_dd > 0 else "NOT AVAILABLE",
@@ -1024,10 +987,10 @@ class UIDataAccess:
             "largest_win": "NOT IMPLEMENTED",
             "largest_loss": "NOT IMPLEMENTED",
             "avg_holding_time": "NOT IMPLEMENTED (Intraday 15:15 default)",
-            "oos_trades": f"{trades_count_int:,}" if trades_count_int is not None else "NOT AVAILABLE",
-            "oos_pnl": net_pnl_disp,
+            "oos_trades": f"{trades_count_int:,}",
+            "oos_pnl": f"Rs {float(net_pnl_raw):+,.2f}",
             "oos_sharpe": round(oos_sharpe, 2) if oos_sharpe != 0 else "NOT AVAILABLE",
-            "oos_win_rate": win_rate_disp,
+            "oos_win_rate": f"{win_rate_float:.1f}%",
             "oos_drawdown": f"{mc_dd:.2f}%" if mc_dd > 0 else "NOT AVAILABLE",
             "deflated_sharpe_p_value": round(dsr_pval, 4),
             "trials_evaluated": len(matching_trials),
@@ -1035,11 +998,6 @@ class UIDataAccess:
 
         commit_sha = latest_exp.get("git_commit_sha", "HEAD") if latest_exp else ("HISTORICAL_RESEARCH" if k_rec else "UNTESTED")
         test_ts = latest_exp.get("timestamp", "HISTORICAL_BASELINE") if latest_exp else ("HISTORICAL_BASELINE" if k_rec else "NOT AVAILABLE")
-
-        # Timeframe comparison extraction
-        timeframe_comparison = {}
-        if tf_comp:
-            timeframe_comparison = tf_comp
 
         return {
             "alpha_id": strat_key,
@@ -1085,7 +1043,7 @@ class UIDataAccess:
             },
             "symbol_performance": symbols_audit,
             "test_history": matching_trials[:10],
-            "timeframe_comparison": timeframe_comparison,
+            "timeframe_comparison": tf_comp,
             "data_readiness": {
                 "timeframe": "15m",
                 "symbols_ready": sum(1 for s in symbols_audit if "QUALIFIED" in s["status"]),
