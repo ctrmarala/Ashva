@@ -130,7 +130,7 @@ def run_full_timeframe_discovery(
             res = engine.run(sig_df, symbol=sym, strategy_id=strat.strategy_id, capital_per_trade_pct=0.25)
 
             sym_gross = sum(t.gross_pnl for t in res.trade_list)
-            sym_costs = res.total_brokerage_paid + res.total_stt_paid + res.total_taxes_paid
+            sym_costs = res.total_taxes_paid
 
             tf_trades += res.total_trades
             tf_wins += res.winning_trades
@@ -239,7 +239,7 @@ def research_single_alpha(strat_id: str, lake: DataLake, symbols: List[str], cos
         res = engine.run(sig_df, symbol=sym, strategy_id=strat_id, capital_per_trade_pct=0.25)
 
         sym_gross = sum(t.gross_pnl for t in res.trade_list)
-        sym_costs = res.total_brokerage_paid + res.total_stt_paid + res.total_taxes_paid
+        sym_costs = res.total_taxes_paid
         sym_net_pnls = [t.net_pnl for t in res.trade_list]
         sym_pf = calculate_profit_factor(sym_net_pnls)
 
@@ -283,7 +283,7 @@ def research_single_alpha(strat_id: str, lake: DataLake, symbols: List[str], cos
 
     for t in all_trades:
         reg = regime_engine.classify_timestamp(t.entry_time)
-        c_tot = t.cost_breakdown.total_tax_and_charges + t.cost_breakdown.brokerage + t.cost_breakdown.slippage_cost
+        c_tot = t.cost_breakdown.total_tax_and_charges
         regimes[reg]["trades"] += 1
         regimes[reg]["gross"] += t.gross_pnl
         regimes[reg]["costs"] += c_tot
