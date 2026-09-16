@@ -106,7 +106,7 @@ def run_full_timeframe_discovery(
     for tf in timeframes:
         print(f"\n[>] Backtesting Full Universe ({len(symbols)} stocks) on Candidate Timeframe: {tf}...")
         strat = strat_cls({"timeframe": tf})
-        engine = BacktestEngine(cost_model=cost_model, initial_capital=500000.0, segment=Segment.EQUITY_INTRADAY, use_1m_intrabar=False)
+        engine = BacktestEngine(cost_model=cost_model, initial_capital=500000.0, segment=Segment.EQUITY_INTRADAY, use_1m_intrabar=True, data_lake=lake)
 
         tf_bars = 0
         tf_trades = 0
