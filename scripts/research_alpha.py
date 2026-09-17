@@ -163,9 +163,13 @@ def run_full_timeframe_discovery(
         if tf_trades < 25:
             empirical_score = 0.01 * (tf_trades / 25.0)
         else:
+            norm_net = min(1.0, max(0.0, tf_net / 40000.0))
             norm_pf = min(1.0, max(0.0, net_pf / 2.0))
             norm_wr = min(1.0, max(0.0, win_rate / 100.0))
-            empirical_score = (norm_pf * 0.35) + (norm_wr * 0.25) + (pos_ratio * 0.25) - (friction_ratio * 0.15)
+            empirical_score = (norm_net * 0.35) + (norm_pf * 0.25) + (norm_wr * 0.20) + (pos_ratio * 0.20) - (friction_ratio * 0.10)
+            # Breadth requirement: penalize timeframes concentrated in fewer than 5 symbols
+            if positive_syms < 5:
+                empirical_score *= (positive_syms / 5.0)
 
         # Trailing 30D Recency calculation for this timeframe
         n_30d = 0
@@ -200,14 +204,6 @@ def run_full_timeframe_discovery(
         }
 
         print(f"    TF: {tf:4s} | Stocks: {syms_evaluated:2d} | Bars: {tf_bars:7d} | Trades: {tf_trades:5d} | WR: {win_rate:4.1f}% | Gross: Rs {tf_gross:+10.0f} | Costs: Rs {tf_costs:9.0f} | Net: Rs {tf_net:+10.0f} | Net PF: {net_pf:.2f} | 30D: {n_30d}T (Rs {net_30d:+,.0f}) | Score: {empirical_score:.4f}")
-
-        # Stage-Gate: If 15m was evaluated first and is unprofitable / has no edge, stop immediately
-        if tf == "15m" and (tf_net <= 0 or net_pf < 1.05 or tf_trades == 0):
-            print(f"\n[!] Stage-Gate Result: 15m performance is negative/unviable (Net Rs {tf_net:+,.0f}, Net PF {net_pf:.2f}).")
-            print("    Skipping remaining timeframes (30m, 5m, 1m) to accelerate research pipeline.")
-            break
-        elif tf == "15m" and len(timeframes) > 1:
-            print(f"\n[+] Stage-Gate Passed on 15m (Net Rs {tf_net:+,.0f}, Net PF {net_pf:.2f}). Escalating to full multi-timeframe discovery...")
 
     best_tf = max(tf_results.keys(), key=lambda k: tf_results[k]["empirical_timeframe_score"])
     print(f"\n[+] Empirical Selection Algorithm Result: Preferred Timeframe = '{best_tf}' (Score: {tf_results[best_tf]['empirical_timeframe_score']:.4f})")
