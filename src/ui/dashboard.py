@@ -445,7 +445,7 @@ def render_alpha_factory(dal: UIDataAccess):
                 """)
 
             st.markdown("##### Quantitative Metrics Breakdown")
-            mc1, mc2, mc3 = st.columns(3)
+            mc1, mc2, mc3, mc4 = st.columns(4)
             with mc1:
                 st.markdown("###### Trade Execution")
                 st.write(f"**Active Timeframe**: `{active_tf}`")
@@ -461,12 +461,18 @@ def render_alpha_factory(dal: UIDataAccess):
                 st.write(f"**Expectancy (per trade)**: `{m.get('expectancy')}`")
                 st.write(f"**Profit Factor**: `{m.get('profit_factor')}`")
             with mc3:
-                st.markdown("###### Risk & Statistical Significance")
+                st.markdown("###### Trailing 30D Recency")
+                st.write(f"**30D Trades**: `{m.get('recent_30d_trades', '-')}`")
+                st.write(f"**30D Win Rate**: `{m.get('recent_30d_win_rate', '-')}`")
+                st.write(f"**30D Net P&L**: `{m.get('recent_30d_net_pnl', '-')}`")
+                st.write(f"**Recency Horizon**: `Rolling 30 Days`")
+            with mc4:
+                st.markdown("###### Risk & Significance")
                 st.write(f"**In-Sample Sharpe**: `{m.get('sharpe')}`")
                 st.write(f"**CPCV OOS Sharpe**: `{m.get('oos_sharpe')}`")
-                st.write(f"**Deflated Sharpe (p-value)**: `{m.get('deflated_sharpe_p_value')}`")
+                st.write(f"**Deflated Sharpe (p)**: `{m.get('deflated_sharpe_p_value')}`")
                 st.write(f"**Monte Carlo 95th DD**: `{m.get('max_drawdown')}`")
-                st.write(f"**Exit Rule**: `Intraday 15:15 Square-off`")
+                st.write(f"**Exit Rule**: `Intraday 15:15`")
 
         with detail_tabs[1]:
             st.markdown("#### Institutional Qualification Gates Audit")

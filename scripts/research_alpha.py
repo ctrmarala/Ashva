@@ -123,6 +123,7 @@ def run_full_timeframe_discovery(
         syms_evaluated = 0
         positive_syms = 0
         all_tf_net_pnls = []
+        all_tf_trade_objs = []
 
         for sym in symbols:
             df = lake.load_bars(sym, tf, max_lookback_days=540)
@@ -143,6 +144,7 @@ def run_full_timeframe_discovery(
             tf_gross += sym_gross
             tf_costs += sym_costs
             tf_net += res.total_net_pnl
+            all_tf_trade_objs.extend(res.trade_list)
 
             for t in res.trade_list:
                 all_tf_net_pnls.append(t.net_pnl)
@@ -162,6 +164,19 @@ def run_full_timeframe_discovery(
         norm_wr = min(1.0, max(0.0, win_rate / 100.0))
         empirical_score = (norm_pf * 0.35) + (norm_wr * 0.25) + (pos_ratio * 0.25) - (friction_ratio * 0.15)
 
+        # Trailing 30D Recency calculation for this timeframe
+        n_30d = 0
+        wr_30d = 0.0
+        net_30d = 0.0
+        if all_tf_trade_objs:
+            max_ts = max(t.entry_time for t in all_tf_trade_objs)
+            cutoff_30d = max_ts - pd.Timedelta(days=30)
+            trades_30d = [t for t in all_tf_trade_objs if t.entry_time >= cutoff_30d]
+            n_30d = len(trades_30d)
+            if n_30d > 0:
+                net_30d = sum(t.net_pnl for t in trades_30d)
+                wr_30d = (sum(1 for t in trades_30d if t.net_pnl > 0) / n_30d) * 100.0
+
         tf_results[tf] = {
             "timeframe": tf,
             "symbols_evaluated": syms_evaluated,
@@ -176,9 +191,12 @@ def run_full_timeframe_discovery(
             "positive_symbols_ratio": round(pos_ratio * 100.0, 1),
             "friction_ratio": round(friction_ratio, 3),
             "empirical_timeframe_score": round(empirical_score, 4),
+            "recent_30d_trades": n_30d,
+            "recent_30d_win_rate": round(wr_30d, 1),
+            "recent_30d_net_pnl": round(net_30d, 2),
         }
 
-        print(f"    TF: {tf:4s} | Stocks: {syms_evaluated:2d} | Bars: {tf_bars:7d} | Trades: {tf_trades:5d} | WR: {win_rate:4.1f}% | Gross: Rs {tf_gross:+10.0f} | Costs: Rs {tf_costs:9.0f} | Net: Rs {tf_net:+10.0f} | Net PF: {net_pf:.2f} | Score: {empirical_score:.4f}")
+        print(f"    TF: {tf:4s} | Stocks: {syms_evaluated:2d} | Bars: {tf_bars:7d} | Trades: {tf_trades:5d} | WR: {win_rate:4.1f}% | Gross: Rs {tf_gross:+10.0f} | Costs: Rs {tf_costs:9.0f} | Net: Rs {tf_net:+10.0f} | Net PF: {net_pf:.2f} | 30D: {n_30d}T (Rs {net_30d:+,.0f}) | Score: {empirical_score:.4f}")
 
         # Stage-Gate: If 15m was evaluated first and is unprofitable / has no edge, stop immediately
         if tf == "15m" and (tf_net <= 0 or net_pf < 1.05 or tf_trades == 0):

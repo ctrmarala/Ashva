@@ -756,6 +756,15 @@ class UIDataAccess:
                 oos_pnl_raw = target_tf_data.get("net_pnl") or getattr(k_rec, "oos_pnl_inr", None) or net_pnl_raw
                 oos_pnl_disp = f"Rs {float(oos_pnl_raw):,.0f}" if oos_pnl_raw is not None else "NOT AVAILABLE"
 
+                # Trailing 30D Recency Metrics
+                trades_30d_raw = target_tf_data.get("recent_30d_trades")
+                wr_30d_raw = target_tf_data.get("recent_30d_win_rate")
+                net_30d_raw = target_tf_data.get("recent_30d_net_pnl")
+
+                trades_30d_disp = f"{int(trades_30d_raw):,}" if trades_30d_raw is not None else "-"
+                wr_30d_disp = f"{float(wr_30d_raw):.1f}%" if wr_30d_raw is not None else "-"
+                net_30d_disp = f"Rs {float(net_30d_raw):+,.0f}" if net_30d_raw is not None else "-"
+
             else:
                 raw_status = "UNTESTED"
                 standard_status = "UNTESTED"
@@ -774,6 +783,9 @@ class UIDataAccess:
                 expectancy_disp = "Rs 0.00"
                 oos_trades_disp = "0"
                 oos_pnl_disp = "Rs 0"
+                trades_30d_disp = "-"
+                wr_30d_disp = "-"
+                net_30d_disp = "-"
 
             rows.append({
                 "alpha_id": strat_key,
@@ -798,6 +810,9 @@ class UIDataAccess:
                 "oos_trades": oos_trades_disp,
                 "oos_pnl": oos_pnl_disp,
                 "oos_sharpe": round(float(oos_sharpe_val), 2) if oos_sharpe_val is not None else "NOT AVAILABLE",
+                "trades_30d": trades_30d_disp,
+                "win_rate_30d": wr_30d_disp,
+                "net_pnl_30d": net_30d_disp,
                 "positive_symbols": ", ".join(pos_syms[:4]) + (f" +{len(pos_syms)-4}" if len(pos_syms) > 4 else "") if pos_syms else "NOT AVAILABLE",
                 "trials_count": trial_counts_by_strat.get(s_id, 0),
                 "last_tested": str(last_tested_val)[:19] if len(str(last_tested_val)) >= 19 else str(last_tested_val),
@@ -962,7 +977,10 @@ class UIDataAccess:
             except Exception as e:
                 print(f"Error querying duckdb symbols audit: {e}")
 
-        # Accounting formula
+        # 30D Recency metrics
+        t_30d_val = target_tf_data.get("recent_30d_trades")
+        wr_30d_val = target_tf_data.get("recent_30d_win_rate")
+        pnl_30d_val = target_tf_data.get("recent_30d_net_pnl")
         expectancy_val = (float(net_pnl_raw) / max(1, trades_count_int)) if trades_count_int > 0 else 0.0
 
         metrics_dict = {
@@ -987,6 +1005,9 @@ class UIDataAccess:
             "largest_win": "NOT IMPLEMENTED",
             "largest_loss": "NOT IMPLEMENTED",
             "avg_holding_time": "NOT IMPLEMENTED (Intraday 15:15 default)",
+            "recent_30d_trades": f"{int(t_30d_val):,}" if t_30d_val is not None else "-",
+            "recent_30d_win_rate": f"{float(wr_30d_val):.1f}%" if wr_30d_val is not None else "-",
+            "recent_30d_net_pnl": f"Rs {float(pnl_30d_val):+,.2f}" if pnl_30d_val is not None else "-",
             "oos_trades": f"{trades_count_int:,}",
             "oos_pnl": f"Rs {float(net_pnl_raw):+,.2f}",
             "oos_sharpe": round(oos_sharpe, 2) if oos_sharpe != 0 else "NOT AVAILABLE",
