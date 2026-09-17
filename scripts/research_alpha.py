@@ -159,10 +159,13 @@ def run_full_timeframe_discovery(
         friction_ratio = tf_costs / max(1.0, abs(tf_gross) + tf_costs)
 
         # Normalized empirical score:
-        # NormPF (0 to 1, capped at PF=2.0) * 0.35 + WinRate (0 to 1) * 0.25 + Breadth (0 to 1) * 0.25 - Friction (0 to 1) * 0.15
-        norm_pf = min(1.0, max(0.0, net_pf / 2.0))
-        norm_wr = min(1.0, max(0.0, win_rate / 100.0))
-        empirical_score = (norm_pf * 0.35) + (norm_wr * 0.25) + (pos_ratio * 0.25) - (friction_ratio * 0.15)
+        # Require sample size >= 25 (Gate 5 requires at least 25 trades for statistical validity)
+        if tf_trades < 25:
+            empirical_score = 0.01 * (tf_trades / 25.0)
+        else:
+            norm_pf = min(1.0, max(0.0, net_pf / 2.0))
+            norm_wr = min(1.0, max(0.0, win_rate / 100.0))
+            empirical_score = (norm_pf * 0.35) + (norm_wr * 0.25) + (pos_ratio * 0.25) - (friction_ratio * 0.15)
 
         # Trailing 30D Recency calculation for this timeframe
         n_30d = 0
