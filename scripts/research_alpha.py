@@ -92,18 +92,24 @@ def run_full_timeframe_discovery(
     lake: DataLake,
     symbols: List[str],
     cost_model: IndianCostModel,
-    timeframes: List[str] = ["30m", "15m", "5m", "1m"]
+    timeframes: Optional[List[str]] = None,
 ) -> Tuple[Dict[str, Any], str]:
     """
-    Evaluates strategy across all symbols for all candidate timeframes.
-    Scores timeframes using normalized empirical scoring and selects the preferred timeframe.
+    Evaluates strategy across all symbols using a 15m Stage-Gate Fast-Fail mechanism.
+    Tests 15m first: if positive, escalates to full multi-timeframe discovery (30m, 5m, 1m).
+    If negative, discards remaining timeframes immediately to accelerate research velocity.
     """
+    if timeframes is None:
+        timeframes = ["15m", "30m", "5m", "1m"]
+    elif "15m" in timeframes:
+        timeframes = ["15m"] + [tf for tf in timeframes if tf != "15m"]
+
     print("\n" + "=" * 80)
-    print("STEP 2: FULL-UNIVERSE TIMEFRAME DISCOVERY (77 Stocks x Multi-Timeframe)")
+    print("STEP 2: FULL-UNIVERSE TIMEFRAME DISCOVERY (15m Stage-Gate)")
     print("=" * 80)
 
     tf_results = {}
-    for tf in timeframes:
+    for idx, tf in enumerate(timeframes):
         print(f"\n[>] Backtesting Full Universe ({len(symbols)} stocks) on Candidate Timeframe: {tf}...")
         strat = strat_cls({"timeframe": tf})
         engine = BacktestEngine(cost_model=cost_model, initial_capital=500000.0, segment=Segment.EQUITY_INTRADAY, use_1m_intrabar=True, data_lake=lake)
@@ -174,6 +180,14 @@ def run_full_timeframe_discovery(
 
         print(f"    TF: {tf:4s} | Stocks: {syms_evaluated:2d} | Bars: {tf_bars:7d} | Trades: {tf_trades:5d} | WR: {win_rate:4.1f}% | Gross: Rs {tf_gross:+10.0f} | Costs: Rs {tf_costs:9.0f} | Net: Rs {tf_net:+10.0f} | Net PF: {net_pf:.2f} | Score: {empirical_score:.4f}")
 
+        # Stage-Gate: If 15m was evaluated first and is unprofitable / has no edge, stop immediately
+        if tf == "15m" and (tf_net <= 0 or net_pf < 1.05 or tf_trades == 0):
+            print(f"\n[!] Stage-Gate Result: 15m performance is negative/unviable (Net Rs {tf_net:+,.0f}, Net PF {net_pf:.2f}).")
+            print("    Skipping remaining timeframes (30m, 5m, 1m) to accelerate research pipeline.")
+            break
+        elif tf == "15m" and len(timeframes) > 1:
+            print(f"\n[+] Stage-Gate Passed on 15m (Net Rs {tf_net:+,.0f}, Net PF {net_pf:.2f}). Escalating to full multi-timeframe discovery...")
+
     best_tf = max(tf_results.keys(), key=lambda k: tf_results[k]["empirical_timeframe_score"])
     print(f"\n[+] Empirical Selection Algorithm Result: Preferred Timeframe = '{best_tf}' (Score: {tf_results[best_tf]['empirical_timeframe_score']:.4f})")
     return tf_results, best_tf
@@ -204,7 +218,7 @@ def research_single_alpha(strat_id: str, lake: DataLake, symbols: List[str], cos
     print("[PASS] PRE-FLIGHT PASSED: Zero lookahead, dynamic universe binding, and parameter grid verified.")
 
     # 2. Full Universe Timeframe Discovery
-    candidate_timeframes = ["30m", "15m", "5m", "1m"]
+    candidate_timeframes = ["15m", "30m", "5m", "1m"]
     tf_results, preferred_tf = run_full_timeframe_discovery(strat_cls, lake, symbols, cost_model, candidate_timeframes)
 
     # 3. Full 77-Stock Panel Backtest on Preferred Timeframe
