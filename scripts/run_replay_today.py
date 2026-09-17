@@ -23,18 +23,20 @@ from src.execution.replay_adapter import ReplayExecutionAdapter
 from src.strategies.registry import get_all_strategies, get_strategy_by_name
 from src.ui.data_access import UIDataAccess
 
+from src.core.universe_manager import get_universe_symbols
+
 parser = argparse.ArgumentParser(description="Ashva Replay Engine Runner")
 parser.add_argument("--start-date", type=str, default="2026-08-15", help="Replay start date (YYYY-MM-DD)")
 parser.add_argument("--end-date", type=str, default="2026-09-16", help="Replay end date (YYYY-MM-DD)")
-parser.add_argument("--universe", type=str, default="ALL_50", help="ALL_50 or NIFTY_14")
+parser.add_argument("--universe", type=str, default="ALL_77", help="ALL_77, ALL, or NIFTY_14")
 args = parser.parse_args()
 
 lake = DataLake(read_only=True)
 cost_model = IndianCostModel(default_slippage_bps=3.0)
 dal = UIDataAccess()
 
-if args.universe == "ALL_50":
-    universe = lake.list_symbols("15m")
+if args.universe in ("ALL_77", "ALL", "ALL_50"):
+    universe = get_universe_symbols()
 else:
     universe = [
         "INFY", "TCS", "ICICIBANK", "HDFCBANK", "SBIN", "AXISBANK",
