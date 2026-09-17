@@ -37,102 +37,128 @@ def parse_args():
     return parser.parse_args()
 
 
-def run_period_backtest():
-    args = parse_args()
-    lake = DataLake(read_only=True)
-    symbols = get_universe_symbols()
-    cost_model = IndianCostModel()
-    
-    strat_cls = get_strategy_by_name(args.alpha_id)
-    if not strat_cls:
-        print(f"[!] Error: Strategy '{args.alpha_id}' not found in registry.")
-        sys.exit(1)
+def evaluate_alpha_period(
+    alpha_id: str,
+    timeframe: str = "15m",
+    start_date: str = "2026-08-15",
+    end_date: str = "2026-09-15",
+    capital: float = 500000.0,
+    allocation: float = 0.25,
+    lake: Optional[DataLake] = None,
+    symbols: Optional[list] = None,
+    cost_model: Optional[IndianCostModel] = None,
+) -> dict:
+    """
+    Core reusable period backtest engine.
+    Calculates exact trade list, win rate, gross, costs, and net PnL for any alpha over an arbitrary date range.
+    """
+    lake = lake or DataLake(read_only=True)
+    symbols = symbols or get_universe_symbols()
+    cost_model = cost_model or IndianCostModel()
 
-    strat = strat_cls({"timeframe": args.timeframe})
+    strat_cls = get_strategy_by_name(alpha_id)
+    if not strat_cls:
+        return {"error": f"Strategy '{alpha_id}' not found in registry.", "trades": 0, "net_pnl": 0.0}
+
+    strat = strat_cls({"timeframe": timeframe})
     engine = BacktestEngine(
         cost_model=cost_model,
-        initial_capital=args.capital,
+        initial_capital=capital,
         segment=Segment.EQUITY_INTRADAY,
         use_1m_intrabar=True,
         data_lake=lake,
     )
 
-    s_ts = pd.to_datetime(f"{args.start} 00:00:00")
-    e_ts = pd.to_datetime(f"{args.end} 23:59:59")
-
-    print("=" * 105)
-    print(f"[*] ASHVA PRECISION PERIOD BACKTEST: {args.alpha_id.upper()} ({args.timeframe.upper()})")
-    print(f"[*] Period: {args.start} to {args.end} | Universe: {len(symbols)} Equities | Capital: Rs {args.capital:,.0f}")
-    print("=" * 105)
+    s_ts = pd.to_datetime(f"{start_date} 00:00:00")
+    e_ts = pd.to_datetime(f"{end_date} 23:59:59")
 
     all_trades = []
-    symbol_trade_count = 0
-
     for sym in symbols:
-        df = lake.load_bars(sym, args.timeframe, max_lookback_days=540)
+        df = lake.load_bars(sym, timeframe, max_lookback_days=540)
         if df.empty or len(df) < 50:
             continue
 
-        # Generate signals on full history to avoid warm-up boundary distortion
         sig_df = strat.generate_signals(df)
-        
-        # Run engine
-        res = engine.run(sig_df, symbol=sym, strategy_id=args.alpha_id, capital_per_trade_pct=args.allocation)
-        
-        # Filter trades strictly within the target date window
+        res = engine.run(sig_df, symbol=sym, strategy_id=alpha_id, capital_per_trade_pct=allocation)
+
         period_trades = [
             t for t in res.trade_list
             if s_ts <= pd.to_datetime(t.entry_time) <= e_ts
         ]
-        
         if period_trades:
             all_trades.extend(period_trades)
-            symbol_trade_count += 1
 
-    # Sort trades chronologically
     all_trades.sort(key=lambda t: t.entry_time)
 
+    total_gross = sum(t.gross_pnl for t in all_trades)
+    total_costs = sum(t.cost_breakdown.total_tax_and_charges for t in all_trades)
+    total_net = sum(t.net_pnl for t in all_trades)
+    wins = sum(1 for t in all_trades if t.net_pnl > 0)
+    win_rate = (wins / max(1, len(all_trades))) * 100.0
+    net_pnls = [t.net_pnl for t in all_trades]
+    net_pf = calculate_profit_factor(net_pnls)
+
+    return {
+        "alpha_id": alpha_id,
+        "timeframe": timeframe,
+        "start_date": start_date,
+        "end_date": end_date,
+        "trades": len(all_trades),
+        "wins": wins,
+        "losses": len(all_trades) - wins,
+        "win_rate_pct": round(win_rate, 1),
+        "gross_pnl": round(total_gross, 2),
+        "total_costs": round(total_costs, 2),
+        "net_pnl": round(total_net, 2),
+        "net_profit_factor": round(net_pf, 2),
+        "net_roi_pct": round((total_net / capital) * 100.0, 2),
+        "trade_list": all_trades,
+    }
+
+
+def run_period_backtest():
+    args = parse_args()
+    print("=" * 105)
+    print(f"[*] ASHVA PRECISION PERIOD BACKTEST: {args.alpha_id.upper()} ({args.timeframe.upper()})")
+    print(f"[*] Period: {args.start} to {args.end} | Capital: Rs {args.capital:,.0f}")
+    print("=" * 105)
+
+    res = evaluate_alpha_period(
+        alpha_id=args.alpha_id,
+        timeframe=args.timeframe,
+        start_date=args.start,
+        end_date=args.end,
+        capital=args.capital,
+        allocation=args.allocation,
+    )
+
+    all_trades = res.get("trade_list", [])
     print(f"\n[+] Total Trades Found in Period ({args.start} to {args.end}): {len(all_trades)}")
     print("-" * 105)
     print(f"{'#':<3} {'Symbol':<12} {'Side':<6} {'Entry Time':<17} {'Exit Time':<17} {'Entry':<9} {'Exit':<9} {'Gross':<10} {'Taxes':<9} {'Net PnL':<10} {'Reason':<11}")
     print("-" * 105)
 
-    total_gross = 0.0
-    total_costs = 0.0
-    total_net = 0.0
-    wins = 0
-
     for idx, t in enumerate(all_trades, 1):
         gross = t.gross_pnl
         costs = t.cost_breakdown.total_tax_and_charges
         net = t.net_pnl
-        total_gross += gross
-        total_costs += costs
-        total_net += net
-        if net > 0:
-            wins += 1
-
         print(
             f"{idx:<3} {t.symbol:<12} {t.side:<6} {str(t.entry_time)[:16]:<17} {str(t.exit_time)[:16]:<17} "
             f"{t.entry_price:<9.2f} {t.exit_price:<9.2f} {gross:+9.2f} {costs:8.2f} {net:+9.2f} {t.exit_reason:<11}"
         )
 
     print("-" * 105)
-    win_rate = (wins / max(1, len(all_trades))) * 100.0
-    net_pnls = [t.net_pnl for t in all_trades]
-    net_pf = calculate_profit_factor(net_pnls)
-
     print("\n" + "=" * 50)
     print("PERIOD PERFORMANCE SUMMARY")
     print("=" * 50)
-    print(f"Total Period Trades:      {len(all_trades)}")
-    print(f"Winning Trades:           {wins} ({win_rate:.1f}%)")
-    print(f"Losing Trades:            {len(all_trades) - wins}")
-    print(f"Gross Trading P&L:        Rs {total_gross:+,.2f}")
-    print(f"Statutory Taxes & Costs:  Rs {total_costs:,.2f}")
-    print(f"Net Realized P&L:         Rs {total_net:+,.2f}")
-    print(f"Net Profit Factor:        {net_pf:.2f}")
-    print(f"Period Net ROI:           {(total_net / args.capital) * 100:+.2f}%")
+    print(f"Total Period Trades:      {res['trades']}")
+    print(f"Winning Trades:           {res['wins']} ({res['win_rate_pct']}%)")
+    print(f"Losing Trades:            {res['losses']}")
+    print(f"Gross Trading P&L:        Rs {res['gross_pnl']:+,.2f}")
+    print(f"Statutory Taxes & Costs:  Rs {res['total_costs']:,.2f}")
+    print(f"Net Realized P&L:         Rs {res['net_pnl']:+,.2f}")
+    print(f"Net Profit Factor:        {res['net_profit_factor']:.2f}")
+    print(f"Period Net ROI:           {res['net_roi_pct']:+.2f}%")
     print("=" * 50)
 
 
