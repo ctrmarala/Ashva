@@ -42,11 +42,28 @@ class RiskManager:
         self.daily_starting_equity = 500000.0
         self.peak_equity = 500000.0
         self.risk_events_log: List[RiskEvent] = []
+        self.symbol_strategy_loss_lockout: set = set()
 
     def set_starting_equity(self, equity: float):
         """Sets the baseline equity for the current trading day."""
         self.daily_starting_equity = equity
         self.peak_equity = max(self.peak_equity, equity)
+
+    def record_trade_result(self, strategy_id: str, symbol: str, net_pnl: float, exit_time: Optional[Any] = None):
+        """
+        Records the outcome of a closed trade.
+        Enforces Strategy-Level One-Strike Loss Lockout:
+        If net_pnl < 0, locks (strategy_id, symbol) for that calendar date.
+        """
+        if net_pnl < 0:
+            if isinstance(exit_time, datetime):
+                trade_date = exit_time.date()
+            elif hasattr(exit_time, "date"):
+                trade_date = exit_time.date()
+            else:
+                trade_date = datetime.now().date()
+            self.symbol_strategy_loss_lockout.add((str(strategy_id).lower(), str(symbol).upper(), trade_date))
+            logger.info(f"[RMS] One-Strike Lockout: Strategy '{strategy_id}' locked out of '{symbol}' on {trade_date} (PnL: Rs {net_pnl:+.2f}).")
 
     def trigger_kill_switch(self, broker_gateway: Optional[Any] = None, reason: str = "MANUAL_EMERGENCY_TRIGGER") -> RiskEvent:
         """
@@ -197,5 +214,12 @@ class RiskManager:
         estimated_order_value = current_price * order.quantity
         if estimated_order_value > self.max_order_value_inr:
             return False, f"New Entry Rejected: Order value (Rs {estimated_order_value:,.2f}) exceeds cap (Rs {self.max_order_value_inr:,.2f})."
+
+        # 6. Strategy-Level One-Strike Loss Lockout Gate
+        check_date = (current_time or datetime.now()).date() if isinstance(current_time, datetime) else datetime.now().date()
+        strat_key = (getattr(order, "strategy_id", "") or "").lower()
+        sym_key = (getattr(order, "symbol", "") or "").upper()
+        if (strat_key, sym_key, check_date) in self.symbol_strategy_loss_lockout:
+            return False, f"New Entry Rejected: Strategy '{strat_key}' is locked out of '{sym_key}' for today ({check_date}) due to prior loss."
 
         return True, None

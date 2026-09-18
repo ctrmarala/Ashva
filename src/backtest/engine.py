@@ -102,12 +102,14 @@ class BacktestEngine:
         use_1m_intrabar: bool = True,
         data_lake: Optional[Any] = None,
         max_volume_participation_pct: float = 0.10,  # Max 10% of execution candle volume
+        one_strike_loss_lockout: bool = True,
     ):
         self.cost_model = cost_model or IndianCostModel()
         self.initial_capital = initial_capital
         self.segment = segment
         self.use_1m_intrabar = use_1m_intrabar
         self.max_volume_participation_pct = max_volume_participation_pct
+        self.one_strike_loss_lockout = one_strike_loss_lockout
         self.intrabar_sim = IntrabarSimulator(data_lake=data_lake) if use_1m_intrabar else None
 
     def run(
@@ -118,6 +120,7 @@ class BacktestEngine:
         capital_per_trade_pct: float = 0.50,
         risk_per_trade_pct: Optional[float] = None,  # e.g., 0.005 for 0.50% account risk per trade
         trailing_mode: str = "NONE",  # "NONE", "BREAK_EVEN", "STEP_RATCHET"
+        one_strike_loss_lockout: Optional[bool] = None,
     ) -> BacktestResult:
         """
         Executes backtest over DataFrame containing 'close', 'signal' (+1, -1, 0),
@@ -146,6 +149,8 @@ class BacktestEngine:
         trades: List[BacktestTrade] = []
         cash = self.initial_capital
         bar_equity = np.full(n_bars, self.initial_capital, dtype=np.float64)
+        enforce_lockout = self.one_strike_loss_lockout if one_strike_loss_lockout is None else one_strike_loss_lockout
+        locked_dates = set()
 
         in_position = False
         position_side = None
@@ -297,6 +302,9 @@ class BacktestEngine:
                         )
                     )
                     trade_id += 1
+                    if cost_breakdown.net_pnl < 0 or is_sl:
+                        locked_dates.add(indices[entry_idx].date())
+                        locked_dates.add(next_time.date())
                     in_position = False
                     position_side = None
 
@@ -305,45 +313,49 @@ class BacktestEngine:
 
             # 2. Evaluate Signal Changes for Next-Bar Open Execution
             if not in_position and curr_signal != 0.0:
-                in_position = True
-                position_side = "LONG" if curr_signal > 0 else "SHORT"
-                entry_idx = i + 1
-                entry_price = next_open
-                current_sl = stop_losses[i] if has_stops else 0.0
-                initial_sl = current_sl
-                current_tp = take_profits[i] if has_stops else 0.0
-
-                if has_rationales and rationale_col is not None:
-                    rat_val = str(df[rationale_col].iloc[i])
-                    current_entry_rationale = rat_val if rat_val and rat_val != "nan" else f"{strategy_id} {position_side} Trigger @ {indices[entry_idx]}"
+                entry_date = next_time.date()
+                if enforce_lockout and entry_date in locked_dates:
+                    curr_signal = 0.0
                 else:
-                    current_entry_rationale = f"{strategy_id} {position_side} Trigger @ {indices[entry_idx]}"
+                    in_position = True
+                    position_side = "LONG" if curr_signal > 0 else "SHORT"
+                    entry_idx = i + 1
+                    entry_price = next_open
+                    current_sl = stop_losses[i] if has_stops else 0.0
+                    initial_sl = current_sl
+                    current_tp = take_profits[i] if has_stops else 0.0
 
-                # Risk-Based Sizing vs Capital-Percentage Sizing
-                if risk_per_trade_pct is not None and current_sl > 0:
-                    stop_dist = abs(entry_price - current_sl)
-                    if stop_dist > 0.05:
-                        risk_amt = cash * risk_per_trade_pct
-                        risk_qty = int(risk_amt / stop_dist)
-                        max_cap_qty = int((cash * capital_per_trade_pct) / entry_price)
-                        entry_qty = min(risk_qty, max_cap_qty)
+                    if has_rationales and rationale_col is not None:
+                        rat_val = str(df[rationale_col].iloc[i])
+                        current_entry_rationale = rat_val if rat_val and rat_val != "nan" else f"{strategy_id} {position_side} Trigger @ {indices[entry_idx]}"
                     else:
-                        entry_qty = int((cash * capital_per_trade_pct) / entry_price)
-                else:
-                    allocated_capital = cash * capital_per_trade_pct
-                    entry_qty = int(allocated_capital / entry_price)
+                        current_entry_rationale = f"{strategy_id} {position_side} Trigger @ {indices[entry_idx]}"
 
-                # Liquidity Capacity Participation Cap (Max 10% of execution bar volume)
-                if "volume" in df.columns:
-                    bar_vol = float(df["volume"].iloc[entry_idx])
-                    max_liq_qty = max(1, int(bar_vol * self.max_volume_participation_pct))
-                    entry_qty = min(entry_qty, max_liq_qty)
+                    # Risk-Based Sizing vs Capital-Percentage Sizing
+                    if risk_per_trade_pct is not None and current_sl > 0:
+                        stop_dist = abs(entry_price - current_sl)
+                        if stop_dist > 0.05:
+                            risk_amt = cash * risk_per_trade_pct
+                            risk_qty = int(risk_amt / stop_dist)
+                            max_cap_qty = int((cash * capital_per_trade_pct) / entry_price)
+                            entry_qty = min(risk_qty, max_cap_qty)
+                        else:
+                            entry_qty = int((cash * capital_per_trade_pct) / entry_price)
+                    else:
+                        allocated_capital = cash * capital_per_trade_pct
+                        entry_qty = int(allocated_capital / entry_price)
 
-                # Institutional zero-risk budget policy: If risk size < 1 share -> NO TRADE
-                if entry_qty < 1:
-                    in_position = False
-                    position_side = None
-                    continue
+                    # Liquidity Capacity Participation Cap (Max 10% of execution bar volume)
+                    if "volume" in df.columns:
+                        bar_vol = float(df["volume"].iloc[entry_idx])
+                        max_liq_qty = max(1, int(bar_vol * self.max_volume_participation_pct))
+                        entry_qty = min(entry_qty, max_liq_qty)
+
+                    # Institutional zero-risk budget policy: If risk size < 1 share -> NO TRADE
+                    if entry_qty < 1:
+                        in_position = False
+                        position_side = None
+                        continue
 
             elif in_position and (
                 curr_signal == 0.0
@@ -367,6 +379,10 @@ class BacktestEngine:
                 )
                 cash += cost_breakdown.net_pnl
                 bar_equity[i + 1] = cash
+
+                if cost_breakdown.net_pnl < 0:
+                    locked_dates.add(indices[entry_idx].date())
+                    locked_dates.add(next_time.date())
 
                 # Compute MFE and MAE
                 trade_highs = highs[entry_idx : i + 2]
@@ -410,31 +426,36 @@ class BacktestEngine:
                 trade_id += 1
 
                 if curr_signal != 0.0:
-                    position_side = "LONG" if curr_signal > 0 else "SHORT"
-                    entry_idx = i + 1
-                    entry_price = next_open
-                    current_sl = stop_losses[i] if has_stops else 0.0
-                    initial_sl = current_sl
-                    current_tp = take_profits[i] if has_stops else 0.0
-
-                    if has_rationales and rationale_col is not None:
-                        rat_val = str(df[rationale_col].iloc[i])
-                        current_entry_rationale = rat_val if rat_val and rat_val != "nan" else f"{strategy_id} {position_side} Trigger @ {indices[entry_idx]}"
+                    entry_date = next_time.date()
+                    if enforce_lockout and entry_date in locked_dates:
+                        in_position = False
+                        position_side = None
                     else:
-                        current_entry_rationale = f"{strategy_id} {position_side} Trigger @ {indices[entry_idx]}"
+                        position_side = "LONG" if curr_signal > 0 else "SHORT"
+                        entry_idx = i + 1
+                        entry_price = next_open
+                        current_sl = stop_losses[i] if has_stops else 0.0
+                        initial_sl = current_sl
+                        current_tp = take_profits[i] if has_stops else 0.0
 
-                    if risk_per_trade_pct is not None and current_sl > 0:
-                        stop_dist = abs(entry_price - current_sl)
-                        if stop_dist > 0.05:
-                            risk_amt = cash * risk_per_trade_pct
-                            risk_qty = int(risk_amt / stop_dist)
-                            max_cap_qty = int((cash * capital_per_trade_pct) / entry_price)
-                            entry_qty = max(1, min(risk_qty, max_cap_qty))
+                        if has_rationales and rationale_col is not None:
+                            rat_val = str(df[rationale_col].iloc[i])
+                            current_entry_rationale = rat_val if rat_val and rat_val != "nan" else f"{strategy_id} {position_side} Trigger @ {indices[entry_idx]}"
                         else:
-                            entry_qty = max(1, int((cash * capital_per_trade_pct) / entry_price))
-                    else:
-                        allocated_capital = cash * capital_per_trade_pct
-                        entry_qty = max(1, int(allocated_capital / entry_price))
+                            current_entry_rationale = f"{strategy_id} {position_side} Trigger @ {indices[entry_idx]}"
+
+                        if risk_per_trade_pct is not None and current_sl > 0:
+                            stop_dist = abs(entry_price - current_sl)
+                            if stop_dist > 0.05:
+                                risk_amt = cash * risk_per_trade_pct
+                                risk_qty = int(risk_amt / stop_dist)
+                                max_cap_qty = int((cash * capital_per_trade_pct) / entry_price)
+                                entry_qty = max(1, min(risk_qty, max_cap_qty))
+                            else:
+                                entry_qty = max(1, int((cash * capital_per_trade_pct) / entry_price))
+                        else:
+                            allocated_capital = cash * capital_per_trade_pct
+                            entry_qty = max(1, int(allocated_capital / entry_price))
 
                     # Liquidity Capacity Participation Cap (Max 10% of execution bar volume)
                     if "volume" in df.columns:
