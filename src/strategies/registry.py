@@ -67,15 +67,37 @@ def get_all_strategies(reload: bool = False) -> Dict[str, Type[Any]]:
 
 def get_strategy_by_name(name: str) -> Optional[Type[Any]]:
     """
-    Retrieves a strategy class by its exact strategy_id, class name, or case-insensitive match.
+    Retrieves a strategy class by its exact strategy_id, class name, or case-insensitive match,
+    including flexible aliases like alpha_105, 105_alpha, 105, etc.
     """
     strats = get_all_strategies()
     if name in strats:
         return strats[name]
 
     # Check class names or case-insensitive keys
+    name_clean = str(name).strip().lower().replace("-", "_")
     for k, cls in strats.items():
-        if k.lower() == name.lower() or cls.__name__.lower() == name.lower():
+        k_clean = str(k).strip().lower().replace("-", "_")
+        cls_clean = cls.__name__.lower().replace("-", "_")
+        if k_clean == name_clean or cls_clean == name_clean:
             return cls
 
+    # Check prefix/suffix permutations: 'alpha_105' <-> '105_alpha' <-> '105'
+    num_part = "".join(filter(str.isdigit, name))
+    if num_part:
+        alias_candidates = [
+            f"{num_part}_alpha",
+            f"alpha_{num_part}",
+            f"alpha_{int(num_part):03d}",
+            f"{int(num_part):03d}_alpha",
+            f"alpha{num_part}",
+        ]
+        for cand in alias_candidates:
+            if cand in strats:
+                return strats[cand]
+            for k, cls in strats.items():
+                if k.lower() == cand.lower() or cls.__name__.lower() == cand.lower():
+                    return cls
+
     return None
+
