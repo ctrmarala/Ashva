@@ -234,8 +234,8 @@ def research_single_alpha(strat_id: str, lake: DataLake, symbols: List[str], cos
         raise AlphaLinterError("Strategy failed pre-flight linter check.")
     print("[PASS] PRE-FLIGHT PASSED: Zero lookahead, dynamic universe binding, and parameter grid verified.")
 
-    # 2. Full Universe Timeframe Discovery
-    candidate_timeframes = ["15m", "30m", "5m", "1m"]
+    # 2. Full Universe Timeframe Discovery (Strictly Institutional Timeframes: 15m, 30m, and selective 5m)
+    candidate_timeframes = ["15m", "30m", "5m"]
     tf_results, preferred_tf = run_full_timeframe_discovery(strat_cls, lake, symbols, cost_model, candidate_timeframes)
 
     # 3. Full 77-Stock Panel Backtest on Preferred Timeframe
