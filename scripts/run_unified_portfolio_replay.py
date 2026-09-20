@@ -1,4 +1,4 @@
-﻿"""
+"""
 Ashva Configurable Unified Shared-Capital Multi-Alpha Portfolio Replay Runner
 
 Executes full multi-alpha replay over a shared cash pool with configurable:
@@ -49,7 +49,7 @@ def parse_args():
 
 
 def extract_candidate_trades(lake: DataLake, symbols: list, alpha_ids: list, dal: UIDataAccess) -> list:
-    """Extracts raw candidate trade signals across selected alphas and symbols."""
+    """Extracts raw candidate trade signals across selected alphas and symbols with in-memory DF caching."""
     cost_model = IndianCostModel(default_slippage_bps=3.0)
     engine = BacktestEngine(
         cost_model=cost_model,
@@ -60,7 +60,10 @@ def extract_candidate_trades(lake: DataLake, symbols: list, alpha_ids: list, dal
     )
 
     all_candidates = []
-    print(f"[*] Extracting candidate signals for {len(alpha_ids)} alphas across {len(symbols)} symbols...")
+    print(f"[*] Extracting candidate signals for {len(alpha_ids)} alphas across {len(symbols)} symbols...", flush=True)
+
+    # Pre-cache symbol dataframes by timeframe
+    df_cache = {}
 
     for idx, alpha_id in enumerate(alpha_ids, 1):
         strat_cls = get_strategy_by_name(alpha_id)
@@ -73,7 +76,11 @@ def extract_candidate_trades(lake: DataLake, symbols: list, alpha_ids: list, dal
 
         alpha_trade_count = 0
         for sym in symbols:
-            df = lake.load_bars(sym, optimal_tf, max_lookback_days=540)
+            cache_key = (sym, optimal_tf)
+            if cache_key not in df_cache:
+                df_cache[cache_key] = lake.load_bars(sym, optimal_tf, max_lookback_days=540)
+            df = df_cache[cache_key]
+
             if df.empty or len(df) < 50:
                 continue
 
@@ -93,9 +100,9 @@ def extract_candidate_trades(lake: DataLake, symbols: list, alpha_ids: list, dal
                 })
                 alpha_trade_count += 1
 
-        print(f"  [{idx:02d}/{len(alpha_ids):02d}] {alpha_id:<12} ({optimal_tf:>3}): {alpha_trade_count:4d} signals")
+        print(f"  [{idx:02d}/{len(alpha_ids):02d}] {alpha_id:<12} ({optimal_tf:>3}): {alpha_trade_count:4d} signals", flush=True)
 
-    print(f"[+] Total raw candidate signals extracted: {len(all_candidates):,}\n")
+    print(f"[+] Total raw candidate signals extracted: {len(all_candidates):,}\n", flush=True)
     return all_candidates
 
 
